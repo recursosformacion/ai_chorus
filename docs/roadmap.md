@@ -1,18 +1,19 @@
 # Roadmap de Chorus
 
-El desarrollo se organiza por entregas verticales. Chorus es una aplicación independiente de OSAP y debe disponer de su propia base de datos y almacenamiento desde el principio.
+Chorus es una aplicación independiente de OSAP, con base de datos y almacenamiento propios. Para sus obras propias utilizará el modelo y formato V6 de osap-storage; no desarrollará un formato paralelo.
 
 ## Fase 0 — Fundamentos
 
 - [x] Definir propósito y principios.
 - [x] Establecer la separación entre Chorus y OSAP.
-- [ ] Especificar el formato versionado de ficheros musicales propio de Chorus.
-- [ ] Definir el esquema inicial de Chorus DB y la relación con los ficheros.
+- [ ] Revisar el esquema, los contratos y las restricciones V6 de osap-storage.
+- [ ] Definir cómo se implementará ese modelo V6 en la base de datos propia de Chorus.
+- [ ] Definir la persistencia de ficheros V6 en el almacenamiento propio de Chorus.
 - [ ] Revisar contratos reales de autenticación y lectura de OSAP.
 - [ ] Elegir stack y preparar configuración propia (`osap.toml`).
-- [ ] Preparar pruebas de persistencia, integridad y recuperación.
+- [ ] Preparar pruebas de integridad, versiones, checksums y recuperación.
 
-Criterio de salida: formato y modelo de datos definidos; aplicación conectable a osap-auth y capaz de consultar OSAP en modo lectura.
+Criterio de salida: Chorus puede persistir obras propias con el formato/modelo V6 y consultar OSAP en modo lectura.
 
 ## Fase 1 — Escritorio y biblioteca personal
 
@@ -21,25 +22,23 @@ Criterio de salida: formato y modelo de datos definidos; aplicación conectable 
 - [ ] Escritorio y biblioteca.
 - [ ] Buscar y leer Works/Resources de OSAP.
 - [ ] Guardar referencias externas OSAP sin duplicar sus contenidos.
-- [ ] Crear obras propias en Chorus.
-- [ ] Guardar obras propias como ficheros en el nuevo formato.
-- [ ] Registrar metadatos, índices, versiones y checksums en Chorus DB.
+- [ ] Crear obras propias usando Work/Resource/File V6.
+- [ ] Guardar ficheros con el formato V6 en la persistencia propia.
+- [ ] Registrar metadatos, índices, versiones y relaciones en Chorus DB.
 - [ ] Colecciones personales.
 
-Criterio de salida: un usuario puede consultar OSAP y, de forma independiente, crear y organizar sus propias obras en Chorus.
+Criterio de salida: un usuario puede consultar OSAP y, de forma independiente, crear y organizar sus propias obras en Chorus usando V6.
 
 ## Fase 2 — Herramientas musicales
 
-- [ ] Integrar Muse-encore con los ficheros propios de Chorus.
+- [ ] Integrar Muse-encore con los ficheros V6 propios de Chorus.
 - [ ] Crear y recuperar revisiones sin sobrescribir versiones anteriores.
 - [ ] Integrar Chorus Study Generator como módulo de Chorus.
 - [ ] Adaptar la entrada del generador desde una obra propia o una partitura OSAP autorizada.
-- [ ] Guardar materiales generados en Chorus File Store y sus metadatos en Chorus DB.
-- [ ] Exportar/importar los formatos musicales definidos.
+- [ ] Guardar materiales generados en la persistencia propia de Chorus, respetando V6.
+- [ ] Importar y exportar los formatos admitidos por V6.
 
-El generador existente se conserva y adapta; no se convierte en una aplicación separada ni se posterga como un producto de IA independiente.
-
-Criterio de salida: el usuario puede escribir/editar música y generar materiales de estudio dentro del mismo espacio Chorus.
+El generador existente se conserva y adapta; no se convierte en una aplicación separada ni se posterga como un producto independiente.
 
 ## Fase 3 — Compartir y publicar (posterior)
 
@@ -69,5 +68,5 @@ La publicación no forma parte del flujo inicial de lectura y no sobrescribe con
 - Ningún test fallido se acepta como estado terminado.
 - No escribir en bases de datos de producción OSAP durante esta etapa.
 - Pruebas de contrato para los servicios externos.
-- Pruebas de integridad entre registros de Chorus DB y ficheros.
+- Pruebas de integridad entre registros y ficheros.
 - Cada fase debe dejar una aplicación ejecutable y documentada.
