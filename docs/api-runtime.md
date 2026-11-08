@@ -13,7 +13,7 @@ La API inicializa las migraciones SQLite locales al arrancar. El almacenamiento 
 
 ## Endpoints
 
-- POST /api/v1/auth/login: proxy backend a osap-auth con audiencia Chorus; refresh en cookie HttpOnly.
+- POST /api/v1/auth/login: proxy backend a osap-auth; valida el access token consultando /auth/me y guarda el refresh en cookie HttpOnly.
 - POST /api/v1/auth/refresh: rotación de refresh.
 - GET /api/v1/auth/me y GET /api/v1/auth/legal/current: perfil y versiones legales.
 - POST /api/v1/auth/onboarding: completa nickname y aceptación legal en osap-auth.
