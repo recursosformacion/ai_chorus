@@ -13,8 +13,8 @@ Chorus es una aplicación independiente de OSAP, con base de datos y almacenamie
 - [x] Definir el flujo API de CreationDraft previo a la primera Work V6.
 - [x] Añadir persistencia SQLite de borradores y tokens temporales del editor.
 - [x] Definir el contrato API para búsqueda OSAP, selección de original, apertura de MuseEncore y carga MXL.
-- [x] Añadir pruebas de integridad para borradores; ejecución CI pendiente.
-- [ ] Implementar los endpoints reales de Chorus API y sus adaptadores OSAP/OIDC.
+- [x] Añadir pruebas de integridad para borradores; 12 pruebas V6 + borradores superadas en GitHub Actions.
+- [ ] Implementar los endpoints reales de Chorus API y sus adaptadores OSAP/OIDC (el contrato está especificado; aún no hay servidor API ejecutable).
 - [ ] Definir la persistencia de ficheros V6 en el almacenamiento propio de Chorus.
 - [ ] Revisar contratos reales de autenticación y lectura de OSAP.
 - [ ] Preparar configuración propia (osap.toml).
