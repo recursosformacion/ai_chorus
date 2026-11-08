@@ -17,6 +17,7 @@ class Settings:
     osap_api_base_url: str = ""
     editor_base_url: str = ""
     editor_origin: str = ""
+    public_base_url: str = ""
     database_path: str = "var/chorus.sqlite3"
     storage_root: str = "var/private"
     cors_origins: tuple[str, ...] = ()
@@ -45,10 +46,12 @@ class Settings:
         if not editor_origin and editor_url:
             parsed = urlparse(editor_url)
             editor_origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
-        cors_raw = value("CHORUS_CORS_ORIGINS", app, "cors_origins")
-        cors = tuple(x.strip().rstrip("/") for x in cors_raw.split(",") if x.strip())
-        if not cors and isinstance(app.get("cors_origins"), list):
-            cors = tuple(str(x).rstrip("/") for x in app["cors_origins"])
+        cors_env = os.getenv("CHORUS_CORS_ORIGINS")
+        if cors_env is not None:
+            cors = tuple(x.strip().rstrip("/") for x in cors_env.split(",") if x.strip())
+        else:
+            raw_origins = app.get("cors_origins", [])
+            cors = tuple(str(x).rstrip("/") for x in raw_origins) if isinstance(raw_origins, list) else ()
         jwks = value("CHORUS_AUTH_JWKS_URL", auth, "jwks_url")
         if not jwks and auth_base:
             jwks = f"{auth_base}/auth/.well-known/jwks.json"
@@ -60,6 +63,7 @@ class Settings:
             osap_api_base_url=value("CHORUS_OSAP_API_BASE_URL", osap, "api_base_url").rstrip("/"),
             editor_base_url=editor_url,
             editor_origin=editor_origin,
+            public_base_url=value("CHORUS_PUBLIC_BASE_URL", app, "public_base_url").rstrip("/"),
             database_path=value("CHORUS_DATABASE_PATH", storage, "database_path", "var/chorus.sqlite3"),
             storage_root=value("CHORUS_STORAGE_ROOT", storage, "root", "var/private"),
             cors_origins=cors,
