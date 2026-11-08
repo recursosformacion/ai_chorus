@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.config import Settings
-from app.security import Principal, TokenVerifier
+from app.security import Principal
 
 
 SUPPORTED_SOURCE_SUFFIXES = {
@@ -160,7 +160,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="Chorus API", version="0.1.0", lifespan=lifespan)
-    verifier = TokenVerifier(cfg)
 
     origins = list(cfg.cors_origins)
     if cfg.editor_origin and cfg.editor_origin not in origins:
@@ -172,27 +171,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["Authorization", "Content-Type"],
         )
 
-    def principal_from_authorization(authorization: str | None) -> Principal:
+    def profile_from_authorization(authorization: str | None) -> dict[str, Any]:
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="Authentication required")
-        return verifier.verify(authorization[7:].strip())
+        token = authorization[7:].strip()
+        status_code, profile = auth_call("GET", "/auth/me", token=token)
+        if status_code != 200 or not isinstance(profile, dict):
+            raise HTTPException(
+                status_code=401 if status_code in (400, 401, 403) else 502,
+                detail="osap-auth could not validate the user session",
+            )
+        return profile
+
+    def principal_from_profile(profile: dict[str, Any]) -> Principal:
+        user_id = profile.get("user_id")
+        if not isinstance(user_id, str) or not user_id:
+            raise HTTPException(status_code=401, detail="Identity profile has no user_id")
+        roles = profile.get("roles")
+        return Principal(
+            sub=user_id,
+            roles=tuple(str(role) for role in roles) if isinstance(roles, list) else (),
+            email_verified=profile.get("email_verified") is True,
+        )
+
+    def principal_from_authorization(authorization: str | None) -> Principal:
+        return principal_from_profile(profile_from_authorization(authorization))
 
     def principal_dependency(authorization: str | None = Header(default=None)) -> Principal:
         return principal_from_authorization(authorization)
 
     def current_user(authorization: str | None = Header(default=None)) -> Principal:
-        principal = principal_from_authorization(authorization)
-        token = authorization[7:].strip() if authorization else ""
-        status_code, profile = auth_call("GET", "/auth/me", token=token)
-        if status_code != 200 or not isinstance(profile, dict):
-            raise HTTPException(status_code=401, detail="Unable to confirm account status")
+        profile = profile_from_authorization(authorization)
         onboarding = profile.get("onboarding")
         if isinstance(onboarding, dict) and onboarding.get("required") is True:
             raise HTTPException(
                 status_code=403,
                 detail={"code": "ONBOARDING_REQUIRED", "onboarding": onboarding},
             )
-        return principal
+        return principal_from_profile(profile)
 
     def auth_call(method: str, path: str, *, payload: dict[str, Any] | None = None,
                   token: str | None = None) -> tuple[int, Any]:
@@ -256,7 +272,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def login(body: LoginBody, response: Response) -> dict[str, Any]:
         status_code, doc = auth_call(
             "POST", "/auth/login",
-            payload={"email": body.email, "password": body.password, "audience": cfg.auth_audience},
+            payload={"email": body.email, "password": body.password},
         )
         if status_code != 200 or not isinstance(doc, dict) or not doc.get("access_token") or not doc.get("refresh_token"):
             raise HTTPException(status_code=status_code if status_code in (400, 401, 422, 429) else 502,
@@ -279,7 +295,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="Refresh session missing")
         status_code, doc = auth_call(
             "POST", "/auth/refresh",
-            payload={"refresh_token": refresh_token, "audience": cfg.auth_audience},
+            payload={"refresh_token": refresh_token},
         )
         if status_code != 200 or not isinstance(doc, dict) or not doc.get("access_token") or not doc.get("refresh_token"):
             response.delete_cookie("chorus_refresh", path="/api/v1/auth")
@@ -288,16 +304,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "chorus_refresh", str(doc["refresh_token"]), httponly=True, secure=cfg.secure_cookies,
             samesite="lax", path="/api/v1/auth", max_age=30 * 24 * 60 * 60,
         )
-        return {k: doc[k] for k in ("access_token", "user_id", "roles", "email_verified") if k in doc}
+        profile_status, profile = auth_call("GET", "/auth/me", token=str(doc["access_token"]))
+        if profile_status != 200 or not isinstance(profile, dict):
+            response.delete_cookie("chorus_refresh", path="/api/v1/auth")
+            raise HTTPException(status_code=401, detail="Session could not be validated")
+        result = {k: doc[k] for k in ("access_token", "user_id", "roles", "email_verified") if k in doc}
+        result["onboarding"] = profile.get("onboarding")
+        return result
 
     @app.get("/api/v1/auth/me")
     def me(authorization: str | None = Header(default=None)) -> Any:
-        principal_from_authorization(authorization)
-        token = authorization[7:].strip() if authorization else ""
-        status_code, profile = auth_call("GET", "/auth/me", token=token)
-        if status_code != 200:
-            raise HTTPException(status_code=401, detail="Account profile unavailable")
-        return profile
+        return profile_from_authorization(authorization)
 
     @app.get("/api/v1/auth/legal/current")
     def legal_current() -> Any:
