@@ -42,6 +42,7 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 - [Modelo de dominio](docs/domain-model.md)
 - [Roadmap](docs/roadmap.md)
 - [Decisiones de diseño](docs/decisions.md)
+- [Esquema piloto V6 y pruebas de integridad](docs/v6-pilot-schema.md)
 - [Módulo de estudio coral](docs/study-module.md)
 - [Auditoría de la implementación anterior](docs/existing-implementation-assessment.md)
 - [Revisión técnica del ScoreContract](docs/score-contract-review.md)
@@ -50,4 +51,4 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 
 ## Estado
 
-Proyecto en fase de definición y construcción de fundamentos. Antes de implementar la persistencia se debe contrastar el esquema y los contratos V6 concretos de osap-storage para reutilizarlos fielmente en la base de datos propia de Chorus.
+El primer esquema piloto Work/Resource/File está implementado en SQLite como banco de pruebas y sus seis pruebas de integridad pasan en GitHub Actions. No es todavía la persistencia de producción: faltan elegir el motor definitivo, cerrar el contrato V6 completo y definir el almacenamiento físico, las revisiones y el espacio personal.
