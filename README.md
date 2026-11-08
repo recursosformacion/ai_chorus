@@ -31,6 +31,7 @@ Los grupos, contactos, distribución y agenda se desarrollarán después, sobre 
 - [Roadmap](docs/roadmap.md)
 - [Decisiones de diseño](docs/decisions.md)
 - [Auditoría de la implementación anterior](docs/existing-implementation-assessment.md)
+- [Revisión técnica del ScoreContract](docs/score-contract-review.md)
 
 ## Estado
 
