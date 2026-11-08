@@ -181,6 +181,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=401 if status_code in (400, 401, 403) else 502,
                 detail="osap-auth could not validate the user session",
             )
+        if profile.get("status") in {"disabled", "deleted"}:
+            raise HTTPException(status_code=403, detail="Account is not active")
         return profile
 
     def principal_from_profile(profile: dict[str, Any]) -> Principal:
@@ -404,6 +406,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         content_type = downloaded.headers.get("content-type", "").split(";", 1)[0].lower()
         if not raw or content_type in {"text/html", "application/xhtml+xml"} or suffix not in SUPPORTED_SOURCE_SUFFIXES:
             raise HTTPException(status_code=422, detail="OSAP source is unavailable or not importable by MuseEncore")
+        if suffix == ".mxl":
+            try:
+                validate_mxl(raw, filename)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="OSAP MXL source is invalid") from exc
         pointer = _save_private(cfg, raw, suffix)
         sha = hashlib.sha256(raw).hexdigest()
         now = utcnow()
