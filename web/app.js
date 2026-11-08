@@ -113,13 +113,38 @@
       list.append(card);
     });
   }
+  async function waitForCatalogSearch(initial) {
+    let data = unwrap(initial);
+    if (!data || typeof data !== "object" || !data.search_id) return initial;
+    if (data.status === "done") return initial;
+    if (data.status === "error") throw new Error(data.error || data.message || "OSAP no pudo completar la búsqueda.");
+    if (data.status !== "running") return initial;
+
+    const searchId = String(data.search_id);
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      const response = await request("/api/v1/catalog/searches/" + encodeURIComponent(searchId));
+      data = unwrap(response);
+      if (data && data.status === "done") return response;
+      if (data && data.status === "error") {
+        throw new Error(data.error || data.message || "OSAP no pudo completar la búsqueda.");
+      }
+      if (!data || data.status !== "running") return response;
+      const progress = Number.isFinite(Number(data.progress)) ? Math.max(0, Math.min(100, Number(data.progress))) : null;
+      showMessage("search-message", progress === null
+        ? "OSAP está realizando la búsqueda…"
+        : "OSAP está realizando la búsqueda… " + progress + "%");
+    }
+    throw new Error("La búsqueda de OSAP sigue en curso. Vuelve a consultar en unos instantes.");
+  }
   async function searchCatalog(query, button) {
     setBusy(button,true,"Buscando…");
     showMessage("search-message","Consultando el catálogo OSAP…");
     $("results-section").classList.remove("hidden");
     $("results-list").replaceChildren();
     try {
-      const data = await request("/api/v1/catalog/searches",{method:"POST",body:JSON.stringify({query,limit:20,page:1})});
+      const initial = await request("/api/v1/catalog/searches",{method:"POST",body:JSON.stringify({query,limit:20,page:1})});
+      const data = await waitForCatalogSearch(initial);
       renderResults(data);
       showMessage("search-message","Búsqueda completada.","success");
     } catch (error) { showMessage("search-message",error.message,"error"); }
