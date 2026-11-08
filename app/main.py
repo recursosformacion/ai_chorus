@@ -177,6 +177,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="Authentication required")
         return verifier.verify(authorization[7:].strip())
 
+    def principal_dependency(authorization: str | None = Header(default=None)) -> Principal:
+        return principal_from_authorization(authorization)
+
     def current_user(authorization: str | None = Header(default=None)) -> Principal:
         principal = principal_from_authorization(authorization)
         token = authorization[7:].strip() if authorization else ""
@@ -320,7 +323,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return document
 
     @app.post("/api/v1/auth/logout", status_code=204)
-    def logout(response: Response, user: Principal = Depends(principal_from_authorization),
+    def logout(response: Response, user: Principal = Depends(principal_dependency),
                authorization: str | None = Header(default=None)) -> Response:
         token = authorization[7:].strip() if authorization else ""
         auth_call("POST", "/auth/logout", token=token)
