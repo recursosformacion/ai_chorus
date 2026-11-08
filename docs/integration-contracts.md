@@ -70,3 +70,19 @@ Es un flujo conceptual; no fija rutas, scopes ni payloads que todavía no hayan 
 - [ ] Diseñar publicación/exportación a OSAP en una fase posterior.
 
 No se codifican URLs, scopes, campos ni payloads supuestos.
+
+
+## 7. Creación desde OSAP o desde una partitura nueva
+
+El flujo funcional y los endpoints de Chorus están especificados en [work-creation-api.md](work-creation-api.md). Los contratos OSAP observados en el código actual son:
+
+- `POST /api/v1/searches` y `GET /api/v1/searches/{search_id}`;
+- `GET /api/v1/representations/{representation_id}`;
+- `GET /api/v1/representations/{representation_id}/download`;
+- `GET /api/v1/works/public/{work_id}`.
+
+El usuario puede elegir una representación OSAP compatible con MuseEncore o iniciar una partitura en blanco. La descarga se realiza desde Chorus hacia OSAP por API, y el original nunca se modifica.
+
+MuseEncore admite la apertura por URL con `?url=...` y exporta MusicXML comprimido `.mxl`. No se ha encontrado un callback/API pública para exportar directamente al servidor Chorus. Por eso la primera integración requiere que el usuario descargue el `.mxl` exportado y lo cargue mediante la API Chorus. No se modifica el repositorio MuseEncore.
+
+La migración `migrations/sqlite/002_creation_drafts.sql` mantiene los borradores y tokens temporales fuera de las entidades V6. Las seis pruebas de borradores, junto con las seis de cardinalidad V6, pasan en GitHub Actions (12 passed).
