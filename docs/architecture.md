@@ -2,22 +2,25 @@
 
 ## 1. Contexto y límites
 
-Chorus es una aplicación independiente, con interfaz y experiencia propias. OSAP aporta el catálogo musical, la identidad y los servicios de almacenamiento; Chorus aporta el espacio de trabajo personal y las herramientas de colaboración.
+Chorus es una aplicación independiente de OSAP, con interfaz, API, base de datos y almacenamiento propios. No es una sección de la interfaz OSAP ni una aplicación que comparta su base de datos.
 
-La aplicación no debe incrustarse como una sección de la interfaz web de OSAP ni depender de sus pantallas. La integración se realiza mediante APIs y contratos explícitos.
+OSAP aporta, en esta primera etapa, el catálogo compartido que Chorus puede buscar, consultar y leer. Chorus aporta el espacio de trabajo personal, los ficheros de las obras propias y las herramientas musicales.
 
 ### Responsabilidades
 
 | Sistema | Responsabilidad |
 |---|---|
-| Chorus | Escritorio, biblioteca personal, colecciones, repertorios, borradores, contactos, grupos, secciones, agenda y distribución |
-| osap-auth | Identidad, autenticación y contexto de usuario |
-| OSAP API | Catálogo de Works, búsqueda y resolución de identidad de obras |
-| osap-storage | Resources, Files, metadatos de almacenamiento y operaciones de publicación |
-| Muse-encore | Edición musical embebida o integrada para MusicXML/MXL |
-| osap-support | Servicios de soporte cuando una función concreta lo requiera; no es dependencia del núcleo |
+| Chorus Web | Interfaz y escritorio personal |
+| Chorus API | Reglas de negocio, autorización, biblioteca, herramientas y acceso a datos |
+| Chorus DB | Usuarios referenciados, biblioteca, metadatos, índices, versiones, colecciones y relaciones |
+| Chorus File Store | Ficheros de obras propias, borradores, revisiones y materiales generados |
+| osap-auth | Identidad y autenticación compartidas |
+| OSAP API / osap-storage | Consulta y lectura del catálogo OSAP y sus Resources/Files |
+| Muse-encore | Edición musical integrada |
+| Chorus Study | Módulo de generación de ejercicios y materiales de estudio coral |
+| osap-support | Servicio opcional si una función futura lo requiere |
 
-Chorus no accede directamente a las tablas internas de OSAP ni escribe en sus bases de datos. Consume contratos de API. No mantiene una copia paralela del catálogo.
+Chorus no accede directamente a las tablas internas de OSAP. Consume sus APIs de lectura. Tampoco utiliza la base de datos de OSAP para guardar su biblioteca privada.
 
 ## 2. Vista lógica
 
@@ -26,94 +29,82 @@ flowchart LR
     U[Usuario] --> UI[Chorus Web]
     UI --> API[Chorus API]
     API --> DB[(Chorus DB)]
+    API --> FS[(Chorus File Store)]
     API --> AUTH[osap-auth]
-    API --> OAPI[OSAP API]
-    API --> STORAGE[osap-storage]
+    API --> OAPI[OSAP API / Storage]
     UI --> EDITOR[Muse-encore]
-    EDITOR --> API
-    API -. opcional .-> SUPPORT[osap-support]
+    API --> STUDY[Chorus Study module]
+    STUDY --> FS
 ```
 
-La interfaz no debe llamar directamente a las bases de datos ni asumir que un identificador interno de OSAP es una URL pública estable. La API de Chorus media las operaciones del espacio personal y aplica las reglas de autorización.
+El backend Chorus media las operaciones de la aplicación. El navegador no accede directamente a las bases de datos ni al almacenamiento privado.
 
-## 3. Separación de datos
+## 3. Dos ámbitos de contenido
 
-Chorus conserva datos propios:
-- pertenencia de cada elemento al espacio personal;
-- colecciones y ordenaciones;
-- etiquetas, notas y preferencias personales;
-- borradores y versiones privadas;
-- contactos y relaciones de colaboración;
-- grupos, secciones, membresías y eventos;
-- distribuciones y confirmaciones.
+### 3.1 Obras consultadas en OSAP
 
-Chorus referencia datos OSAP:
-- Work canónica;
-- Resource concreto;
-- File asociado al Resource, cuando la API lo exponga.
+- Chorus busca y consulta Works y Resources mediante la API OSAP.
+- El usuario puede incorporar una referencia a un Resource en su biblioteca.
+- Chorus conserva el identificador externo y los datos mínimos necesarios para mostrar la referencia o una caché identificada como tal.
+- El contenido y los metadatos canónicos siguen perteneciendo a OSAP.
+- En esta primera etapa el flujo es de lectura: Chorus no modifica ni publica en OSAP.
 
-No copia títulos, autorías o metadatos canónicos para convertirlos en una segunda fuente de verdad. Puede guardar una instantánea técnica mínima para continuidad o caché, siempre identificada como tal y con política de actualización.
+Una referencia a OSAP no se convierte automáticamente en una obra propia ni se copia al almacenamiento privado.
 
-## 4. Autenticación y autorización
+### 3.2 Obras propias de Chorus
 
-- La identidad se obtiene de osap-auth; Chorus no crea una identidad de usuario paralela.
-- El identificador de usuario de la identidad autenticada es la clave de propiedad del espacio personal.
-- Toda operación privada se autoriza en servidor, no solo ocultando controles en la interfaz.
-- Las membresías de grupos no conceden acceso a toda la biblioteca personal.
-- Salir de un grupo no elimina el espacio personal ni los elementos que pertenecen al usuario.
-- Las capacidades dentro de un grupo se expresan mediante responsabilidades y permisos asignados a la membresía, no mediante perfiles globales excluyentes.
+- El usuario puede crear o incorporar una obra propia sin que exista una Work en OSAP.
+- El contenido se guarda como uno o varios ficheros en el nuevo formato de Chorus.
+- Chorus DB registra la identidad local, título, metadatos, relaciones, versiones, formato y referencias a los ficheros.
+- Chorus File Store conserva los bytes de los ficheros.
+- La base de datos no sustituye al contenido musical y el fichero no sustituye a los metadatos e índices.
+- Las versiones son independientes: una edición genera un nuevo fichero/revisión, sin destruir el anterior.
 
-## 5. Flujo de importación desde OSAP
+El diseño exacto del formato de ficheros y de su esquema de metadatos queda pendiente de especificación y versionado.
 
-1. El usuario busca una obra o Resource desde Chorus.
-2. Chorus consulta la API de OSAP.
-3. El usuario elige el Resource concreto.
-4. Chorus crea un WorkspaceItem que referencia ese Resource.
-5. Las colecciones y repertorios organizan esa referencia sin duplicar el Resource.
+## 4. Identidad y autorización
 
-Añadir un Resource al escritorio no descarga ni clona necesariamente el fichero. La disponibilidad y el acceso al File se resuelven mediante osap-storage y sus permisos.
+- La identidad se obtiene de osap-auth; Chorus no crea contraseñas ni un proveedor de identidad paralelo.
+- Chorus mantiene su propia base de datos de aplicación y vincula los datos personales al identificador estable del sujeto autenticado.
+- Toda operación privada se autoriza en el backend.
+- Las membresías de grupos no conceden acceso automático a toda la biblioteca personal.
+- Salir de un grupo no elimina el espacio personal ni sus ficheros.
+- Las responsabilidades de grupo son contextuales, no perfiles globales excluyentes.
 
-## 6. Flujo de edición y publicación
+## 5. Modelo de contenido compatible con V6
 
-1. El usuario abre un Resource o un archivo propio compatible en Muse-encore.
-2. Chorus conserva el original como referencia inmutable.
-3. La edición se guarda como Draft y genera revisiones privadas.
-4. Al publicar, Chorus envía el contenido y el contexto a la API de OSAP.
-5. OSAP resuelve si la Work ya existe y aplica las reglas de creación.
-6. Si la Work existe, se crea un nuevo Resource; nunca se sustituye el Resource original.
-7. Si no existe, OSAP crea la Work y su primer Resource según sus propias reglas.
+Para las referencias externas OSAP se respetan sus conceptos:
+- Work: obra canónica.
+- Resource: interpretación, arreglo o edición concreta.
+- File: fichero físico asociado al Resource.
 
-Chorus no decide por sí solo que dos obras son la misma ni crea identidades canónicas de Work. Esa resolución pertenece a OSAP.
+Estos conceptos no obligan a que Chorus replique el catálogo OSAP en su propia base de datos. Chorus mantiene referencias externas.
 
-En el modelo V6:
-- Work representa la obra canónica.
-- Resource representa una interpretación, arreglo o edición concreta.
-- File representa el fichero físico.
-- La autoría de la obra pertenece a Work; la procedencia y los derechos del Resource se mantienen separados.
-- Uploader, composer y license-owner son conceptos distintos.
+Para el contenido propio, Chorus tendrá identidad y modelo locales. No se debe fingir que una obra privada ya tiene un identificador Work/Resource de OSAP. La futura publicación, si se incorpora, será un proceso explícito de exportación/alta a OSAP y no parte de la lectura inicial.
 
-Una edición de una Work ajena no concede permiso para modificar la Work: se publica como nuevo Resource, con la atribución y derechos correspondientes. Los borradores permanecen privados hasta que el usuario decide compartirlos o publicarlos.
+## 6. Herramientas dentro de Chorus
 
-## 7. Almacenamiento privado
+Las herramientas comparten usuario, biblioteca, autorización y almacenamiento:
+- Muse-encore trabaja sobre ficheros propios o copias de trabajo derivadas de recursos consultados.
+- Chorus Study recibe datos musicales adecuados desde la biblioteca o desde una partitura autorizada y genera materiales de estudio.
+- Los resultados se guardan en el espacio propio de Chorus y se relacionan con la obra/recurso de origen.
 
-Los ficheros privados se gestionan mediante osap-storage, no mediante rutas locales ni objetos gestionados directamente por Chorus. Chorus conserva las relaciones y metadatos propios del espacio de trabajo.
+El módulo de estudio no tiene usuarios, biblioteca ni base de datos separados.
 
-El diseño debe permitir que el usuario archive MusicXML/MXL y otros formatos admitidos como recursos privados, sin exigir que exista una Work pública.
+## 7. Despliegue y configuración
 
-## 8. Despliegue y configuración
+- Chorus tendrá repositorio, configuración, API, base de datos y almacenamiento propios.
+- Mantendrá un `osap.toml` propio siguiendo el patrón de aplicaciones OSAP separadas.
+- Los secretos se configuran por entorno y no se guardan en Git.
+- La integración con osap-auth y OSAP se realiza mediante adaptadores.
+- No se presupone que osap-storage sea el almacén de los ficheros privados de Chorus.
 
-- Chorus tendrá su propio repositorio, configuración y despliegue.
-- Mantendrá un `osap.toml` propio, siguiendo el patrón de las aplicaciones OSAP separadas.
-- Los endpoints, claves y credenciales se configuran por entorno; no se incluyen secretos en Git.
-- Las dependencias externas deben estar detrás de adaptadores para facilitar pruebas y cambios de contrato.
-- No se presupone proveedor de pago, monetización ni dependencia obligatoria de osap-support.
+## 8. Principios de implementación
 
-## 9. Principios de implementación
-
-- API-first y contratos versionados.
-- Separación clara entre dominio Chorus y adaptadores OSAP.
-- Identificadores internos opacos; no exponer claves de base de datos como identificadores públicos mutables.
-- Migraciones explícitas y reversibles.
-- Pruebas de autorización para propiedad personal, membresías y recursos compartidos.
-- Ninguna escritura en producción OSAP durante el desarrollo inicial.
-- La primera versión debe poder funcionar con servicios OSAP simulados en pruebas.
+- Contratos explícitos y versionados para el formato de ficheros propio.
+- Separación entre dominio Chorus y adaptadores OSAP.
+- Identificadores externos opacos; no usar claves internas de OSAP como identidad local.
+- Migraciones explícitas y pruebas de recuperación de ficheros.
+- Pruebas de autorización y propiedad.
+- Sin escrituras en bases de datos de producción OSAP durante esta etapa.
+- La primera versión debe poder probarse con servicios OSAP simulados.
