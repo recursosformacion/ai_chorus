@@ -230,12 +230,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             body = {}
         return response.status_code, body
 
-    def osap_call(method: str, path: str, *, payload: dict[str, Any] | None = None) -> tuple[Any, httpx.Response]:
+    def osap_call(method: str, path: str, *, payload: dict[str, Any] | None = None,
+                  token: str | None = None) -> tuple[Any, httpx.Response]:
         if not cfg.osap_api_base_url:
             raise HTTPException(status_code=503, detail="OSAP API is not configured")
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
         try:
             with httpx.Client(timeout=cfg.osap_timeout_seconds, follow_redirects=True) as client:
-                response = client.request(method, cfg.osap_api_base_url + path, json=payload)
+                response = client.request(
+                    method, cfg.osap_api_base_url + path, json=payload, headers=headers
+                )
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail="OSAP API unavailable") from exc
         if response.status_code >= 400:
@@ -351,18 +355,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     @app.post("/api/v1/catalog/searches")
-    def catalog_search(payload: dict[str, Any], user: Principal = Depends(current_user)) -> Any:
-        data, _ = osap_call("POST", "/api/v1/searches", payload=payload)
+    def catalog_search(payload: dict[str, Any], user: Principal = Depends(current_user),
+                       authorization: str | None = Header(default=None)) -> Any:
+        token = authorization[7:].strip() if authorization else None
+        data, _ = osap_call("POST", "/api/v1/searches", payload=payload, token=token)
         return data
 
     @app.get("/api/v1/catalog/searches/{search_id}")
-    def catalog_search_result(search_id: str, user: Principal = Depends(current_user)) -> Any:
-        data, _ = osap_call("GET", f"/api/v1/searches/{quote(search_id, safe='')}")
+    def catalog_search_result(search_id: str, user: Principal = Depends(current_user),
+                              authorization: str | None = Header(default=None)) -> Any:
+        token = authorization[7:].strip() if authorization else None
+        data, _ = osap_call("GET", f"/api/v1/searches/{quote(search_id, safe='')}", token=token)
         return data
 
     @app.get("/api/v1/catalog/representations/{representation_id}")
-    def catalog_representation(representation_id: str, user: Principal = Depends(current_user)) -> Any:
-        data, _ = osap_call("GET", f"/api/v1/representations/{quote(representation_id, safe='')}")
+    def catalog_representation(representation_id: str, user: Principal = Depends(current_user),
+                               authorization: str | None = Header(default=None)) -> Any:
+        token = authorization[7:].strip() if authorization else None
+        data, _ = osap_call("GET", f"/api/v1/representations/{quote(representation_id, safe='')}", token=token)
         return data
 
     @app.post("/api/v1/drafts", status_code=201)
@@ -383,19 +393,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return draft_dto(owned_draft(draft_id, user))
 
     @app.post("/api/v1/drafts/{draft_id}/source")
-    def select_source(draft_id: str, body: SourceBody, user: Principal = Depends(current_user)) -> dict[str, Any]:
+    def select_source(draft_id: str, body: SourceBody, user: Principal = Depends(current_user),
+                      authorization: str | None = Header(default=None)) -> dict[str, Any]:
         row = owned_draft(draft_id, user)
         if row["status"] != "editing":
             raise HTTPException(status_code=409, detail="Draft is not editable")
+        token = authorization[7:].strip() if authorization else None
         encoded_representation_id = quote(body.representation_id, safe="")
-        metadata, _ = osap_call("GET", f"/api/v1/representations/{encoded_representation_id}")
+        metadata, _ = osap_call("GET", f"/api/v1/representations/{encoded_representation_id}", token=token)
         if not isinstance(metadata, dict):
             raise HTTPException(status_code=502, detail="Unexpected OSAP representation response")
         returned_work = metadata.get("work_id") or metadata.get("workId")
         if returned_work is not None and str(returned_work) != body.work_id:
             raise HTTPException(status_code=409, detail="Representation does not belong to the selected Work")
-        work_metadata, _ = osap_call("GET", f"/api/v1/works/public/{quote(body.work_id, safe='')}")
-        _, downloaded = osap_call("GET", f"/api/v1/representations/{encoded_representation_id}/download")
+        work_metadata, _ = osap_call(
+            "GET", f"/api/v1/works/public/{quote(body.work_id, safe='')}", token=token
+        )
+        _, downloaded = osap_call(
+            "GET", f"/api/v1/representations/{encoded_representation_id}/download", token=token
+        )
         raw = downloaded.content
         if len(raw) > cfg.max_upload_bytes:
             raise HTTPException(status_code=413, detail="OSAP source exceeds staging limit")
