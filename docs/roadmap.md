@@ -18,7 +18,7 @@ El primer runtime está en la rama feature/chorus-api-runtime. Su estado es pilo
 - [x] Añadir pruebas de integridad para borradores; 12 pruebas V6 + borradores superadas en GitHub Actions.
 - [x] Implementar un primer servidor FastAPI y los endpoints de catálogo, borradores, selección OSAP, apertura MuseEncore y carga MXL.
 - [x] Implementar almacenamiento local privado de ficheros para el piloto; queda pendiente sustituirlo por el backend definitivo.
-- [x] Revisar contratos reales de autenticación y lectura OSAP; documentar la audiencia separada chorus-api.
+- [x] Revisar contratos reales de autenticación y lectura OSAP; documentar la validación delegada en osap-auth /auth/me.
 - [x] Preparar configuración propia (osap.toml.example), sin secretos.
 - [ ] Preparar pruebas de integridad, versiones, checksums y recuperación.
 
@@ -26,7 +26,7 @@ Criterio de salida: Chorus puede persistir obras propias con el formato/modelo V
 
 ## Fase 1 — Escritorio y biblioteca personal
 
-- [x] Implementar login/refresh/logout delegados a osap-auth; requiere habilitar chorus-api en allowed_token_audiences.
+- [x] Implementar login/refresh/logout delegados a osap-auth; con validación remota de perfil y onboarding mediante /auth/me.
 - [ ] Crear el espacio personal en Chorus DB.
 - [ ] Escritorio y biblioteca.
 - [x] Implementar proxy de búsqueda y lectura de representaciones OSAP mediante API.
