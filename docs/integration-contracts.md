@@ -1,6 +1,6 @@
 # Contratos de integración: estado comprobado y límites
 
-Este documento distingue contratos observados de decisiones pendientes. Chorus es independiente y conserva sus datos privados en su propia base de datos y almacenamiento.
+Este documento distingue contratos observados de decisiones pendientes. Chorus es independiente y conserva sus datos en su propia base de datos y almacenamiento, pero adopta el modelo y formato V6 de osap-storage.
 
 ## 1. Identidad: osap-auth
 
@@ -18,21 +18,24 @@ En esta primera etapa Chorus consume OSAP para buscar, consultar y leer Works, R
 - Guarda referencias externas y, si hace falta, cachés de presentación claramente identificadas.
 - Trata los identificadores OSAP como opacos.
 
-Los conceptos V6 Work → Resource → File describen el catálogo OSAP y no se convierten automáticamente en las entidades locales de Chorus.
+## 3. Persistencia propia de Chorus y formato V6
 
-## 3. Persistencia propia de Chorus
+Chorus dispone de una instancia de base de datos y almacenamiento propios. Para representar sus obras, recursos y ficheros adopta el modelo, formato, estructura e invariantes V6 de osap-storage.
 
-Chorus dispone de:
-- Chorus DB para identidad local de aplicación, espacios personales, metadatos, índices, colecciones, versiones y relaciones.
-- Chorus File Store para los ficheros de obras propias, borradores, revisiones y materiales generados.
+Esto significa:
+- no crear un formato de fichero Chorus alternativo;
+- no inventar una segunda semántica para Work, Resource o File;
+- contrastar el esquema V6 real antes de definir tablas, campos o serialización;
+- mantener los datos privados en la instancia Chorus, sin escribir en la base de datos de producción OSAP;
+- mantener identificadores del ámbito Chorus separados de los identificadores del catálogo OSAP.
 
-Los ficheros propios usan un formato musical versionado de Chorus, pendiente de especificación. La base de datos conserva metadatos, referencias, checksums y versiones; el almacenamiento conserva los bytes.
+La base de datos registra metadatos, relaciones, índices, versiones y referencias a ficheros conforme al modelo V6. El almacenamiento propio conserva los ficheros en el formato V6.
 
-No se presupone que osap-storage almacene los ficheros privados de Chorus. Esa es una decisión de arquitectura propia. La publicación futura en OSAP, si se desarrolla, será una exportación explícita y usará los contratos OSAP correspondientes.
+La independencia de Chorus es de aplicación y persistencia, no de formato.
 
 ## 4. ScoreContract
 
-El `ScoreContract` anterior es un contrato específico para alimentar el generador de materiales de estudio. No sustituye los contratos OSAP Work/Resource/File ni el modelo de datos propio de Chorus.
+El `ScoreContract` anterior es un contrato específico para alimentar el generador de materiales de estudio. No sustituye los contratos V6 Work/Resource/File ni el modelo de datos propio de Chorus.
 
 Véase [score-contract-review.md](score-contract-review.md) y [study-module.md](study-module.md).
 
@@ -58,13 +61,14 @@ Es un flujo conceptual; no fija rutas, scopes ni payloads que todavía no hayan 
 
 ## 6. Verificaciones pendientes
 
+- [ ] Contrastar el esquema, serialización e invariantes V6 completos en osap-storage.
+- [ ] Definir cómo se implementará ese contrato en la instancia propia de Chorus.
 - [ ] Confirmar issuer, audience, claims y registro de cliente OIDC.
 - [ ] Revisar OpenAPI OSAP de la versión desplegada.
 - [ ] Identificar endpoints reales de búsqueda de Work, consulta de Resource y lectura de File.
 - [ ] Definir caché de metadatos y tratamiento de referencias no disponibles.
-- [ ] Especificar formato propio de ficheros y esquema de Chorus DB.
-- [ ] Definir respaldo, integridad y recuperación de Chorus File Store.
+- [ ] Definir respaldo, integridad y recuperación de los ficheros propios.
 - [ ] Diseñar publicación/exportación a OSAP en una fase posterior.
 - [ ] Añadir pruebas de contrato y de integración en entorno no productivo.
 
-No se codifican URLs, scopes ni payloads supuestos.
+No se codifican URLs, scopes, campos ni payloads supuestos.
