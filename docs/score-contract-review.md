@@ -27,25 +27,25 @@ Se conserva como módulo funcional Chorus Study dentro de la aplicación Chorus.
 ## 3. Límites de ScoreContract
 
 El `ScoreContract` es una entrada especializada para generar materiales a partir de un Score validado. No representa:
-- Work canónica OSAP;
-- Resource o File del catálogo;
-- PersonalWork ni sus ficheros propios;
+- Work canónica completa;
+- Resource o File V6;
+- metadatos, relaciones o versiones completas de la persistencia propia;
 - derechos, licencia, uploader o procedencia;
 - borradores, revisiones o publicación.
 
 El bridge reconstruye un Score con identificador marcador y contenido vacío. Puede servir al generador que consume los campos estructurales, pero no es un modelo de biblioteca o edición.
 
-**Conclusión:** mantener ScoreContract como contrato de entrada del generador si las pruebas lo avalan. No usarlo como contrato general de Chorus.
+**Conclusión:** mantener ScoreContract como contrato de entrada del generador si las pruebas lo avalan. No usarlo como contrato general de Chorus ni como sustituto del modelo V6.
 
 ## 4. Adaptación al modelo de contenido
 
 Chorus tendrá dos fuentes de entrada:
-- PersonalWork y sus ficheros del almacenamiento propio.
+- Work/Resource/File propios, almacenados en su instancia de Chorus conforme al modelo y formato V6.
 - Resource/File OSAP consultado mediante API y con acceso autorizado.
 
-Un adaptador de Chorus obtiene el contenido musical, valida/normaliza los datos necesarios y construye el contrato del generador. El módulo no consulta directamente la base de datos Chorus ni gestiona autenticación.
+Un adaptador de Chorus obtiene el contenido musical, valida/normaliza los datos necesarios y construye el contrato de entrada del generador. El módulo no consulta directamente la base de datos Chorus ni gestiona autenticación.
 
-El resultado StudyMaterial y sus ficheros se guardan en Chorus DB y Chorus File Store, asociados a la obra/revisión de origen.
+El resultado StudyMaterial y sus ficheros se guardan en la persistencia propia de Chorus, usando el modelo/formato V6 donde corresponda, asociados a la obra/revisión de origen.
 
 ## 5. Acoplamiento observado
 
@@ -59,5 +59,5 @@ Siguientes comprobaciones:
 1. Ejecutar la suite existente.
 2. Revisar configuración y endpoints OSAP usados.
 3. Verificar el contrato de Score vigente.
-4. Diseñar adaptadores de las dos fuentes de contenido.
+4. Diseñar adaptadores para el contenido V6 propio y el contenido OSAP.
 5. Extraer el generador con pruebas de equivalencia.
