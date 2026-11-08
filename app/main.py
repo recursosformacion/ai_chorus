@@ -71,7 +71,7 @@ def initialise_database(settings: Settings) -> None:
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
             ).fetchone()
             if applied is None:
-                conn.executescript((root / "migrations" / "sqlite" / name).read_text("utf-8"))
+                conn.executescript("BEGIN IMMEDIATE;\n" + (root / "migrations" / "sqlite" / name).read_text("utf-8") + "\nCOMMIT;")
                 conn.execute(
                     "INSERT INTO chorus_schema_migrations (name, applied_at) VALUES (?, ?)",
                     (name, utcnow()),
@@ -324,6 +324,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         sha = hashlib.sha256(raw).hexdigest()
         now = utcnow()
         rights = metadata.get("rights_license") or metadata.get("license") or metadata.get("licence")
+        if rights is not None and not isinstance(rights, str):
+            rights = json.dumps(rights, ensure_ascii=False)
         work_title = work_metadata.get("title") if isinstance(work_metadata, dict) else None
         with _connect(cfg) as conn:
             conn.execute(
@@ -441,13 +443,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "VALUES (?,?,?,?,?,'available',?,?,?,?)",
                     (file_id, resource_id, filename, "application/vnd.recordare.musicxml", len(data), sha, pointer, now, now),
                 )
-                conn.execute(
+                changed = conn.execute(
                     "UPDATE creation_drafts SET status='materialized',materialized_work_id=?,updated_at=? "
                     "WHERE id=? AND owner_sub=? AND status='editing'",
                     (work_id, now, draft_id, user.sub),
                 )
-                if conn.total_changes < 4:
-                    raise RuntimeError("V6 materialization did not persist all records")
+                if changed.rowcount != 1:
+                    raise RuntimeError("Draft state changed during V6 materialization")
         except Exception:
             target = Path(cfg.storage_root).resolve() / pointer
             target.unlink(missing_ok=True)
