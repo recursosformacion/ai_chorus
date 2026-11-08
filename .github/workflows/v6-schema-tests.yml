@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "app/**"
+      - "web/**"
       - "migrations/sqlite/**"
       - "tests/**"
       - "pyproject.toml"
@@ -31,5 +32,7 @@ jobs:
           python-version: "3.12"
       - name: Install Chorus and test dependencies
         run: python -m pip install -e ".[test]"
+      - name: Check browser JavaScript syntax
+        run: node --check web/app.js
       - name: Run complete test suite
         run: python -m pytest -q
