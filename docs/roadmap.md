@@ -1,86 +1,73 @@
 # Roadmap de Chorus
 
-El desarrollo se organiza por entregas verticales. La primera entrega debe resolver de verdad el uso individual antes de añadir estructuras sociales.
+El desarrollo se organiza por entregas verticales. Chorus es una aplicación independiente de OSAP y debe disponer de su propia base de datos y almacenamiento desde el principio.
 
-## Fase 0 — Fundamentos (actual)
+## Fase 0 — Fundamentos
 
-- [x] Definir propósito y principios del producto.
-- [x] Separar responsabilidades de Chorus, osap-auth, OSAP API y osap-storage.
-- [x] Definir modelo lógico inicial.
-- [ ] Revisar contratos reales disponibles en osap-auth, OSAP API y osap-storage.
-- [ ] Decidir stack de frontend/backend a partir de los estándares ya usados en los repositorios OSAP.
-- [ ] Definir configuración por entorno y estrategia de pruebas.
+- [x] Definir propósito y principios.
+- [x] Establecer la separación entre Chorus y OSAP.
+- [ ] Especificar el formato versionado de ficheros musicales propio de Chorus.
+- [ ] Definir el esquema inicial de Chorus DB y la relación con los ficheros.
+- [ ] Revisar contratos reales de autenticación y lectura de OSAP.
+- [ ] Elegir stack y preparar configuración propia (`osap.toml`).
+- [ ] Preparar pruebas de persistencia, integridad y recuperación.
 
-Criterio de salida: arquitectura contrastada con los contratos reales, sin suponer endpoints ni campos que no existan.
+Criterio de salida: formato y modelo de datos definidos; aplicación conectable a osap-auth y capaz de consultar OSAP en modo lectura.
 
-## Fase 1 — Escritorio personal y biblioteca
+## Fase 1 — Escritorio y biblioteca personal
 
 - [ ] Autenticación mediante osap-auth.
-- [ ] Creación automática del UserWorkspace.
-- [ ] Pantalla de inicio del escritorio.
-- [ ] Biblioteca con búsqueda local, filtros y ordenación.
-- [ ] Añadir y retirar referencias a Resources OSAP.
+- [ ] Crear el espacio personal en Chorus DB.
+- [ ] Escritorio y biblioteca.
+- [ ] Buscar y leer Works/Resources de OSAP.
+- [ ] Guardar referencias externas OSAP sin duplicar sus contenidos.
+- [ ] Crear obras propias en Chorus.
+- [ ] Guardar obras propias como ficheros en el nuevo formato.
+- [ ] Registrar metadatos, índices, versiones y checksums en Chorus DB.
 - [ ] Colecciones personales.
-- [ ] Recursos privados y carga de ficheros mediante osap-storage.
-- [ ] Estados de carga, error, acceso denegado y recurso no disponible.
 
-Criterio de salida: una persona puede organizar su música sin pertenecer a ningún grupo.
+Criterio de salida: un usuario puede consultar OSAP y, de forma independiente, crear y organizar sus propias obras en Chorus.
 
-## Fase 2 — Taller musical y borradores
+## Fase 2 — Herramientas musicales
 
-- [ ] Integrar Muse-encore para MusicXML/MXL.
-- [ ] Abrir Resource sin modificar el original.
-- [ ] Crear Draft desde un Resource o desde un fichero privado.
-- [ ] Guardar revisiones inmutables.
-- [ ] Recuperar una revisión anterior.
-- [ ] Exportar o guardar el resultado privado.
-- [ ] Flujo explícito de publicación a OSAP que cree un nuevo Resource.
+- [ ] Integrar Muse-encore con los ficheros propios de Chorus.
+- [ ] Crear y recuperar revisiones sin sobrescribir versiones anteriores.
+- [ ] Integrar Chorus Study Generator como módulo de Chorus.
+- [ ] Adaptar la entrada del generador desde una obra propia o una partitura OSAP autorizada.
+- [ ] Guardar materiales generados en Chorus File Store y sus metadatos en Chorus DB.
+- [ ] Exportar/importar los formatos musicales definidos.
 
-Criterio de salida: el usuario puede editar una partitura, conservar el original y gestionar su trabajo privado.
+El generador existente se conserva y adapta; no se convierte en una aplicación separada ni se posterga como un producto de IA independiente.
 
-## Fase 3 — Exploración e integración OSAP
+Criterio de salida: el usuario puede escribir/editar música y generar materiales de estudio dentro del mismo espacio Chorus.
 
-- [ ] Búsqueda de Works y Resources.
-- [ ] Vista de detalle suficiente para elegir la edición adecuada.
-- [ ] Incorporar Resource a la biblioteca personal.
-- [ ] Resolver permisos y disponibilidad de File.
-- [ ] Publicar nuevos Resources a través de la API oficial.
-- [ ] Tratar conflictos, duplicados y errores de contrato sin crear Work por inferencia local.
+## Fase 3 — Compartir y publicar (posterior)
 
-La búsqueda OSAP puede comenzar como parte de la Fase 1 si los contratos están listos; la prioridad de producto sigue siendo que la biblioteca personal sea el centro.
+- [ ] Compartir obras propias con usuarios o grupos.
+- [ ] Definir permisos y distribución.
+- [ ] Diseñar, como operación explícita, la publicación de obras propias en OSAP.
+- [ ] Resolver identidad Work y creación de Resource mediante los contratos oficiales OSAP.
 
-## Fase 4 — Contactos y colaboración
+La publicación no forma parte del flujo inicial de lectura y no sobrescribe contenido OSAP.
 
-- [ ] Contactos y solicitudes de relación.
-- [ ] Compartir un elemento con una persona concreta.
-- [ ] Aceptar, revocar y auditar accesos.
-- [ ] Notificaciones esenciales.
+## Fase 4 — Agrupaciones y agenda
 
-## Fase 5 — Agrupaciones y organización
+- [ ] Grupos, membresías, responsabilidades y secciones.
+- [ ] Repertorio de grupo mediante referencias y elementos compartidos.
+- [ ] Distribución de partituras.
+- [ ] Ensayos, conciertos, reuniones y confirmaciones.
 
-- [ ] Crear y administrar Groups.
-- [ ] Membresías y responsabilidades.
-- [ ] Secciones y pertenencia a varias secciones.
-- [ ] Repertorio de grupo mediante referencias a Resources.
-- [ ] Distribuir partituras por grupo o sección.
-- [ ] Agenda de ensayos, reuniones y conciertos.
-- [ ] Confirmaciones de asistencia.
+## Fase 5 — Asistencia musical ampliada
 
-## Fase 6 — Asistencia musical e IA
-
-- [ ] Explicación contextual de una partitura.
 - [ ] Análisis armónico y estructural.
-- [ ] Ayuda para instrumentar y adaptar.
-- [ ] Ejercicios y materiales de estudio.
-- [ ] Herramientas de apoyo a composición para principiantes.
-
-Las funciones de IA se diseñan como asistencia verificable y contextual, no como sustitución de la edición musical ni como fuente de metadatos inventados.
+- [ ] Explicación contextual de partituras.
+- [ ] Ayuda de instrumentación, adaptación y composición.
+- [ ] Funciones de aprendizaje y práctica.
 
 ## Criterios transversales
 
-- Pruebas automatizadas para reglas de dominio y permisos.
 - Ningún test fallido se acepta como estado terminado.
-- No se realizan escrituras en bases de datos de producción durante el desarrollo inicial.
-- Las integraciones se prueban con dobles y contratos reproducibles.
-- No se implementan funciones sociales antes de que el escritorio individual sea útil.
+- No escribir en bases de datos de producción OSAP durante esta etapa.
+- Pruebas de contrato para los servicios externos.
+- Pruebas de integridad entre registros de Chorus DB y ficheros.
 - Cada fase debe dejar una aplicación ejecutable y documentada.
