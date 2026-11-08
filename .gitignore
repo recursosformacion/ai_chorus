@@ -1,2 +1,7 @@
-osapx.toml
-osap.productionx.toml
+osap.toml
+osap.production.toml
+var/
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]

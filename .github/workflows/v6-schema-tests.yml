@@ -1,29 +1,35 @@
-name: V6 schema and draft tests
+name: Chorus API and V6 tests
 
 on:
   push:
     paths:
+      - "app/**"
       - "migrations/sqlite/**"
-      - "tests/test_v6_schema.py"
-      - "tests/test_creation_drafts.py"
+      - "tests/**"
+      - "pyproject.toml"
+      - "osap.toml.example"
+      - "docs/**"
       - ".github/workflows/v6-schema-tests.yml"
   pull_request:
     paths:
+      - "app/**"
       - "migrations/sqlite/**"
-      - "tests/test_v6_schema.py"
-      - "tests/test_creation_drafts.py"
+      - "tests/**"
+      - "pyproject.toml"
+      - "osap.toml.example"
+      - "docs/**"
       - ".github/workflows/v6-schema-tests.yml"
   workflow_dispatch:
 
 jobs:
-  sqlite-schema:
+  chorus-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install test runner
-        run: python -m pip install pytest
-      - name: Run V6 and draft schema integrity tests
-        run: python -m pytest -q tests/test_v6_schema.py tests/test_creation_drafts.py
+      - name: Install Chorus and test dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Run complete test suite
+        run: python -m pytest -q
