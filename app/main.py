@@ -242,12 +242,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail="OSAP API unavailable") from exc
-        if response.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"OSAP API returned HTTP {response.status_code}")
         try:
             doc = response.json()
         except ValueError:
             doc = None
+        if response.status_code >= 400:
+            detail = "OSAP API request failed"
+            if isinstance(doc, dict):
+                error = doc.get("error") or {}
+                detail = str(
+                    doc.get("detail")
+                    or (error.get("message") if isinstance(error, dict) else None)
+                    or doc.get("message")
+                    or detail
+                )
+            code = response.status_code if response.status_code in {400, 401, 403, 404, 409, 422, 429} else 502
+            raise HTTPException(status_code=code, detail=detail)
         return _unwrap_osap(doc), response
 
     def owned_draft(draft_id: str, user: Principal) -> sqlite3.Row:
