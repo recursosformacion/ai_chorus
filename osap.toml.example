@@ -2,12 +2,6 @@
 [auth]
 # URL pública de osap-auth (sin /auth al final).
 base_url = ""
-# Valor exacto del claim iss de los access tokens del entorno.
-issuer = ""
-# JWKS publicado por osap-auth.
-jwks_url = ""
-# osap-auth debe permitir explícitamente esta audiencia antes de habilitar Chorus.
-audience = "chorus-api"
 timeout_seconds = 15
 
 [osap]
