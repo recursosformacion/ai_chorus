@@ -1,17 +1,18 @@
 # Configuración propia de Chorus. Nunca incluir contraseñas ni secretos.
 [auth]
-# URL pública real de osap-auth, incluido cualquier prefijo de despliegue.
-base_url = "https://auth.openmusicrepository.com"
-# Debe coincidir exactamente con el claim iss de los access tokens del entorno.
-issuer = "https://auth.openmusicrepository.com"
-jwks_url = "https://auth.openmusicrepository.com/auth/.well-known/jwks.json"
+# URL pública de osap-auth (sin /auth al final).
+base_url = ""
+# Valor exacto del claim iss de los access tokens del entorno.
+issuer = ""
+# JWKS publicado por osap-auth.
+jwks_url = ""
 # osap-auth debe permitir explícitamente esta audiencia antes de habilitar Chorus.
 audience = "chorus-api"
 timeout_seconds = 15
 
 [osap]
 # URL pública real de osap-api.
-api_base_url = "https://api.openmusicrepository.com"
+api_base_url = ""
 timeout_seconds = 45
 
 [editor]
