@@ -106,23 +106,24 @@ La forma exacta del puntero y la serialización interna deben esperar a que Stor
 
 Se puede avanzar sin inventar el esquema físico:
 1. Interfaces de dominio para Work, Resource y File basadas solo en las semánticas confirmadas.
-2. Adaptadores de lectura OSAP que traten los IDs externos como opacos y toleren Work sin Resources y Resource sin Files.
+2. Adaptadores de lectura OSAP que traten los IDs externos como opacos y validen la cadena Work → Resource → File. Si el catálogo externo devuelve datos incompletos o incompatibles, Chorus debe señalarlos como tales; no crear entidades musicales vacías para acomodarlos.
 3. Referencias de biblioteca personales separadas de las entidades musicales.
 4. Autorización privada en servidor y pruebas que impidan fugas a búsquedas públicas.
 5. Contratos de aplicación del generador de estudio, manteniendo `ScoreContract` como contrato especializado y no como modelo de biblioteca.
 6. Pruebas de contrato con fixtures V6 explícitamente provisionales, identificadas como tales.
 
+La consecuencia para Chorus es distinta de la que tendría una aplicación que esperase a consumir Storage ya desplegado: Chorus será la primera implementación práctica de estas reglas y permitirá probarlas antes de que OSAP Storage las adopte.
+
+En Chorus sí se debe diseñar e implementar su propio DDL, serialización y restricciones Work → Resource → File, documentando que es la implementación piloto del contrato V6. No se debe copiar el DDL anterior de Storage ni afirmar que existe ya un DDL V6 oficial compartido.
+
 No se debe implementar todavía:
-- DDL final de Work/Resource/File;
-- serializador persistente declarado como V6 definitivo;
-- restricciones de cardinalidad Work–Resource;
 - claves/IDs físicos asumidos;
 - copia directa de clases V5;
 - publicación o escritura en OSAP.
 
 ## 8. Bloqueos que deben cerrarse antes de la persistencia
 
-- [ ] Armonizar la cardinalidad Work–Resource entre OpenAPI, reconstrucción y matriz de migración.
+- [x] Fijar para Chorus la cardinalidad Work → Resource → File. Queda pendiente que OSAP Storage armonice sus documentos y su implementación con esta regla.
 - [ ] Publicar o aprobar un DDL V6 y modelo de dominio implementable.
 - [ ] Congelar nombres, tipos, nulabilidad, vocabularios y restricciones de Work/Resource/File.
 - [ ] Cerrar la serialización canónica y la política de IDs opacos/namespace.
