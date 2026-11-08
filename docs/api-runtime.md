@@ -1,6 +1,6 @@
 # Chorus API runtime (piloto)
 
-## Arranque
+## Arranque del backend
 
 ```powershell
 python -m venv .venv
@@ -10,6 +10,12 @@ $env:CHORUS_CONFIG="osap.toml"
 ```
 
 La API inicializa las migraciones SQLite locales al arrancar. El almacenamiento privado y la base de datos están dentro de Chorus; no se accede a bases de datos OSAP ni a Cloudflare/R2.
+
+## Interfaz web y Apache de desarrollo
+
+La interfaz HTML/CSS/JavaScript está en `web/` y no se sirve desde FastAPI. El entorno local replica el patrón documentado para `osap-app`: Apache/XAMPP sirve `web/` como `DocumentRoot` y hace reverse proxy de `/api/` hacia `127.0.0.1:9600/api/`. El host local propuesto es `http://chorus-app`. No se usa Vite ni otro servidor de frontend. La configuración completa de VirtualHost, hosts de Windows y comprobaciones está en [apache-dev.md](apache-dev.md).
+
+Arranque del backend: ver el comando de la sección siguiente. Una vez levantado, Apache puede servir la interfaz y las peticiones API por el mismo origen.
 
 ## Endpoints
 
