@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
@@ -62,8 +62,20 @@ def _connect(settings: Settings) -> sqlite3.Connection:
 def initialise_database(settings: Settings) -> None:
     root = Path(__file__).resolve().parent.parent
     with _connect(settings) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS chorus_schema_migrations "
+            "(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
         for name in ("001_v6_work_resource_file.sql", "002_creation_drafts.sql"):
-            conn.executescript((root / "migrations" / "sqlite" / name).read_text("utf-8"))
+            applied = conn.execute(
+                "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
+            ).fetchone()
+            if applied is None:
+                conn.executescript((root / "migrations" / "sqlite" / name).read_text("utf-8"))
+                conn.execute(
+                    "INSERT INTO chorus_schema_migrations (name, applied_at) VALUES (?, ?)",
+                    (name, utcnow()),
+                )
 
 
 def _safe_name(name: str | None) -> str:
@@ -259,12 +271,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/catalog/searches/{search_id}")
     def catalog_search_result(search_id: str, user: Principal = Depends(current_user)) -> Any:
-        data, _ = osap_call("GET", f"/api/v1/searches/{search_id}")
+        data, _ = osap_call("GET", f"/api/v1/searches/{quote(search_id, safe='')}")
         return data
 
     @app.get("/api/v1/catalog/representations/{representation_id}")
     def catalog_representation(representation_id: str, user: Principal = Depends(current_user)) -> Any:
-        data, _ = osap_call("GET", f"/api/v1/representations/{representation_id}")
+        data, _ = osap_call("GET", f"/api/v1/representations/{quote(representation_id, safe='')}")
         return data
 
     @app.post("/api/v1/drafts", status_code=201)
@@ -289,14 +301,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         row = owned_draft(draft_id, user)
         if row["status"] != "editing":
             raise HTTPException(status_code=409, detail="Draft is not editable")
-        metadata, _ = osap_call("GET", f"/api/v1/representations/{body.representation_id}")
+        encoded_representation_id = quote(body.representation_id, safe="")
+        metadata, _ = osap_call("GET", f"/api/v1/representations/{encoded_representation_id}")
         if not isinstance(metadata, dict):
             raise HTTPException(status_code=502, detail="Unexpected OSAP representation response")
         returned_work = metadata.get("work_id") or metadata.get("workId")
         if returned_work is not None and str(returned_work) != body.work_id:
             raise HTTPException(status_code=409, detail="Representation does not belong to the selected Work")
-        _, downloaded = osap_call("GET", f"/api/v1/representations/{body.representation_id}/download")
+        work_metadata, _ = osap_call("GET", f"/api/v1/works/public/{quote(body.work_id, safe='')}")
+        _, downloaded = osap_call("GET", f"/api/v1/representations/{encoded_representation_id}/download")
         raw = downloaded.content
+        if len(raw) > cfg.max_upload_bytes:
+            raise HTTPException(status_code=413, detail="OSAP source exceeds staging limit")
         disposition = downloaded.headers.get("content-disposition", "")
         match = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)', disposition, re.I)
         filename = _safe_name(match.group(1) if match else metadata.get("file_name") or metadata.get("filename") or "source.mxl")
@@ -308,13 +324,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         sha = hashlib.sha256(raw).hexdigest()
         now = utcnow()
         rights = metadata.get("rights_license") or metadata.get("license") or metadata.get("licence")
+        work_title = work_metadata.get("title") if isinstance(work_metadata, dict) else None
         with _connect(cfg) as conn:
             conn.execute(
                 "UPDATE creation_drafts SET source_kind='osap', source_work_id=?, source_representation_id=?, "
                 "source_provider=?, source_format=?, source_file_name=?, source_file_pointer=?, source_sha256=?, "
-                "source_rights_license=?, updated_at=? WHERE id=? AND owner_sub=? AND status='editing'",
+                "source_rights_license=?, title=COALESCE(title, ?), updated_at=? "
+                "WHERE id=? AND owner_sub=? AND status='editing'",
                 (body.work_id, body.representation_id, metadata.get("provider"), suffix.lstrip("."),
-                 filename, pointer, sha, rights, now, draft_id, user.sub),
+                 filename, pointer, sha, rights, work_title, now, draft_id, user.sub),
             )
             updated = conn.execute("SELECT * FROM creation_drafts WHERE id=?", (draft_id,)).fetchone()
         return draft_dto(updated)
@@ -334,7 +352,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "INSERT INTO editor_source_tokens (token_hash, draft_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
                     (token_hash, draft_id, expires, utcnow()),
                 )
-            source_url = str(request.base_url).rstrip("/") + f"/api/v1/editor-sources/{token}"
+            api_origin = cfg.public_base_url or str(request.base_url).rstrip("/")
+            source_url = api_origin + f"/api/v1/editor-sources/{token}"
             editor_url += ("&" if "?" in editor_url else "?") + urlencode({"url": source_url})
         return {"editor_url": editor_url}
 
@@ -392,7 +411,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }, ensure_ascii=False)
         try:
             with _connect(cfg) as conn:
-                conn.execute("BEGIN")
+                conn.execute("BEGIN IMMEDIATE")
+                current = conn.execute(
+                    "SELECT status, materialized_work_id FROM creation_drafts WHERE id=? AND owner_sub=?",
+                    (draft_id, user.sub),
+                ).fetchone()
+                if current is None:
+                    raise HTTPException(status_code=404, detail="Draft not found")
+                if current["status"] == "materialized":
+                    conn.rollback()
+                    target = Path(cfg.storage_root).resolve() / pointer
+                    target.unlink(missing_ok=True)
+                    return {"draft_id": draft_id, "status": "materialized",
+                            "work_id": current["materialized_work_id"]}
+                if current["status"] != "editing":
+                    raise HTTPException(status_code=409, detail="Draft is not editable")
                 conn.execute(
                     "INSERT INTO works (id,title,created_at,updated_at,required_resource_id) VALUES (?,?,?,?,?)",
                     (work_id, title, now, now, resource_id),
@@ -413,9 +446,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "WHERE id=? AND owner_sub=? AND status='editing'",
                     (work_id, now, draft_id, user.sub),
                 )
-                final = conn.execute("SELECT status FROM creation_drafts WHERE id=?", (draft_id,)).fetchone()
-                if final is None or final["status"] != "materialized":
-                    raise RuntimeError("Draft changed while materializing")
+                if conn.total_changes < 4:
+                    raise RuntimeError("V6 materialization did not persist all records")
         except Exception:
             target = Path(cfg.storage_root).resolve() / pointer
             target.unlink(missing_ok=True)
