@@ -15,7 +15,7 @@ Chorus mantiene sus propios datos e instancia de persistencia, pero adopta el co
 
 - **La persona y su biblioteca son el centro.** Una cuenta y una biblioteca personal, aunque el usuario participe en varios grupos.
 - **Aplicación independiente.** Chorus tiene repositorio, configuración, API y base de datos propios.
-- **Compatibilidad V6.** Los ficheros y entidades de las obras propias siguen el modelo/formato V6 de osap-storage.
+- **Compatibilidad V6.** Las obras propias siguen el modelo Work → Resource → File de V6: toda Work válida tiene al menos un Resource y todo Resource al menos un File. Chorus será la primera implementación práctica para probar esta estructura antes de OSAP Storage.
 - **OSAP es el catálogo compartido.** Chorus consulta OSAP mediante APIs y conserva referencias externas.
 - **Lo privado permanece en Chorus.** Las obras propias, borradores y versiones se guardan en la persistencia propia, con formato V6.
 - **Editar no sobrescribe.** Las modificaciones generan nuevas versiones o ficheros.
