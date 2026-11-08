@@ -48,8 +48,10 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 - [Auditoría de la implementación anterior](docs/existing-implementation-assessment.md)
 - [Revisión técnica del ScoreContract](docs/score-contract-review.md)
 - [Contratos de integración](docs/integration-contracts.md)
+- [Autenticación y audiencia de Chorus](docs/authentication-runtime.md)
+- [API ejecutable y despliegue local](docs/api-runtime.md)
 - [Auditoría de compatibilidad con OSAP Storage V6](docs/v6-storage-audit.md)
 
 ## Estado
 
-El primer esquema piloto Work/Resource/File y la persistencia de borradores están definidos en SQLite como banco de pruebas. Las doce pruebas de integridad pasan en GitHub Actions. El flujo API de creación, selección de originales OSAP y apertura/exportación mediante MuseEncore está especificado; los endpoints de ejecución siguen pendientes. No es todavía la persistencia de producción: faltan elegir el motor definitivo, cerrar el contrato V6 completo y definir el almacenamiento físico, las revisiones y el espacio personal.
+El repositorio ya contiene un primer servidor FastAPI ejecutable para Chorus: autenticación delegada a osap-auth con audiencia propia, proxy de lectura OSAP, borradores, puente temporal a MuseEncore y carga MXL que materializa Work → Resource → File. SQLite y almacenamiento local privado son todavía el banco de pruebas; no son la persistencia de producción. La habilitación de la audiencia chorus-api en osap-auth y la configuración de URLs reales son prerrequisitos de despliegue. La suite ampliada está pendiente de validación CI en esta rama.
