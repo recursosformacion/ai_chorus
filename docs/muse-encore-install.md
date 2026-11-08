@@ -1,0 +1,103 @@
+# Instalación de MuseEncore para el entorno de desarrollo
+
+MuseEncore es una aplicación independiente del repositorio Chorus. No se copia su código dentro de Chorus ni se modifica su repositorio: se clona en un directorio propio, se instalan sus dependencias y se genera su frontend compilado. Apache sirve ese resultado estático.
+
+Repositorio: https://github.com/pstaender/muse-encore
+
+## Qué contiene
+
+El repositorio tiene dos aplicaciones:
+
+- `editor/`: editor de partituras MuseEncore (React + Vite).
+- `viewer/`: visor, que no sustituye al editor.
+
+El editor se construye con el script `build:editor` y Vite genera los ficheros en `dist-editor/`. El proyecto incluye el submódulo `MuseScore`, necesario para los recursos de traducción y sonido; por eso es imprescindible clonar con `--recurse-submodules`.
+
+MuseEncore se distribuye bajo GPL-3.0-only. Mantener su licencia y avisos al desplegarlo; no integrar su código en Chorus como si fuera código propio.
+
+## Clonar e instalar en Windows
+
+Desde PowerShell:
+
+```powershell
+cd D:\Proyectos\AI_OSAP
+git clone --recurse-submodules https://github.com/pstaender/muse-encore.git
+cd muse-encore
+npm ci
+npm run build:editor
+```
+
+Comprobar que existe `dist-editor\index.html`. Si no existe, no configurar Apache todavía: revisar el error de compilación y el estado del submódulo.
+
+Para actualizar una instalación existente:
+
+```powershell
+cd D:\Proyectos\AI_OSAP\muse-encore
+git pull --ff-only
+git submodule update --init --recursive
+npm ci
+npm run build:editor
+```
+
+No ejecutar `git pull` si hay cambios locales en el checkout; revisar primero `git status`.
+
+## Servir el editor mediante Apache
+
+Se utiliza un VirtualHost separado para que Vite pueda servir los assets desde la raíz `/` sin reescrituras ni cambios en el código del editor. Añadir al mismo `httpd-vhosts.conf`:
+
+```apache
+<VirtualHost *:80>
+    ServerName muse-encore-app
+    DocumentRoot "D:/Proyectos/AI_OSAP/muse-encore/dist-editor"
+
+    <Directory "D:/Proyectos/AI_OSAP/muse-encore/dist-editor">
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        Require all granted
+        DirectoryIndex index.html
+    </Directory>
+
+    ErrorLog  "logs/muse-encore-app-error.log"
+    CustomLog "logs/muse-encore-app-access.log" combined
+</VirtualHost>
+```
+
+Añadir al fichero hosts de Windows:
+
+```text
+127.0.0.1 muse-encore-app
+```
+
+Reiniciar Apache y abrir `http://muse-encore-app/`. Esta URL debe mostrar el editor ya compilado; Apache no ejecuta Node ni Vite.
+
+## Conectar Chorus
+
+En `ai_chorus/osap.toml`:
+
+```toml
+[editor]
+base_url = "http://muse-encore-app"
+origin = "http://muse-encore-app"
+source_token_ttl_seconds = 300
+```
+
+El backend Chorus construye la URL de edición sobre este origen. El editor admite `?url=...` para cargar una partitura desde una URL temporal. El origen configurado debe coincidir exactamente con el origen del VirtualHost y con la allow-list CORS del endpoint temporal de Chorus.
+
+La URL temporal de una partitura debe ser de corta duración y solo lectura. Nunca se pasa al editor el access token de OSAP ni el `storage_pointer` interno.
+
+## Actualizar MuseEncore
+
+Cuando se decida actualizar la versión:
+
+1. Revisar los cambios y la licencia del repositorio upstream.
+2. Actualizar el checkout y el submódulo.
+3. Ejecutar `npm ci` y `npm run build:editor`.
+4. Comprobar el editor directamente en `http://muse-encore-app/`.
+5. Probar desde Chorus la apertura de un original y la exportación MusicXML comprimida (.mxl).
+
+## Alcance y límites
+
+- Este procedimiento instala y sirve el editor web. No instala MuseScore Desktop.
+- No se modifica el repositorio upstream de MuseEncore.
+- No se integra su almacenamiento local de partituras con la biblioteca Chorus; el intercambio inicial sigue siendo por URL temporal de lectura y exportación/subida MXL.
+- El build debe realizarse cada vez que se actualice el repositorio; Apache sirve el directorio `dist-editor`, no los fuentes TypeScript.
