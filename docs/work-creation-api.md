@@ -13,17 +13,29 @@ El usuario no tiene que decidir de antemano si va a crear desde cero:
 
 La selección de un original OSAP no modifica OSAP. La edición y el fichero final pertenecen a Chorus. La referencia de origen se conserva como procedencia del Resource propio. No se presupone que la licencia permita cualquier transformación: se conserva la información de derechos que devuelva OSAP cuando esté disponible; si no está disponible, queda desconocida, no se inventa.
 
-## 2. Contratos OSAP verificados
+## 2. Contrato de búsqueda: responsabilidad exclusiva de osap-api
 
-La API actual de OSAP expone:
+La búsqueda musical completa la ejecuta **osap-api**. Chorus no implementa un buscador paralelo, no consulta proveedores y no combina resultados por su cuenta: transmite los criterios del usuario, consulta el estado de la búsqueda y presenta el resultado que devuelve OSAP.
 
-- `POST /api/v1/searches`: crea una búsqueda. El cuerpo admite `query`, `limit`, `page`, `composer`, `title`, `catalogue`, `instrumentation`, `language`, `formats`, `providers`, `voices` y `genres`.
-- `GET /api/v1/searches/{search_id}`: recupera resultados y estado de la búsqueda.
-- `GET /api/v1/representations/{representation_id}`: ficha de la representación.
-- `GET /api/v1/representations/{representation_id}/download`: descarga el fichero o redirige al proveedor.
+Contrato contrastado con `src/osap/api/http/search.py`, `src/osap/api/contracts/search.py` y `src/osap/api/platform/search.py` de `AI_GAMEPC2`:
+
+- `POST /api/v1/searches` crea el recurso de búsqueda. Responde `201`, incluye `Location: /api/v1/searches/{search_id}` y devuelve el sobre `success/request_id/data`.
+- `GET /api/v1/searches/{search_id}` recupera el estado y los resultados.
+- La búsqueda puede devolver inicialmente `status=running`; Chorus debe consultar el recurso hasta que OSAP indique `done` o `error`. Si OSAP devuelve ya `done` (por ejemplo, desde caché), no hace falta sondear.
+- El cuerpo tipado `SearchRequest` admite: `query`, `limit`, `page`, `composer`, `title`, `catalogue`, `instrumentation`, `language`, `formats[]`, `providers[]`, `voices[]` y `genres[]`.
+- Cada resultado contiene `work`, `representation`, `representations[]`, `score`, `evidence[]` y `relationships`. La respuesta incluye además `total`, `page`, `per_page`, `status`, `progress` y `providers[]`.
+
+La API también expone actualmente:
+
+- `GET /api/v1/representations/{representation_id}`: ficha del material devuelto por la búsqueda.
+- `GET /api/v1/representations/{representation_id}/download`: entrega el fichero o redirige al proveedor.
 - `GET /api/v1/works/public/{work_id}`: ficha pública de una Work del índice.
 
-Chorus encapsulará estas llamadas en su adaptador OSAP. No consulta tablas de OSAP ni construye URLs de proveedores a partir de datos no verificados.
+Estos nombres `representation` pertenecen al contrato actual de la API y no cambian el modelo objetivo de Chorus V6 (`Work → Resource → File`). Chorus conserva los identificadores OSAP como referencias opacas y no los interpreta.
+
+**Nota de autenticación observada:** en la implementación consultada de `POST /api/v1/searches`, el parámetro `Authorization` se descarta expresamente (autenticación preparada pero deshabilitada en esa versión). Chorus puede reenviar el Bearer, pero no debe afirmar que esa ruta aplica cuotas o analítica por usuario hasta que el propio endpoint OSAP lo implemente.
+
+Chorus encapsula estas llamadas en su adaptador OSAP. No consulta tablas de OSAP, no llama directamente a proveedores y no construye URLs de proveedores a partir de datos no verificados.
 
 ## 3. Contratos API de Chorus
 
