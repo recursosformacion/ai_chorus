@@ -115,6 +115,8 @@ def validate_mxl(data: bytes, filename: str, max_uncompressed: int = 100 * 1024 
         raise ValueError("Invalid MXL ZIP archive") from exc
     except ET.ParseError as exc:
         raise ValueError("Invalid MusicXML XML structure") from exc
+    except (KeyError, RuntimeError, OSError) as exc:
+        raise ValueError("Unable to read MXL archive contents") from exc
 
 
 def _unwrap_osap(doc: Any) -> Any:
@@ -229,7 +231,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload={"email": body.email, "password": body.password, "audience": cfg.auth_audience},
         )
         if status_code != 200 or not isinstance(doc, dict) or not doc.get("access_token") or not doc.get("refresh_token"):
-            raise HTTPException(status_code=401 if status_code in (400, 401) else 502,
+            raise HTTPException(status_code=status_code if status_code in (400, 401, 422, 429) else 502,
                                 detail=doc.get("detail", "Login failed") if isinstance(doc, dict) else "Login failed")
         response.set_cookie(
             "chorus_refresh", str(doc["refresh_token"]), httponly=True, secure=cfg.secure_cookies,
@@ -326,7 +328,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rights = metadata.get("rights_license") or metadata.get("license") or metadata.get("licence")
         if rights is not None and not isinstance(rights, str):
             rights = json.dumps(rights, ensure_ascii=False)
-        work_title = work_metadata.get("title") if isinstance(work_metadata, dict) else None
+        work_record = work_metadata.get("work") if isinstance(work_metadata, dict) else None
+        if not isinstance(work_record, dict):
+            work_record = work_metadata if isinstance(work_metadata, dict) else {}
+        work_title = work_record.get("title")
         with _connect(cfg) as conn:
             conn.execute(
                 "UPDATE creation_drafts SET source_kind='osap', source_work_id=?, source_representation_id=?, "
@@ -389,6 +394,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if row["status"] != "editing":
             raise HTTPException(status_code=409, detail="Draft is not editable")
         filename = _safe_name(file.filename)
+        accepted_mimes = {
+            "application/zip", "application/x-zip-compressed",
+            "application/vnd.recordare.musicxml", "application/vnd.recordare.musicxml+xml",
+            "application/octet-stream", "",
+        }
+        if (file.content_type or "").lower() not in accepted_mimes:
+            raise HTTPException(status_code=415, detail="Unsupported upload MIME type for MXL")
         data = await file.read(cfg.max_upload_bytes + 1)
         if len(data) > cfg.max_upload_bytes:
             raise HTTPException(status_code=413, detail="File exceeds upload limit")
