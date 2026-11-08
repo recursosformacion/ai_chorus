@@ -4,6 +4,8 @@ Chorus es una aplicación independiente de OSAP, con base de datos y almacenamie
 
 ## Fase 0 — Fundamentos
 
+El primer runtime está en la rama feature/chorus-api-runtime. Su estado es piloto: la suite ampliada debe quedar verde en CI antes de integrar la rama.
+
 - [x] Definir propósito y principios.
 - [x] Establecer la separación entre Chorus y OSAP.
 - [x] Revisar el esquema actual y la documentación V6 de osap-storage; identificar que su código/DDL todavía es anterior a V6.
@@ -14,22 +16,22 @@ Chorus es una aplicación independiente de OSAP, con base de datos y almacenamie
 - [x] Añadir persistencia SQLite de borradores y tokens temporales del editor.
 - [x] Definir el contrato API para búsqueda OSAP, selección de original, apertura de MuseEncore y carga MXL.
 - [x] Añadir pruebas de integridad para borradores; 12 pruebas V6 + borradores superadas en GitHub Actions.
-- [ ] Implementar los endpoints reales de Chorus API y sus adaptadores OSAP/OIDC (el contrato está especificado; aún no hay servidor API ejecutable).
-- [ ] Definir la persistencia de ficheros V6 en el almacenamiento propio de Chorus.
-- [ ] Revisar contratos reales de autenticación y lectura de OSAP.
-- [ ] Preparar configuración propia (osap.toml).
+- [x] Implementar un primer servidor FastAPI y los endpoints de catálogo, borradores, selección OSAP, apertura MuseEncore y carga MXL.
+- [x] Implementar almacenamiento local privado de ficheros para el piloto; queda pendiente sustituirlo por el backend definitivo.
+- [x] Revisar contratos reales de autenticación y lectura OSAP; documentar la audiencia separada chorus-api.
+- [x] Preparar configuración propia (osap.toml.example), sin secretos.
 - [ ] Preparar pruebas de integridad, versiones, checksums y recuperación.
 
 Criterio de salida: Chorus puede persistir obras propias con el formato/modelo V6 y consultar OSAP en modo lectura.
 
 ## Fase 1 — Escritorio y biblioteca personal
 
-- [ ] Autenticación mediante osap-auth.
+- [x] Implementar login/refresh/logout delegados a osap-auth; requiere habilitar chorus-api en allowed_token_audiences.
 - [ ] Crear el espacio personal en Chorus DB.
 - [ ] Escritorio y biblioteca.
-- [ ] Buscar y leer Works/Resources de OSAP mediante los endpoints verificados.
+- [x] Implementar proxy de búsqueda y lectura de representaciones OSAP mediante API.
 - [ ] Guardar referencias externas OSAP sin duplicar sus contenidos.
-- [ ] Crear obras propias usando Work/Resource/File V6.
+- [x] Materializar Work/Resource/File desde una carga MXL con transacción SQLite; pendiente motor definitivo.
 - [ ] Guardar ficheros con el formato V6 en la persistencia propia.
 - [ ] Registrar metadatos, índices, versiones y relaciones en Chorus DB.
 - [ ] Colecciones personales.
@@ -39,7 +41,7 @@ Criterio de salida: un usuario puede consultar OSAP y, de forma independiente, c
 ## Fase 2 — Herramientas musicales
 
 - [x] Verificar la integración posible con MuseEncore: apertura mediante ?url y exportación .mxl; no dispone de callback remoto de exportación documentado.
-- [ ] Implementar el puente API de Chorus para entregar fuentes temporales y recibir cargas .mxl.
+- [x] Implementar entrega temporal a MuseEncore y recepción/validación de .mxl por API.
 - [ ] Crear y recuperar revisiones sin sobrescribir versiones anteriores.
 - [ ] Integrar Chorus Study Generator como módulo de Chorus.
 - [ ] Adaptar la entrada del generador desde una obra propia o una partitura OSAP autorizada.
