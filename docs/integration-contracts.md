@@ -20,7 +20,7 @@ En esta primera etapa Chorus consume OSAP para buscar, consultar y leer Works, R
 
 ## 3. Persistencia propia de Chorus y formato V6
 
-Chorus dispone de una instancia de base de datos y almacenamiento propios. Para representar sus obras, recursos y ficheros adopta el modelo, formato, estructura e invariantes V6 de osap-storage.
+Chorus dispone de una instancia de base de datos y almacenamiento propios. Para representar sus obras, recursos y ficheros adopta el modelo lógico Work → Resource → File de V6 de osap-storage. La revisión del repositorio ha confirmado que el contrato OpenAPI V6 sigue siendo una propuesta y que el código y el DDL actuales aún corresponden al modelo anterior. Por ello, la compatibilidad semántica es una decisión aceptada, pero la estructura física y la serialización definitiva siguen pendientes. Véase [la auditoría V6](v6-storage-audit.md).
 
 Esto significa:
 - no crear un formato de fichero Chorus alternativo;
@@ -29,7 +29,7 @@ Esto significa:
 - mantener los datos privados en la instancia Chorus, sin escribir en la base de datos de producción OSAP;
 - mantener identificadores del ámbito Chorus separados de los identificadores del catálogo OSAP.
 
-La base de datos registra metadatos, relaciones, índices, versiones y referencias a ficheros conforme al modelo V6. El almacenamiento propio conserva los ficheros en el formato V6.
+La base de datos propia de Chorus registrará las entidades musicales Work/Resource/File y, separadamente, las relaciones personales, permisos y revisiones de la aplicación. La estructura SQL, la serialización canónica y el puntero físico de File no se fijarán hasta que exista un DDL/modelo V6 aprobado. Las revisiones de Chorus no deben alterar la semántica de las entidades V6.
 
 La independencia de Chorus es de aplicación y persistencia, no de formato.
 
