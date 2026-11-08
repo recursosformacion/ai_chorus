@@ -1,81 +1,40 @@
 # Modelo de dominio de Chorus
 
-Este documento define el modelo lógico inicial, no todavía el esquema SQL definitivo. Chorus mantiene su propia base de datos y su propio almacenamiento de ficheros.
+Este documento define el modelo lógico inicial. Chorus mantiene su propia base de datos y almacenamiento, pero utiliza el modelo y el formato V6 de osap-storage para representar obras, recursos y ficheros. No se diseñará un formato musical alternativo.
 
 ## 1. Regla de propiedad
 
-Cada usuario tiene un espacio personal permanente. Sus obras propias, ficheros, borradores, colecciones y versiones pertenecen a Chorus y al usuario. No requieren una Work publicada en OSAP.
+Cada usuario tiene un espacio personal permanente. Sus obras propias, recursos, ficheros, borradores, colecciones y versiones pertenecen a la instancia de Chorus. No requieren que exista una Work publicada en el catálogo OSAP.
 
-Una persona puede consultar obras OSAP y guardar referencias a ellas en su biblioteca. Esa referencia externa no convierte el contenido en una obra privada ni duplica el catálogo.
+Una persona también puede consultar obras OSAP y guardar referencias a ellas en su biblioteca. La referencia externa no transfiere la propiedad ni duplica el catálogo.
 
-## 2. Ámbitos de contenido
+## 2. Modelo V6 en la persistencia propia de Chorus
 
-### OsapWorkReference
+Las obras propias se representarán usando las entidades y relaciones V6:
+- **Work:** identidad de la obra.
+- **Resource:** interpretación, arreglo o edición concreta.
+- **File:** fichero físico asociado al Resource.
 
-Referencia a una Work o Resource externa de OSAP. Guarda el identificador externo y, cuando haga falta, una pequeña caché de presentación marcada como caché.
+Chorus implementará estas estructuras en su propia base de datos y almacenamiento, siguiendo el esquema, formato, restricciones e invariantes definidos por V6 de osap-storage. No se deben inventar campos ni relaciones nuevas que contradigan ese contrato.
 
-Campos conceptuales:
-- id
-- workspace_id
-- osap_work_id
-- osap_resource_id (nullable)
-- cached_display_data (nullable)
-- cached_at (nullable)
-- added_at
+Los identificadores de las entidades propias pertenecen al ámbito de Chorus. No se presentarán como identificadores de catálogo OSAP ni se supondrá que OSAP ya conoce esas obras.
 
-La referencia no es propietaria del contenido OSAP. En esta primera etapa solo se consulta y lee.
+## 3. Referencias al catálogo OSAP
 
-### PersonalWork
+### OsapReference
 
-Obra o proyecto musical propio del usuario en Chorus. Tiene identidad local, aunque todavía no se haya publicado en OSAP.
+Relación personal con una Work o Resource del catálogo externo.
 
-Campos conceptuales:
-- id
-- workspace_id
-- title
-- description
-- metadata
-- current_revision_id
-- created_at
-- updated_at
-- visibility
+Conceptualmente contiene:
+- id local de la referencia;
+- owner/workspace;
+- identificador externo de Work y/o Resource;
+- fecha de incorporación;
+- caché opcional de presentación, marcada como tal.
 
-PersonalWork no equivale a una Work canónica OSAP. No se le asigna un identificador OSAP ficticio.
+La referencia no es una copia de la entidad canónica. En la primera etapa solo se consulta y lee OSAP.
 
-### PersonalWorkFile
-
-Fichero que contiene una realización o parte del contenido de una PersonalWork en el formato propio versionado de Chorus.
-
-Campos conceptuales:
-- id
-- personal_work_id
-- revision_id
-- file_role
-- format
-- format_version
-- storage_key
-- checksum
-- size
-- created_at
-
-El fichero reside en Chorus File Store. La base de datos conserva su referencia, integridad, versión y metadatos; no se presupone guardar todos los bytes como columnas SQL.
-
-### PersonalWorkRevision
-
-Versión inmutable de una PersonalWork.
-
-Campos conceptuales:
-- id
-- personal_work_id
-- revision_number
-- metadata_snapshot
-- created_by_user_id
-- created_at
-- change_note
-
-Cada revisión apunta a uno o varios PersonalWorkFiles. Una edición no destruye versiones anteriores.
-
-## 3. Espacio personal y organización
+## 4. Espacio personal y organización
 
 ### UserWorkspace
 
@@ -83,44 +42,43 @@ Espacio personal asociado uno a uno con el identificador de usuario de osap-auth
 
 ### WorkspaceItem
 
-Elemento visible en la biblioteca. Puede ser una referencia OsapWorkReference o una PersonalWork. La relación no implica duplicar ficheros OSAP.
+Elemento visible en la biblioteca. Puede apuntar a una entidad V6 propia de Chorus o a una referencia externa OSAP.
 
 ### Collection / CollectionItem
 
-Colecciones personales para organizar WorkspaceItems. Un elemento puede aparecer en varias colecciones.
+Colecciones personales para organizar elementos de la biblioteca. Un elemento puede aparecer en varias colecciones.
 
-### Draft
+### Draft / Revision
 
-Trabajo en curso asociado a una PersonalWork o derivado de una referencia OSAP. Los borradores y revisiones se guardan en Chorus, nunca sobre el original externo.
+Trabajo en curso y sus revisiones. Deben conservar el formato V6 cuando representen Work, Resource o File; no se crea un segundo formato solo para los borradores. Las revisiones son inmutables y no alteran recursos externos OSAP.
 
-## 4. Herramientas y materiales de estudio
+## 5. Herramientas y materiales de estudio
 
 ### StudyProject
 
-Contexto de trabajo del módulo Chorus Study, asociado a una PersonalWork o a una referencia OSAP.
+Contexto de trabajo del módulo Chorus Study, asociado a una Work/Resource propia o a una referencia OSAP.
 
 ### StudyMaterial
 
-Material generado (por ejemplo, ejercicios o documentos de estudio), con referencia a su origen, tipo, versión del generador y ficheros resultantes.
+Material generado (por ejemplo, ejercicios o documentos de estudio), con referencia a su origen, tipo, versión del generador y ficheros resultantes. Su persistencia debe utilizar las estructuras V6 aplicables cuando corresponda; cualquier metadato específico del módulo se mantiene como extensión de aplicación sin alterar el núcleo V6.
 
-El generador es un módulo de la aplicación Chorus. No tiene identidad de usuario, biblioteca ni persistencia independiente. Los materiales resultantes se guardan en el espacio Chorus.
+El generador es un módulo de Chorus. No tiene identidad de usuario, biblioteca ni persistencia independiente.
 
-## 5. Colaboración (fase posterior)
+## 6. Colaboración (fase posterior)
 
-Group, GroupMembership, GroupSection y MembershipSection modelan agrupaciones, miembros, secciones y responsabilidades. La membresía no transfiere la propiedad de PersonalWork ni da acceso general al UserWorkspace.
+Group, GroupMembership, GroupSection y MembershipSection modelan agrupaciones, miembros, secciones y responsabilidades. La membresía no transfiere la propiedad de las obras ni da acceso general al espacio personal.
 
 Event, EventResponse, Distribution y sus elementos/destinatarios modelan agenda y distribución. Compartir requiere permisos explícitos.
 
-## 6. Invariantes
+## 7. Invariantes
 
-1. Cada usuario tiene un único UserWorkspace.
-2. Chorus tiene base de datos y almacenamiento propios.
-3. Una referencia OSAP no es una PersonalWork.
-4. Chorus no crea ni inventa identificadores OSAP para obras privadas.
-5. El contenido de PersonalWork se conserva en ficheros del almacenamiento Chorus.
-6. La base de datos registra metadatos, versiones, relaciones, integridad y referencias a ficheros.
-7. Las revisiones son inmutables y una edición no destruye el fichero anterior.
-8. La consulta OSAP es de lectura en esta primera etapa.
+1. Chorus tiene base de datos y almacenamiento propios.
+2. La representación de Work, Resource y File sigue V6 de osap-storage.
+3. No existe un formato propietario Chorus alternativo para las obras musicales.
+4. Las obras privadas no reciben identificadores de catálogo OSAP.
+5. Los ficheros y metadatos propios se persisten en la instancia Chorus.
+6. Las referencias al catálogo OSAP son externas y de solo lectura en la primera etapa.
+7. Las revisiones no destruyen versiones anteriores.
+8. El módulo Chorus Study utiliza la biblioteca y persistencia comunes.
 9. La pertenencia a un grupo no concede acceso a toda la biblioteca personal.
-10. El módulo Chorus Study usa la biblioteca y el almacenamiento comunes.
-11. La autorización se comprueba en servidor en cada lectura y escritura.
+10. La autorización se comprueba en servidor en cada lectura y escritura.
