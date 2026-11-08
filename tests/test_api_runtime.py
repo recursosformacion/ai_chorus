@@ -5,7 +5,8 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 
-from app.main import validate_mxl
+from app.config import Settings
+from app.main import initialise_database, validate_mxl
 
 
 def make_mxl(root_xml: str = '<score-partwise version="4.0"/>') -> bytes:
@@ -52,3 +53,23 @@ def test_path_traversal_inside_archive_is_rejected():
         archive.writestr("../score.xml", "<score-partwise/>")
     with pytest.raises(ValueError, match="Unsafe path"):
         validate_mxl(stream.getvalue(), "score.mxl")
+
+
+def test_database_migrations_are_repeatable(tmp_path):
+    settings = Settings(
+        database_path=str(tmp_path / "chorus.sqlite3"),
+        storage_root=str(tmp_path / "private"),
+    )
+    initialise_database(settings)
+    initialise_database(settings)
+    import sqlite3
+
+    with sqlite3.connect(settings.database_path) as conn:
+        tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens"} <= tables
+        applied = conn.execute("SELECT COUNT(*) FROM chorus_schema_migrations").fetchone()[0]
+        assert applied == 2
