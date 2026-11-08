@@ -6,7 +6,9 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 
 from app.config import Settings
-from app.main import initialise_database, validate_mxl
+from fastapi.testclient import TestClient
+
+from app.main import create_app, initialise_database, validate_mxl
 
 
 def make_mxl(root_xml: str = '<score-partwise version="4.0"/>') -> bytes:
@@ -73,3 +75,23 @@ def test_database_migrations_are_repeatable(tmp_path):
         assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens"} <= tables
         applied = conn.execute("SELECT COUNT(*) FROM chorus_schema_migrations").fetchone()[0]
         assert applied == 2
+
+
+def test_api_health_and_authentication_fail_closed(tmp_path):
+    settings = Settings(
+        database_path=str(tmp_path / "chorus.sqlite3"),
+        storage_root=str(tmp_path / "private"),
+    )
+    with TestClient(create_app(settings)) as client:
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json()["service"] == "chorus-api"
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"email": "musician@example.org", "password": "not-a-real-password"},
+        )
+        assert login.status_code == 503
+
+        draft = client.post("/api/v1/drafts", json={"title": "Ave verum"})
+        assert draft.status_code == 401
