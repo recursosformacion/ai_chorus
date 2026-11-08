@@ -48,9 +48,15 @@ Elemento visible en la biblioteca. Puede apuntar a una entidad V6 propia de Chor
 
 Colecciones personales para organizar elementos de la biblioteca. Un elemento puede aparecer en varias colecciones.
 
-### Draft / Revision
+### CreationDraft
 
-Trabajo en curso y sus revisiones. Deben conservar el formato V6 cuando representen Work, Resource o File; no se crea un segundo formato solo para los borradores. Las revisiones son inmutables y no alteran recursos externos OSAP.
+Entidad de aplicación Chorus, separada del catálogo V6. Puede existir sin Work, Resource ni File. Guarda propietario (subject OIDC), estado, título provisional y, opcionalmente, la referencia externa OSAP elegida como origen (work_id y representation_id). Si el usuario elige un original, la descarga temporal queda en el área de trabajo del borrador y no se registra como File V6.
+
+El borrador solo se materializa cuando Chorus recibe un primer fichero válido. En ese momento Work, Resource y File se crean juntos. Un borrador no es una Work V6 incompleta.
+
+### Revision
+
+Las revisiones de una obra ya materializada conservan los ficheros anteriores. Deben utilizar el modelo V6; no se crea un segundo formato para las revisiones y nunca se modifica un recurso externo OSAP.
 
 ## 5. Herramientas y materiales de estudio
 
