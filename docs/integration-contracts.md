@@ -4,7 +4,7 @@ Este documento distingue contratos observados de decisiones pendientes. Chorus e
 
 ## 1. Identidad: osap-auth
 
-Chorus delega la identidad en osap-auth. El runtime utiliza POST /auth/login y POST /auth/refresh con la audiencia predeterminada de Auth. El refresh se mantiene en cookie HttpOnly, Secure y SameSite=Lax. Chorus no valida localmente el JWT: reenvía el Bearer a GET /auth/me, que verifica firma, emisor y audiencia en osap-auth, y usa el user_id de la respuesta para aplicar propiedad y permisos. Véase authentication-runtime.md.
+Chorus delega la identidad en osap-auth. El runtime utiliza POST /auth/login y POST /auth/refresh con la audiencia predeterminada de Auth. El refresh se mantiene en cookie HttpOnly, Secure y SameSite=Lax. Chorus no valida localmente el JWT: reenvía el Bearer a GET /auth/me, que verifica firma, emisor y audiencia en osap-auth, y usa el user_id de la respuesta para aplicar propiedad y permisos. En las llamadas de catálogo y descarga también reenvía el Bearer a osap-api, que es su audiencia prevista, para mantener las cuotas y la analítica asociadas al usuario. Véase authentication-runtime.md.
 
 El flujo OIDC PKCE que AI_GAMEPC2 utiliza hoy está configurado para su propia SPA y audiencia osap-api. Chorus no reutiliza el token como si fuera una credencial emitida para Chorus; lo presenta únicamente ante el endpoint /auth/me de osap-auth, que es el servicio destinado a validarlo.
 
