@@ -15,6 +15,8 @@ La API inicializa las migraciones SQLite locales al arrancar. El almacenamiento 
 
 - POST /api/v1/auth/login: proxy backend a osap-auth con audiencia Chorus; refresh en cookie HttpOnly.
 - POST /api/v1/auth/refresh: rotación de refresh.
+- GET /api/v1/auth/me y GET /api/v1/auth/legal/current: perfil y versiones legales.
+- POST /api/v1/auth/onboarding: completa nickname y aceptación legal en osap-auth.
 - POST /api/v1/auth/logout: revoca la sesión actual.
 - POST /api/v1/catalog/searches, GET /api/v1/catalog/searches/{id}.
 - GET /api/v1/catalog/representations/{id}.
@@ -24,7 +26,7 @@ La API inicializa las migraciones SQLite locales al arrancar. El almacenamiento 
 - GET /api/v1/editor-sources/{token}: fuente temporal CORS restringida al origen configurado del editor.
 - POST /api/v1/drafts/{id}/files: valida y guarda un archivo .mxl; materializa Work → Resource → File en una transacción.
 
-Todas las rutas de catálogo, borradores y carga requieren un access token de usuario válido. El propietario se deriva de sub, nunca del cuerpo de la petición.
+Todas las rutas de catálogo, borradores y carga requieren un access token de usuario válido y onboarding completado. El propietario se deriva de sub, nunca del cuerpo de la petición.
 
 ## Límites del piloto
 
