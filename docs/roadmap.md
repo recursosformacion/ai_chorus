@@ -10,7 +10,11 @@ Chorus es una aplicación independiente de OSAP, con base de datos y almacenamie
 - [x] Fijar la cardinalidad Work → Resource → File: toda Work válida tiene Resource y todo Resource tiene File.
 - [x] Crear un primer DDL piloto Work/Resource/File en SQLite, sin copiar el esquema anterior de Storage. Es una implementación de referencia, no una elección del motor definitivo.
 - [x] Añadir seis tests de integridad y ejecutarlos en GitHub Actions: 6 passed.
-- [ ] Elegir el motor definitivo y traducir/probar las restricciones en ese motor.
+- [x] Definir el flujo API de CreationDraft previo a la primera Work V6.
+- [x] Añadir persistencia SQLite de borradores y tokens temporales del editor.
+- [x] Definir el contrato API para búsqueda OSAP, selección de original, apertura de MuseEncore y carga MXL.
+- [x] Añadir pruebas de integridad para borradores; ejecución CI pendiente.
+- [ ] Implementar los endpoints reales de Chorus API y sus adaptadores OSAP/OIDC.
 - [ ] Definir la persistencia de ficheros V6 en el almacenamiento propio de Chorus.
 - [ ] Revisar contratos reales de autenticación y lectura de OSAP.
 - [ ] Preparar configuración propia (osap.toml).
@@ -23,7 +27,7 @@ Criterio de salida: Chorus puede persistir obras propias con el formato/modelo V
 - [ ] Autenticación mediante osap-auth.
 - [ ] Crear el espacio personal en Chorus DB.
 - [ ] Escritorio y biblioteca.
-- [ ] Buscar y leer Works/Resources de OSAP.
+- [ ] Buscar y leer Works/Resources de OSAP mediante los endpoints verificados.
 - [ ] Guardar referencias externas OSAP sin duplicar sus contenidos.
 - [ ] Crear obras propias usando Work/Resource/File V6.
 - [ ] Guardar ficheros con el formato V6 en la persistencia propia.
@@ -34,7 +38,8 @@ Criterio de salida: un usuario puede consultar OSAP y, de forma independiente, c
 
 ## Fase 2 — Herramientas musicales
 
-- [ ] Integrar Muse-encore con los ficheros V6 propios de Chorus.
+- [x] Verificar la integración posible con MuseEncore: apertura mediante ?url y exportación .mxl; no dispone de callback remoto de exportación documentado.
+- [ ] Implementar el puente API de Chorus para entregar fuentes temporales y recibir cargas .mxl.
 - [ ] Crear y recuperar revisiones sin sobrescribir versiones anteriores.
 - [ ] Integrar Chorus Study Generator como módulo de Chorus.
 - [ ] Adaptar la entrada del generador desde una obra propia o una partitura OSAP autorizada.
