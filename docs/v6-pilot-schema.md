@@ -1,6 +1,6 @@
 # Esquema piloto V6 de Chorus
 
-**Estado:** primera implementación de referencia añadida; pendiente de ejecución local y revisión técnica.  
+**Estado:** implementación de referencia añadida y validada en GitHub Actions (6 pruebas correctas); pendiente de ejecución local y revisión para el motor definitivo.  
 **Ámbito:** Work, Resource y File propios de Chorus.  
 **Motor:** SQLite únicamente como banco de pruebas portable. No decide el motor definitivo de Chorus ni el de OSAP Storage.
 
@@ -68,4 +68,4 @@ tests/test_v6_schema.py verifica:
 - imposibilidad de compartir un File entre Resources;
 - ausencia de unicidad de negocio sobre SHA-256.
 
-Estas pruebas deben ejecutarse en el entorno de desarrollo de Chorus. La revisión del repositorio remoto no equivale a ejecutar pytest.
+El workflow de GitHub Actions V6 schema tests se ha ejecutado correctamente: 6 passed. La ejecución CI valida este DDL y estas invariantes en SQLite; no sustituye las pruebas de integración con el motor definitivo.
