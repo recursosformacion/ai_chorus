@@ -26,7 +26,7 @@ La API inicializa las migraciones SQLite locales al arrancar. El almacenamiento 
 - GET /api/v1/editor-sources/{token}: fuente temporal CORS restringida al origen configurado del editor.
 - POST /api/v1/drafts/{id}/files: valida y guarda un archivo .mxl; materializa Work → Resource → File en una transacción.
 
-Todas las rutas de catálogo, borradores y carga requieren un access token de usuario válido y onboarding completado. El propietario se deriva de sub, nunca del cuerpo de la petición.
+Todas las rutas de catálogo, borradores y carga requieren un access token de usuario válido y onboarding completado. Chorus lo valida mediante osap-auth /auth/me y lo reenvía a osap-api al consultar o descargar para conservar cuotas y analítica de usuario. El propietario se deriva del user_id devuelto por Auth, nunca del cuerpo de la petición.
 
 ## Límites del piloto
 
