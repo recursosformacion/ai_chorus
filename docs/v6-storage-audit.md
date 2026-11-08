@@ -1,6 +1,6 @@
 # Auditoría de compatibilidad con OSAP Storage V6
 
-**Estado:** revisión documental y de código fuente completada; diseño físico de Chorus bloqueado hasta resolver las decisiones indicadas.  
+**Estado:** revisión documental y de código fuente completada; criterio de cardinalidad Work → Resource → File confirmado por decisión de producto de Chorus.  
 **Fecha:** 2026-11-08.  
 **Repositorio revisado:** [recursosformacion/AI_osap-storage](https://github.com/recursosformacion/AI_osap-storage), rama `main`.  
 **Alcance:** README, especificación de reconstrucción V6, propuesta OpenAPI V6, documentación de área personal, matriz de migración, migración SQL base y entidades/esquemas actuales.  
@@ -59,17 +59,21 @@ La propuesta [v6-openapi-contract.md](https://github.com/recursosformacion/AI_os
 ### Identificadores
 Work ID, Resource ID y File ID son tipos distintos y opacos. Los identificadores propios de Chorus deben pertenecer a su espacio de nombres y nunca presentarse como IDs del catálogo OSAP.
 
-## 4. Decisión pendiente importante: cardinalidad Work–Resource
+## 4. Cardinalidad vinculante para Chorus: Work → Resource → File
 
-Los documentos versionados no son plenamente coherentes:
+La decisión de producto para Chorus queda fijada:
 
-- `docs/v6-openapi-contract.md` permite que Work exista con cero Resources.
-- `docs/v6-reconstruction-api-index-cutover.md` contiene una regla anterior que exige uno o más Resources, pero una corrección posterior distingue las Works catalográficas sin material OMR y permite que queden sin Resources.
-- `docs/v6-data-migration-mapping.md` todavía afirma que toda Work debe tener al menos un Resource.
+- Una Work válida tiene uno o más Resources.
+- Cada Resource válido tiene uno o más Files.
+- Un File pertenece a un único Resource.
+- Por tanto, no existe una Work completa/registrada en la biblioteca musical si no se puede recorrer Work → Resource → File.
+- Un Resource sin File no constituye una obra utilizable y no debe persistirse como Resource válido en Chorus.
 
-La corrección posterior de federación y el OpenAPI apuntan a permitir Work sin Resource cuando solo existe una ficha catalográfica; sin embargo, la documentación no está armonizada. No se fijará una restricción SQL ni una validación de Chorus hasta que esta cardinalidad quede confirmada como decisión vinculante única.
+Una persona puede estar definiendo o componiendo una obra antes de guardar su primer fichero. Ese trabajo previo puede existir como estado de edición/borrador del proceso de creación, pero no debe confundirse con una Work musical completa del modelo V6. Al guardar el primer fichero se materializa la estructura Work → Resource → File.
 
-Esto también afecta a las referencias OSAP: una Work consultada puede no tener Resource OMR; Chorus debe poder guardar una referencia a Work sin inventar un Resource.
+La documentación antigua de Storage que admite Works sin Resources o Resources sin Files no se adopta para Chorus. Chorus parte del modelo V6 con esta cardinalidad estricta y servirá como implementación de prueba para validar su estructura antes de que OSAP Storage la implemente. La propuesta OpenAPI y los documentos de migración de Storage deberán armonizarse posteriormente con esta regla.
+
+Esta decisión sustituye la sección anterior que trataba la cardinalidad como una contradicción pendiente. No se bloquea Chorus esperando a que OSAP termine su implementación: se implementa y prueba primero en Chorus, manteniendo explícita la compatibilidad semántica V6.
 
 ## 5. Área personal y privacidad: separación de responsabilidades
 
