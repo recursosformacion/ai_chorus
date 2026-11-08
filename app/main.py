@@ -434,12 +434,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return draft_dto(updated)
 
     @app.get("/api/v1/drafts/{draft_id}/editor")
-    def open_editor(draft_id: str, request: Request, user: Principal = Depends(current_user)) -> dict[str, str]:
+    def open_editor(draft_id: str, user: Principal = Depends(current_user)) -> dict[str, str]:
         row = owned_draft(draft_id, user)
         if not cfg.editor_base_url:
             raise HTTPException(status_code=503, detail="MuseEncore editor URL is not configured")
         editor_url = cfg.editor_base_url
         if row["source_file_pointer"]:
+            if not cfg.public_base_url or not cfg.editor_origin:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Public Chorus API URL and MuseEncore origin must be configured for source sharing",
+                )
             token = secrets.token_urlsafe(32)
             token_hash = hashlib.sha256(token.encode()).hexdigest()
             expires = (datetime.now(UTC) + timedelta(seconds=cfg.source_token_ttl_seconds)).isoformat()
@@ -448,8 +453,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "INSERT INTO editor_source_tokens (token_hash, draft_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
                     (token_hash, draft_id, expires, utcnow()),
                 )
-            api_origin = cfg.public_base_url or str(request.base_url).rstrip("/")
-            source_url = api_origin + f"/api/v1/editor-sources/{token}"
+            source_url = cfg.public_base_url + f"/api/v1/editor-sources/{token}"
             editor_url += ("&" if "?" in editor_url else "?") + urlencode({"url": source_url})
         return {"editor_url": editor_url}
 
