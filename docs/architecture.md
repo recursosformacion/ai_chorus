@@ -53,6 +53,19 @@ El backend Chorus media las operaciones de la aplicación. El navegador no acced
 
 Una referencia a OSAP no se convierte automáticamente en una obra propia ni se copia al almacenamiento privado.
 
+### 3.3 Creación desde la API
+
+El flujo de creación se orquesta exclusivamente mediante Chorus API:
+
+1. el usuario puede buscar una obra en OSAP y elegir una representación, o iniciar una partitura en blanco;
+2. Chorus crea un Draft de aplicación, fuera de las tablas V6 Work/Resource/File;
+3. si se eligió OSAP, Chorus obtiene la partitura mediante las APIs públicas de OSAP y la ofrece a MuseEncore mediante una URL temporal firmada;
+4. MuseEncore abre la partitura mediante su parámetro documentado `?url`, o presenta su pantalla de nueva partitura;
+5. el usuario exporta MusicXML comprimido (.mxl) y lo carga a Chorus mediante la API;
+6. Chorus valida el fichero y materializa Work → Resource → File en una única transacción.
+
+El editor externo no recibe acceso a la base de datos, al almacenamiento privado ni a un token OIDC reutilizable. Su origen web solo recibe una URL temporal de lectura con expiración y CORS restringido. El `.mxl` exportado se devuelve a Chorus mediante una carga autenticada.
+
 ### 3.2 Obras propias de Chorus
 
 - El usuario puede crear o incorporar una obra propia sin que exista una Work en el catálogo OSAP.
