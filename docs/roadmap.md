@@ -6,8 +6,10 @@ Chorus es una aplicación independiente de OSAP, con base de datos y almacenamie
 
 - [x] Definir propósito y principios.
 - [x] Establecer la separación entre Chorus y OSAP.
-- [ ] Revisar el esquema, los contratos y las restricciones V6 de osap-storage.
-- [ ] Definir cómo se implementará ese modelo V6 en la base de datos propia de Chorus.
+- [x] Revisar el esquema actual y la documentación V6 de osap-storage; identificar que su código/DDL todavía es anterior a V6.
+- [x] Fijar la cardinalidad Work → Resource → File: toda Work válida tiene Resource y todo Resource tiene File.
+- [ ] Diseñar e implementar en Chorus el primer esquema SQL V6 de prueba, sin copiar el esquema anterior de Storage.
+- [ ] Probar con tests de integridad las cardinalidades, relaciones y ciclo de creación del primer File.
 - [ ] Definir la persistencia de ficheros V6 en el almacenamiento propio de Chorus.
 - [ ] Revisar contratos reales de autenticación y lectura de OSAP.
 - [ ] Elegir stack y preparar configuración propia (`osap.toml`).
