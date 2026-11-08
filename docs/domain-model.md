@@ -73,12 +73,16 @@ Event, EventResponse, Distribution y sus elementos/destinatarios modelan agenda 
 ## 7. Invariantes
 
 1. Chorus tiene base de datos y almacenamiento propios.
-2. La representación de Work, Resource y File sigue V6 de osap-storage.
+2. La representación de Work, Resource y File sigue el modelo V6 de osap-storage.
 3. No existe un formato propietario Chorus alternativo para las obras musicales.
-4. Las obras privadas no reciben identificadores de catálogo OSAP.
-5. Los ficheros y metadatos propios se persisten en la instancia Chorus.
-6. Las referencias al catálogo OSAP son externas y de solo lectura en la primera etapa.
-7. Las revisiones no destruyen versiones anteriores.
-8. El módulo Chorus Study utiliza la biblioteca y persistencia comunes.
-9. La pertenencia a un grupo no concede acceso a toda la biblioteca personal.
-10. La autorización se comprueba en servidor en cada lectura y escritura.
+4. Toda Work musical válida tiene al menos un Resource.
+5. Todo Resource válido tiene al menos un File; un Resource sin fichero no constituye una unidad musical persistida válida en Chorus.
+6. La cadena obligatoria es Work → uno o más Resources → uno o más Files por Resource.
+7. Una obra que todavía se está definiendo y aún no tiene un primer fichero puede permanecer en el proceso de edición como borrador incompleto, pero no se considera todavía una Work musical completa de la biblioteca V6.
+8. Las obras privadas no reciben identificadores de catálogo OSAP.
+9. Los ficheros y metadatos propios se persisten en la instancia Chorus.
+10. Las referencias al catálogo OSAP son externas y de solo lectura en la primera etapa.
+11. Las revisiones no destruyen versiones anteriores.
+12. El módulo Chorus Study utiliza la biblioteca y persistencia comunes.
+13. La pertenencia a un grupo no concede acceso a toda la biblioteca personal.
+14. La autorización se comprueba en servidor en cada lectura y escritura.
