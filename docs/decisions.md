@@ -69,3 +69,14 @@ La primera etapa es de lectura de OSAP. La publicación de obras propias se dise
 - Integración de Muse-encore.
 - Contrato de entrada/salida del módulo Chorus Study.
 - Compartición, permisos y publicación futura.
+
+
+## CH-011 — Cardinalidad obligatoria Work → Resource → File
+
+**Estado:** Aceptada.
+
+Una Work musical no está completa ni tiene entidad útil en la biblioteca si no dispone de al menos un Resource, y cada Resource debe contener al menos un File. La estructura válida es Work → uno o más Resources → uno o más Files por Resource. Un Resource sin File no se considera un Resource musical válido en Chorus.
+
+Durante la composición el usuario puede definir una obra antes de grabar su primer fichero. Ese estado de trabajo puede mantenerse como borrador incompleto, pero no se confunde con una Work musical completa del modelo V6. Al guardar el primer fichero se materializa la cadena Work/Resource/File.
+
+Chorus implementará y probará esta regla como primera implementación práctica del modelo V6, antes de que OSAP Storage lo despliegue. No se adoptan para Chorus los textos antiguos que permiten Work sin Resource o Resource sin File.
