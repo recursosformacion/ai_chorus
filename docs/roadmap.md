@@ -9,10 +9,11 @@ Chorus es una aplicación independiente de OSAP, con base de datos y almacenamie
 - [x] Revisar el esquema actual y la documentación V6 de osap-storage; identificar que su código/DDL todavía es anterior a V6.
 - [x] Fijar la cardinalidad Work → Resource → File: toda Work válida tiene Resource y todo Resource tiene File.
 - [x] Crear un primer DDL piloto Work/Resource/File en SQLite, sin copiar el esquema anterior de Storage. Es una implementación de referencia, no una elección del motor definitivo.
-- [ ] Ejecutar en el entorno del repositorio la batería pytest de integridad y corregir cualquier fallo antes de darla por válida. La migración y los tests ya están añadidos; se ha comprobado por separado el DDL y los casos principales con SQLite, pero aún no se ha ejecutado pytest sobre el repositorio.
+- [x] Añadir seis tests de integridad y ejecutarlos en GitHub Actions: 6 passed.
+- [ ] Elegir el motor definitivo y traducir/probar las restricciones en ese motor.
 - [ ] Definir la persistencia de ficheros V6 en el almacenamiento propio de Chorus.
 - [ ] Revisar contratos reales de autenticación y lectura de OSAP.
-- [ ] Elegir stack y preparar configuración propia (osap.toml).
+- [ ] Preparar configuración propia (osap.toml).
 - [ ] Preparar pruebas de integridad, versiones, checksums y recuperación.
 
 Criterio de salida: Chorus puede persistir obras propias con el formato/modelo V6 y consultar OSAP en modo lectura.
