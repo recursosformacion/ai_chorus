@@ -21,11 +21,15 @@ class Principal:
 class TokenVerifier:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._jwks = PyJWKClient(settings.auth_jwks_url, cache_jwk_set=True, lifespan=300)
+        self._jwks: PyJWKClient | None = None
 
     def verify(self, token: str) -> Principal:
         self.settings.validate_auth()
         try:
+            if self._jwks is None:
+                self._jwks = PyJWKClient(
+                    self.settings.auth_jwks_url, cache_jwk_set=True, lifespan=300
+                )
             key = self._jwks.get_signing_key_from_jwt(token).key
             claims: dict[str, Any] = jwt.decode(
                 token,
