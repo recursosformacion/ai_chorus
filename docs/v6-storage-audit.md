@@ -142,3 +142,12 @@ No se debe implementar todavía:
 - [Matriz de campos Work](https://github.com/recursosformacion/AI_osap-storage/blob/main/docs/v6-work-field-mapping.md)
 - [Esquema base versionado](https://github.com/recursosformacion/AI_osap-storage/blob/main/infrastructure/db/migrations/001_baseline_schema.sql)
 - Código actual: `domain/entities/work.py`, `domain/entities/representation.py`, `domain/entities/file.py`, `api/schemas.py`.
+
+
+## 10. Seguimiento: esquema piloto implementado en Chorus (2026-11-08)
+
+Después de esta auditoría, Chorus ha incorporado una implementación SQLite de referencia en `migrations/sqlite/001_v6_work_resource_file.sql`, documentada en `docs/v6-pilot-schema.md`. No es un DDL oficial de AI_osap-storage ni pretende resolver los campos y relaciones que siguen pendientes en el contrato V6 completo.
+
+La migración impone mediante claves foráneas diferidas la cadena Work → Resource → File al confirmar una transacción. Se han añadido seis pruebas en `tests/test_v6_schema.py` y un workflow de GitHub Actions. La ejecución del workflow terminó correctamente: **6 passed**.
+
+Esto cierra el primer prototipo técnico de cardinalidad en Chorus. No cierra la definición del contrato V6 compartido, ni selecciona el motor definitivo de Chorus, ni implementa el almacenamiento físico o los borradores sin File.
