@@ -24,9 +24,13 @@ Chorus dispone de una instancia de base de datos y almacenamiento propios. Para 
 
 La migración SQLite de referencia está en migrations/sqlite/001_v6_work_resource_file.sql y sus pruebas en tests/test_v6_schema.py. Utiliza claves foráneas diferidas para exigir que cada Work tenga un Resource y cada Resource un File al confirmar la transacción. SQLite es aquí un banco de pruebas; no se ha elegido como motor definitivo.
 
+El workflow V6 schema tests se ejecutó en GitHub Actions y terminó con 6 pruebas correctas (6 passed). Esto valida la migración y sus invariantes en SQLite, no el contrato V6 completo ni el motor definitivo.
+
 El piloto no equivale a congelar el contrato V6 completo. Antes de convertirlo en persistencia de producción quedan por cerrar los créditos, las clasificaciones normalizadas, los vocabularios, la serialización canónica, el motor definitivo y la política del almacenamiento físico. El puntero interno del File no se expone en DTO; SHA-256 no es identidad ni clave única.
 
 La base de datos propia de Chorus registrará las entidades musicales Work/Resource/File y, separadamente, las relaciones personales, permisos y revisiones de la aplicación. La independencia de Chorus es de aplicación y persistencia, no de formato.
+
+Véase v6-pilot-schema.md para las decisiones y límites del DDL de referencia.
 
 ## 4. ScoreContract
 
@@ -57,7 +61,6 @@ Es un flujo conceptual; no fija rutas, scopes ni payloads que todavía no hayan 
 ## 6. Verificaciones pendientes
 
 - [ ] Contrastar el esquema, serialización e invariantes V6 completos en osap-storage.
-- [ ] Ejecutar pytest del piloto en el entorno del repositorio y corregir cualquier fallo.
 - [ ] Elegir el motor definitivo y traducir/probar las restricciones en ese motor.
 - [ ] Confirmar issuer, audience, claims y registro de cliente OIDC.
 - [ ] Revisar OpenAPI OSAP de la versión desplegada.
