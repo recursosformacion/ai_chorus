@@ -10,6 +10,7 @@ import sqlite3
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -44,6 +45,12 @@ class DraftBody(BaseModel):
 class SourceBody(BaseModel):
     work_id: str = Field(min_length=1, max_length=200)
     representation_id: str = Field(min_length=1, max_length=200)
+
+
+class OnboardingBody(BaseModel):
+    nickname: str = Field(min_length=3, max_length=30)
+    terms_version: str = Field(min_length=1, max_length=40)
+    privacy_version: str = Field(min_length=1, max_length=40)
 
 
 def utcnow() -> str:
@@ -147,7 +154,12 @@ def _read_private(settings: Settings, pointer: str) -> bytes:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings.load()
-    app = FastAPI(title="Chorus API", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        initialise_database(cfg)
+        yield
+
+    app = FastAPI(title="Chorus API", version="0.1.0", lifespan=lifespan)
     verifier = TokenVerifier(cfg)
 
     origins = list(cfg.cors_origins)
@@ -160,18 +172,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["Authorization", "Content-Type"],
         )
 
-    @app.on_event("startup")
-    def startup() -> None:
-        initialise_database(cfg)
-
-    def current_user(authorization: str | None = Header(default=None)) -> Principal:
+    def principal_from_authorization(authorization: str | None) -> Principal:
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status_code=401, detail="Authentication required")
         return verifier.verify(authorization[7:].strip())
 
+    def current_user(authorization: str | None = Header(default=None)) -> Principal:
+        principal = principal_from_authorization(authorization)
+        token = authorization[7:].strip() if authorization else ""
+        status_code, profile = auth_call("GET", "/auth/me", token=token)
+        if status_code != 200 or not isinstance(profile, dict):
+            raise HTTPException(status_code=401, detail="Unable to confirm account status")
+        onboarding = profile.get("onboarding")
+        if isinstance(onboarding, dict) and onboarding.get("required") is True:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "ONBOARDING_REQUIRED", "onboarding": onboarding},
+            )
+        return principal
+
     def auth_call(method: str, path: str, *, payload: dict[str, Any] | None = None,
                   token: str | None = None) -> tuple[int, Any]:
-        cfg.validate_auth()
+        try:
+            cfg.validate_auth()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Identity service is not configured") from exc
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         try:
             with httpx.Client(timeout=cfg.auth_timeout_seconds) as client:
@@ -233,11 +258,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if status_code != 200 or not isinstance(doc, dict) or not doc.get("access_token") or not doc.get("refresh_token"):
             raise HTTPException(status_code=status_code if status_code in (400, 401, 422, 429) else 502,
                                 detail=doc.get("detail", "Login failed") if isinstance(doc, dict) else "Login failed")
+        profile_status, profile = auth_call("GET", "/auth/me", token=str(doc["access_token"]))
+        if profile_status != 200 or not isinstance(profile, dict):
+            raise HTTPException(status_code=502, detail="Could not load authenticated account profile")
         response.set_cookie(
             "chorus_refresh", str(doc["refresh_token"]), httponly=True, secure=cfg.secure_cookies,
             samesite="lax", path="/api/v1/auth", max_age=30 * 24 * 60 * 60,
         )
-        return {k: doc[k] for k in ("access_token", "user_id", "roles", "email_verified") if k in doc}
+        result = {k: doc[k] for k in ("access_token", "user_id", "roles", "email_verified") if k in doc}
+        result["onboarding"] = profile.get("onboarding")
+        return result
 
     @app.post("/api/v1/auth/refresh")
     def refresh(request: Request, response: Response) -> dict[str, Any]:
@@ -257,8 +287,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return {k: doc[k] for k in ("access_token", "user_id", "roles", "email_verified") if k in doc}
 
+    @app.get("/api/v1/auth/me")
+    def me(authorization: str | None = Header(default=None)) -> Any:
+        principal_from_authorization(authorization)
+        token = authorization[7:].strip() if authorization else ""
+        status_code, profile = auth_call("GET", "/auth/me", token=token)
+        if status_code != 200:
+            raise HTTPException(status_code=401, detail="Account profile unavailable")
+        return profile
+
+    @app.get("/api/v1/auth/legal/current")
+    def legal_current() -> Any:
+        status_code, document = auth_call("GET", "/auth/legal/current")
+        if status_code != 200:
+            raise HTTPException(status_code=502, detail="Legal information unavailable")
+        return document
+
+    @app.post("/api/v1/auth/onboarding")
+    def complete_onboarding(body: OnboardingBody, authorization: str | None = Header(default=None)) -> Any:
+        principal_from_authorization(authorization)
+        token = authorization[7:].strip() if authorization else ""
+        status_code, document = auth_call(
+            "POST", "/auth/onboarding",
+            payload=body.model_dump(), token=token,
+        )
+        if status_code != 200:
+            raise HTTPException(
+                status_code=status_code if status_code in (400, 401, 409, 422) else 502,
+                detail=document.get("detail", "Onboarding could not be completed")
+                if isinstance(document, dict) else "Onboarding could not be completed",
+            )
+        return document
+
     @app.post("/api/v1/auth/logout", status_code=204)
-    def logout(response: Response, user: Principal = Depends(current_user),
+    def logout(response: Response, user: Principal = Depends(principal_from_authorization),
                authorization: str | None = Header(default=None)) -> Response:
         token = authorization[7:].strip() if authorization else ""
         auth_call("POST", "/auth/logout", token=token)
