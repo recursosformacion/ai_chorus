@@ -90,3 +90,22 @@ El SHA-256 es nullable y no único; storage_pointer es opaco e interno y no se e
 - Contrato de entrada/salida del módulo Chorus Study.
 - Compartición, permisos y publicación futura.
 - Ejecutar pytest sobre el repositorio y cerrar cualquier fallo antes de considerar validada la migración.
+
+
+## CH-013 — Draft de aplicación antes de materializar V6
+
+**Estado:** Aceptada.
+
+El trabajo previo al primer fichero se representa mediante `CreationDraft`, una entidad de aplicación Chorus separada de las tablas V6. Puede guardar título provisional y una referencia a una Work/Representation de OSAP, pero no crea una Work, Resource o File musical incompleta. Solo al recibir un fichero válido se materializa la cadena Work → Resource → File en una única transacción. Los borradores pertenecen al subject autenticado y no aceptan un propietario enviado por el cliente.
+
+## CH-014 — MuseEncore como editor externo sin modificarlo
+
+**Estado:** Aceptada.
+
+Chorus utilizará el editor web oficial de MuseEncore sin copiar ni modificar su repositorio. MuseEncore permite abrir una partitura mediante el parámetro `?url` y exportar MusicXML comprimido `.mxl`. Chorus entrega el fichero de origen mediante una URL temporal firmada, con expiración y CORS limitado al origen del editor. El usuario exporta el `.mxl` y lo carga a Chorus mediante su API autenticada. No se presupone una API remota de exportación que MuseEncore no documenta actualmente.
+
+## CH-015 — Búsqueda OSAP y uso de originales en modo lectura
+
+**Estado:** Aceptada.
+
+Chorus consulta OSAP mediante `POST /api/v1/searches`, `GET /api/v1/searches/{search_id}`, `GET /api/v1/representations/{representation_id}` y `GET /api/v1/representations/{representation_id}/download`. El usuario puede elegir una representación compatible con MuseEncore como base de trabajo. Chorus conserva los identificadores externos y la procedencia/derechos conocidos; nunca modifica el original ni escribe en OSAP.
