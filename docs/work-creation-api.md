@@ -115,6 +115,6 @@ PDF no es un formato de importación musical editable de MuseEncore. Un PDF OSAP
 
 El primer servidor FastAPI está implementado en app/main.py. Los endpoints anteriores están disponibles en el piloto, con persistencia SQLite y ficheros locales privados. Las migraciones se registran para no ejecutarse dos veces. La carga MXL comprueba el contenedor ZIP, META-INF/container.xml, rootfile y raíz MusicXML; la materialización crea Work, Resource y File en una transacción.
 
-La autenticación se describe en authentication-runtime.md. La API no acepta tokens con audiencia osap-api; exige chorus-api. Antes de probar login real, osap-auth debe permitir esa audiencia. La URL pública de Chorus, el origen de MuseEncore y los endpoints reales deben configurarse en osap.toml.
+La autenticación se describe en authentication-runtime.md. Chorus delega la validación del Bearer a osap-auth /auth/me y utiliza el user_id devuelto por Auth. La URL pública de Chorus, el origen de MuseEncore y los endpoints reales deben configurarse en osap.toml.
 
 El runtime no resuelve aún la política de revisiones, las colecciones personales, el motor definitivo, el almacenamiento distribuido, los límites de concurrencia de producción ni el ciclo de recuperación/limpieza de objetos huérfanos. No se debe considerar listo para producción.
