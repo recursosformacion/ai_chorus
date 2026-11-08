@@ -1,9 +1,8 @@
-# Revisión técnica inicial de Chorus preexistente
+# Revisión técnica inicial del generador Chorus Study
 
 ## 1. Paquete localizado
 
-Inventario de `src/chorus` en `recursosformacion/AI_GAMEPC2`:
-
+En `recursosformacion/AI_GAMEPC2/src/chorus` se localizaron:
 - `domain/material_type.py`
 - `domain/study_material.py`
 - `application/use_cases/generate_materials.py`
@@ -17,67 +16,48 @@ Inventario de `src/chorus` en `recursosformacion/AI_GAMEPC2`:
 - `bootstrap/*`
 - `web/app.py`
 
-Pruebas localizadas:
-- `tests/chorus/test_domain.py`
-- `tests/chorus/test_generate_materials.py`
-- `tests/chorus/test_score_contract.py`
-- `tests/chorus/test_web.py`
+Tests localizados: `test_domain.py`, `test_generate_materials.py`, `test_score_contract.py` y `test_web.py`.
 
 ## 2. Valor reutilizable
 
-El módulo de generación es pequeño y tiene límites reconocibles:
-- `StudyMaterial` y `MaterialType` expresan el resultado.
-- `GenerateMaterialsUseCase` delega en generadores registrados.
-- `ExerciseGenerator` produce un resumen estructural sin inventar datos.
-- El contrato JSON desacopla el transporte de las clases Python de OSAP.
+El generador tiene límites reconocibles: StudyMaterial/MaterialType expresan resultados; GenerateMaterialsUseCase coordina generadores; ExerciseGenerator produce material estructural; el contrato JSON desacopla el transporte de las clases Python OSAP.
 
-Esto permite conservar la generación de materiales como una capacidad del nuevo Chorus, sin convertirla en el centro de la biblioteca personal.
+Se conserva como módulo funcional Chorus Study dentro de la aplicación Chorus. No tendrá una biblioteca ni persistencia independiente.
 
-## 3. Límites del contrato actual
+## 3. Límites de ScoreContract
 
-El `ScoreContract` actual es un contrato de entrada específico para generar materiales a partir de un Score ya validado. Incluye título, compositor, estructura resumida, calidad y diagnósticos.
+El `ScoreContract` es una entrada especializada para generar materiales a partir de un Score validado. No representa:
+- Work canónica OSAP;
+- Resource o File del catálogo;
+- PersonalWork ni sus ficheros propios;
+- derechos, licencia, uploader o procedencia;
+- borradores, revisiones o publicación.
 
-No representa:
-- una Work canónica con identidad estable;
-- un Resource concreto del catálogo;
-- el File físico que pertenece al Resource;
-- derechos, licencia, uploader ni procedencia;
-- el identificador estable del Resource que el usuario añade a su biblioteca;
-- una operación de edición, borrador o publicación.
+El bridge reconstruye un Score con identificador marcador y contenido vacío. Puede servir al generador que consume los campos estructurales, pero no es un modelo de biblioteca o edición.
 
-Además, el bridge reconstruye un Score con identificador marcador y contenido vacío. Eso es aceptable para el generador que consume los campos estructurales, pero no puede convertirse en el modelo general de biblioteca o edición.
+**Conclusión:** mantener ScoreContract como contrato de entrada del generador si las pruebas lo avalan. No usarlo como contrato general de Chorus.
 
-**Conclusión:** mantener `ScoreContract` para el caso de uso de generación, si supera las pruebas y la revisión de compatibilidad; no reutilizarlo como contrato principal de integración de Chorus con OSAP.
+## 4. Adaptación al modelo de contenido
 
-## 4. Acoplamiento observado
+Chorus tendrá dos fuentes de entrada:
+- PersonalWork y sus ficheros del almacenamiento propio.
+- Resource/File OSAP consultado mediante API y con acceso autorizado.
 
-`GenerateMaterialsUseCase` tipa el Score de OSAP mediante TYPE_CHECKING. Sin embargo, `ExerciseGenerator` importa `QualityReport` desde OSAP en tiempo de ejecución y lo usa para leer dimensiones de calidad.
+Un adaptador de Chorus obtiene el contenido musical, valida/normaliza los datos necesarios y construye el contrato del generador. El módulo no consulta directamente la base de datos Chorus ni gestiona autenticación.
 
-Por tanto, la independencia del paquete no es absoluta en ejecución. Para extraer el generador puede convenir que el contrato incluya los datos de calidad ya normalizados y que el generador consuma ese contrato/dto, o mantener un adaptador explícito. La decisión se tomará después de ejecutar pruebas y verificar el productor real de OSAP.
+El resultado StudyMaterial y sus ficheros se guardan en Chorus DB y Chorus File Store, asociados a la obra/revisión de origen.
 
-## 5. Diferencia con el modelo de producto nuevo
+## 5. Acoplamiento observado
 
-El nuevo Chorus necesita dos flujos distintos:
-
-### Biblioteca y trabajo personal
-
-`Work` → `Resource` → `File` (referencias de OSAP)  
-`WorkspaceItem` → organización personal  
-`Draft` → `DraftRevision` → archivo privado
-
-### Generación de materiales
-
-`Resource` / contenido autorizado → adaptador de entrada → datos musicales validados → generador → `StudyMaterial`
-
-No se debe confundir el Resource que el usuario organiza/edita con el Score resumido que un generador necesita para producir un ejercicio.
+GenerateMaterialsUseCase tipa Score de OSAP mediante TYPE_CHECKING, mientras ExerciseGenerator importa QualityReport de OSAP en tiempo de ejecución. La independencia no es completa. Antes de extraer, hay que decidir si se normalizan los datos de calidad en el contrato o se mantiene un adaptador explícito.
 
 ## 6. Estado de verificación
 
-Esta revisión es una lectura estática de los archivos accesibles en GitHub. No se han ejecutado tests, no se ha probado la web localmente y no se ha verificado contra una instancia viva de OSAP. No se declara todavía que el paquete esté listo para extracción.
+Revisión estática de archivos accesibles en GitHub. No se han ejecutado tests, no se ha probado la web localmente y no se ha verificado contra una instancia viva de OSAP. No se declara que el paquete esté listo para extracción.
 
 Siguientes comprobaciones:
-1. Obtener una copia de trabajo del repositorio OSAP o usar su entorno de desarrollo.
-2. Ejecutar `pytest tests/chorus` y los chequeos configurados por el proyecto.
-3. Revisar `web/app.py`, configuración y endpoints OSAP línea por línea.
-4. Confirmar si `GET /api/v1/sessions/{session_id}/score-contract` sigue existiendo y si es un contrato de generación, no de biblioteca.
-5. Definir y versionar los contratos de biblioteca y edición contra las APIs reales de V6.
+1. Ejecutar la suite existente.
+2. Revisar configuración y endpoints OSAP usados.
+3. Verificar el contrato de Score vigente.
+4. Diseñar adaptadores de las dos fuentes de contenido.
+5. Extraer el generador con pruebas de equivalencia.
