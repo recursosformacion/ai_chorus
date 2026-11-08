@@ -24,7 +24,10 @@ class TokenVerifier:
         self._jwks: PyJWKClient | None = None
 
     def verify(self, token: str) -> Principal:
-        self.settings.validate_auth()
+        try:
+            self.settings.validate_auth()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Identity service is not configured") from exc
         try:
             if self._jwks is None:
                 self._jwks = PyJWKClient(
