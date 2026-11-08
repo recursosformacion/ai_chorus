@@ -4,9 +4,9 @@ Este documento distingue contratos observados de decisiones pendientes. Chorus e
 
 ## 1. Identidad: osap-auth
 
-Chorus delega la identidad en osap-auth. El runtime consulta POST /auth/login y POST /auth/refresh con audience=chorus-api, y no almacena contraseñas ni crea cuentas paralelas. El refresh se mantiene en cookie HttpOnly, Secure y SameSite=Lax; el access token se valida en Chorus mediante JWKS, issuer, audience, expiración y token_use=user.
+Chorus delega la identidad en osap-auth. El runtime utiliza POST /auth/login y POST /auth/refresh con la audiencia predeterminada de Auth. El refresh se mantiene en cookie HttpOnly, Secure y SameSite=Lax. Chorus no valida localmente el JWT: reenvía el Bearer a GET /auth/me, que verifica firma, emisor y audiencia en osap-auth, y usa el user_id de la respuesta para aplicar propiedad y permisos. Véase authentication-runtime.md.
 
-La integración OIDC PKCE que AI_GAMEPC2 utiliza hoy emite tokens para audience=osap-api. Chorus no acepta esos tokens. La API de osap-auth permite audience explícita en login y refresh, pero chorus-api debe estar incluida en allowed_token_audiences del despliegue de Auth. La configuración del issuer y JWKS debe coincidir con la instancia real. Véase authentication-runtime.md.
+El flujo OIDC PKCE que AI_GAMEPC2 utiliza hoy está configurado para su propia SPA y audiencia osap-api. Chorus no reutiliza el token como si fuera una credencial emitida para Chorus; lo presenta únicamente ante el endpoint /auth/me de osap-auth, que es el servicio destinado a validarlo.
 
 ## 2. Catálogo OSAP: lectura
 
@@ -48,17 +48,18 @@ sequenceDiagram
     participant OSAP as OSAP API
 
     Browser->>Chorus: POST /auth/login (email + password)
-    Chorus->>Auth: POST /auth/login (audience=chorus-api)
+    Chorus->>Auth: POST /auth/login
     Auth-->>Chorus: Access JWT + refresh opaco
     Chorus-->>Browser: Access JWT + cookie refresh HttpOnly
     Browser->>Chorus: Petición Bearer
-    Chorus->>Chorus: Validar JWKS, issuer, audience y token_use
+    Chorus->>Auth: GET /auth/me (Bearer)
+    Auth-->>Chorus: Perfil autenticado / user_id
     Chorus->>OSAP: Consulta de lectura autorizada
     OSAP-->>Chorus: Work / Resource / File metadata
     Chorus-->>Browser: Vista de biblioteca
 ```
 
-El flujo de login y refresh está implementado en el runtime piloto; la habilitación de la audiencia chorus-api en el despliegue de osap-auth sigue siendo un prerrequisito externo.
+El flujo de login, refresh e introspección mediante /auth/me está implementado en el runtime piloto.
 
 ## 6. Verificaciones pendientes
 
