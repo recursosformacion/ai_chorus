@@ -1,74 +1,71 @@
 # Decisiones de diseño de Chorus
 
-Registro inicial de decisiones acordadas. Las decisiones técnicas pendientes no se presentan como cerradas.
-
 ## CH-001 — Chorus es una aplicación independiente
 
 **Estado:** Aceptada.
 
-Chorus tendrá interfaz, API, configuración y despliegue propios. OSAP proporciona servicios de catálogo, identidad y almacenamiento mediante APIs.
+Chorus tiene interfaz, API, repositorio, configuración, base de datos y almacenamiento propios. No es una sección de la aplicación OSAP. Se conecta a servicios externos mediante APIs.
 
 ## CH-002 — La biblioteca personal es el núcleo
 
 **Estado:** Aceptada.
 
-El producto debe ser útil para un músico individual que solo desea ordenar, consultar, estudiar y editar su música. La colaboración no es requisito para usar Chorus.
+Chorus debe ser útil para un músico individual. La colaboración no es requisito para usarlo.
 
 ## CH-003 — Un espacio personal por usuario
 
 **Estado:** Aceptada.
 
-Cada identidad de osap-auth tiene un único espacio personal, que permanece aunque el usuario abandone cualquier coro, orquesta o grupo.
+Cada identidad de osap-auth se vincula a un único espacio personal permanente en Chorus.
 
-## CH-004 — No existen perfiles globales rígidos
-
-**Estado:** Aceptada.
-
-No se fuerza al usuario a ser exclusivamente músico, director o compositor. Las responsabilidades se asignan en el contexto de cada grupo y recurso.
-
-## CH-005 — OSAP es la autoridad del catálogo
+## CH-004 — Capacidades contextuales
 
 **Estado:** Aceptada.
 
-Chorus referencia Works y Resources OSAP. No duplica el catálogo ni decide de forma autónoma la identidad canónica de una Work.
+No hay perfiles globales excluyentes de músico, director o compositor. Las responsabilidades dependen del grupo y del contexto.
 
-## CH-006 — Editar no sobrescribe
-
-**Estado:** Aceptada.
-
-Muse-encore edita una copia de trabajo. Los guardados crean borradores/revisiones privadas. La publicación en OSAP crea un nuevo Resource; el original se conserva.
-
-## CH-007 — Compatibilidad con el modelo OSAP V6
+## CH-005 — OSAP es catálogo externo; Chorus no lo duplica
 
 **Estado:** Aceptada.
 
-Chorus utiliza los conceptos:
-- Work: obra canónica.
-- Resource: interpretación, arreglo o edición concreta.
-- File: fichero físico.
+En la primera etapa Chorus puede buscar, consultar y leer Works y Resources OSAP. Conserva referencias externas y no modifica el catálogo ni escribe en su base de datos.
 
-La autoría pertenece a Work. Procedencia y derechos pertenecen al Resource. Uploader, composer y license-owner permanecen separados.
-
-## CH-008 — Servicios de soporte no son requisito del núcleo
+## CH-006 — Obras propias en almacenamiento y base de datos Chorus
 
 **Estado:** Aceptada.
 
-Chorus puede integrarse con osap-support si una función lo necesita, pero el escritorio, biblioteca y edición no deben depender de una membresía o donación.
+Las obras propias del usuario tienen identidad local en Chorus. Su contenido se guarda como ficheros en el nuevo formato versionado de Chorus; la base de datos propia registra metadatos, índices, relaciones, versiones, checksums y referencias a esos ficheros. No necesitan existir en OSAP.
 
-## CH-009 — Primero escritorio, después colaboración
+## CH-007 — Editar no sobrescribe
 
 **Estado:** Aceptada.
 
-La secuencia prioriza biblioteca personal, editor y borradores, integración OSAP, contactos, grupos y agenda, y finalmente asistencia musical/IA.
+Cada modificación de una obra propia produce una nueva revisión y sus ficheros correspondientes. Una partitura consultada en OSAP nunca se modifica desde Chorus.
+
+## CH-008 — Modelo conceptual OSAP V6 para referencias externas
+
+**Estado:** Aceptada.
+
+Chorus respeta Work → Resource → File al leer el catálogo OSAP. No confunde esos objetos externos con las entidades propias de Chorus.
+
+## CH-009 — Herramientas con biblioteca común
+
+**Estado:** Aceptada.
+
+Muse-encore y Chorus Study son herramientas dentro de la aplicación Chorus. Comparten identidad, biblioteca, autorización, base de datos y almacenamiento. Chorus Study no tiene usuarios ni biblioteca propios.
+
+## CH-010 — Publicación OSAP posterior y explícita
+
+**Estado:** Aceptada.
+
+La primera etapa es de lectura de OSAP. La publicación de obras propias se diseñará posteriormente como una operación explícita que use los contratos oficiales OSAP; nunca sobrescribirá obras o Resources existentes.
 
 ## Decisiones técnicas pendientes
 
-- Framework frontend y backend.
-- Base de datos y estrategia de migraciones.
-- Contratos y versiones de API reales de osap-auth, OSAP API y osap-storage.
-- Modelo de permisos de archivos privados y compartidos.
-- Mecanismo de integración y persistencia de Muse-encore.
-- Estrategia de notificaciones.
-- Política de retención, exportación y eliminación de datos personales.
-
-Estas decisiones se resolverán inspeccionando primero los repositorios y contratos existentes. No se inventarán endpoints ni se duplicará lógica ya disponible en OSAP.
+- Formato exacto y esquema versionado de ficheros propios.
+- Motor de base de datos y estrategia de migraciones.
+- Tecnología y política de respaldo del almacenamiento de ficheros.
+- Contratos reales de osap-auth y lectura OSAP.
+- Integración de Muse-encore.
+- Contrato de entrada/salida del módulo Chorus Study.
+- Compartición, permisos y publicación futura.
