@@ -20,7 +20,7 @@ Chorus no acepta ni interpreta localmente un JWT de osap-api. Lo utiliza como cr
 1. El navegador envía email y contraseña únicamente al endpoint HTTPS de Chorus.
 2. Chorus reenvía la petición a osap-auth /auth/login sin cambiar la audiencia predeterminada.
 3. El access token se devuelve al cliente para las peticiones Bearer; el refresh token se guarda en cookie HttpOnly, Secure, SameSite=Lax, limitada a /api/v1/auth.
-4. En cada operación protegida, Chorus reenvía el Bearer a osap-auth /auth/me. La propiedad de los datos se deriva del user_id devuelto por ese servicio, nunca de un campo del navegador.
+4. En cada operación protegida, Chorus reenvía el Bearer a osap-auth /auth/me. La propiedad de los datos se deriva del user_id devuelto por ese servicio, nunca de un campo del navegador. Cuando necesita consultar o descargar una representación, Chorus también reenvía ese Bearer a la API OSAP, su audiencia prevista, para que OSAP pueda aplicar sus cuotas y registrar la descarga con la identidad correcta.
 5. Si el perfil indica onboarding.required=true, Chorus devuelve 403 ONBOARDING_REQUIRED. La API ofrece endpoints para consultar el perfil/avisos legales y completar el onboarding.
 6. Refresh se realiza desde el backend y rota la cookie. Logout revoca la sesión actual en osap-auth.
 
