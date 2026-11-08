@@ -60,17 +60,6 @@ Muse-encore y Chorus Study son herramientas dentro de la aplicación Chorus. Com
 
 La primera etapa es de lectura de OSAP. La publicación de obras propias se diseñará posteriormente como una operación explícita que use los contratos oficiales OSAP; nunca sobrescribirá obras o Resources existentes.
 
-## Decisiones técnicas pendientes
-
-- Contrastar el esquema V6 completo y sus invariantes con el código y documentación actuales de osap-storage.
-- Motor de base de datos y estrategia de migraciones para la instancia propia de Chorus.
-- Tecnología y política de respaldo del almacenamiento propio.
-- Contratos reales de osap-auth y lectura OSAP.
-- Integración de Muse-encore.
-- Contrato de entrada/salida del módulo Chorus Study.
-- Compartición, permisos y publicación futura.
-
-
 ## CH-011 — Cardinalidad obligatoria Work → Resource → File
 
 **Estado:** Aceptada.
@@ -80,3 +69,24 @@ Una Work musical no está completa ni tiene entidad útil en la biblioteca si no
 Durante la composición el usuario puede definir una obra antes de grabar su primer fichero. Ese estado de trabajo puede mantenerse como borrador incompleto, pero no se confunde con una Work musical completa del modelo V6. Al guardar el primer fichero se materializa la cadena Work/Resource/File.
 
 Chorus implementará y probará esta regla como primera implementación práctica del modelo V6, antes de que OSAP Storage lo despliegue. No se adoptan para Chorus los textos antiguos que permiten Work sin Resource o Resource sin File.
+
+## CH-012 — DDL SQLite como banco de pruebas V6, no como motor definitivo
+
+**Estado:** Aceptada para el piloto.
+
+Se incorpora una migración SQLite de referencia en migrations/sqlite/001_v6_work_resource_file.sql. Las claves foráneas diferidas forman una cadena obligatoria Work → Resource → File y permiten crearla en una única transacción. Cada Resource tiene su propio File; un File no puede pertenecer a dos Resources.
+
+SQLite se utiliza para probar las invariantes con el mínimo de infraestructura. Esta decisión no selecciona SQLite como motor definitivo de Chorus ni pretende congelar el DDL oficial de OSAP Storage. Los nombres y tipos de columnas del piloto son una base técnica explícita que deberá contrastarse con el contrato V6 completo antes de adoptarse como persistencia de producción.
+
+El SHA-256 es nullable y no único; storage_pointer es opaco e interno y no se expone en DTO. El borrador anterior al primer fichero no se guarda como Work musical en estas tablas.
+
+## Decisiones técnicas pendientes
+
+- Congelar el modelo V6 completo, incluidos créditos, clasificaciones, serialización e IDs.
+- Elegir motor definitivo de base de datos y estrategia de migraciones para Chorus.
+- Definir la persistencia y recuperación de ficheros del almacenamiento propio.
+- Contratos reales de osap-auth y lectura OSAP.
+- Integración de Muse-encore.
+- Contrato de entrada/salida del módulo Chorus Study.
+- Compartición, permisos y publicación futura.
+- Ejecutar pytest sobre el repositorio y cerrar cualquier fallo antes de considerar validada la migración.
