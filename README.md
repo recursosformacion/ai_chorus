@@ -46,6 +46,7 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 - [Auditoría de la implementación anterior](docs/existing-implementation-assessment.md)
 - [Revisión técnica del ScoreContract](docs/score-contract-review.md)
 - [Contratos de integración](docs/integration-contracts.md)
+- [Auditoría de compatibilidad con OSAP Storage V6](docs/v6-storage-audit.md)
 
 ## Estado
 
