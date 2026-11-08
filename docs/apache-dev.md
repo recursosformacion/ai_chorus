@@ -61,6 +61,10 @@ Añadir un bloque propio en `C:\\xampp\\apache\\conf\\extra\\httpd-vhosts.conf`:
 
 Comprobar que Apache tiene activos `mod_proxy`, `mod_proxy_http` y `mod_headers`. No se necesita `mod_rewrite`: esta primera interfaz utiliza una única página HTML y no tiene rutas cliente profundas.
 
+## VirtualHost del editor MuseEncore
+
+MuseEncore se instala y compila por separado; no se sirve desde `ai_chorus/web`. Su procedimiento está en [muse-encore-install.md](muse-encore-install.md). Una vez generado `D:/Proyectos/AI_OSAP/muse-encore/dist-editor`, añadir también el host `muse-encore-app` y su VirtualHost, con `DocumentRoot` apuntando a ese directorio. Chorus abrirá el editor en `http://muse-encore-app/`.
+
 ## Configuración de Chorus
 
 Crear `osap.toml` a partir de `osap.toml.example`. Para el entorno local, completar las URL de Auth, OSAP y MuseEncore que correspondan a los servicios que se estén ejecutando. Valores específicos del frontal local:
