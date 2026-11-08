@@ -161,3 +161,5 @@ def test_sha256_is_not_a_unique_identity(db: sqlite3.Connection) -> None:
     db.commit()
 
     assert db.execute("SELECT COUNT(*) FROM files WHERE sha256 = ?", ("a" * 64,)).fetchone()[0] == 2
+
+# CI entrypoint: this module is run by the v6-schema-tests workflow.
