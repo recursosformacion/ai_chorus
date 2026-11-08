@@ -1,0 +1,194 @@
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  let accessToken = null;
+  let currentDraft = null;
+  let lastResults = [];
+
+  function showMessage(id, message, kind = "") {
+    const el = $(id);
+    el.textContent = message || "";
+    el.className = "message" + (kind ? " " + kind : "");
+  }
+  function setBusy(button, busy, label) {
+    if (!button.dataset.label) button.dataset.label = button.textContent;
+    button.disabled = busy;
+    button.textContent = busy ? label : button.dataset.label;
+  }
+  async function request(path, options = {}, retry = true) {
+    const headers = new Headers(options.headers || {});
+    if (accessToken) headers.set("Authorization", "Bearer " + accessToken);
+    if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
+    let response = await fetch(path, {...options, headers, credentials:"same-origin"});
+    if (response.status === 401 && retry && path !== "/api/v1/auth/refresh" && path !== "/api/v1/auth/login") {
+      const refreshed = await refreshSession();
+      if (refreshed) return request(path, options, false);
+    }
+    if (!response.ok) {
+      let detail = "Error " + response.status;
+      try { const body = await response.json(); detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body); } catch (_) {}
+      throw new Error(detail);
+    }
+    if (response.status === 204) return null;
+    return response.json();
+  }
+  async function refreshSession() {
+    try {
+      const response = await fetch("/api/v1/auth/refresh", {method:"POST", credentials:"same-origin"});
+      if (!response.ok) { accessToken = null; return false; }
+      const data = await response.json();
+      accessToken = data.access_token;
+      if (data.onboarding && data.onboarding.required) throw new Error("Tu cuenta necesita completar el alta de OSAP antes de utilizar Chorus.");
+      return true;
+    } catch (error) {
+      accessToken = null;
+      if (error.message) showMessage("login-error", error.message, "error");
+      return false;
+    }
+  }
+  function showWorkspace(profileLabel) {
+    $("login-view").classList.add("hidden");
+    $("workspace-view").classList.remove("hidden");
+    $("logout-button").classList.remove("hidden");
+    $("account-label").textContent = profileLabel || "Sesión iniciada";
+  }
+  function showLogin() {
+    $("workspace-view").classList.add("hidden");
+    $("login-view").classList.remove("hidden");
+    $("logout-button").classList.add("hidden");
+    $("account-label").textContent = "";
+  }
+  async function login(email, password) {
+    const data = await request("/api/v1/auth/login", {method:"POST",body:JSON.stringify({email,password})}, false);
+    accessToken = data.access_token;
+    if (data.onboarding && data.onboarding.required) {
+      throw new Error("Tu cuenta necesita completar el alta de OSAP antes de utilizar Chorus.");
+    }
+    showWorkspace(data.user_id || email);
+  }
+  function unwrap(doc) {
+    return doc && doc.success === true && Object.prototype.hasOwnProperty.call(doc,"data") ? doc.data : doc;
+  }
+  function renderResults(doc) {
+    const data = unwrap(doc);
+    const results = Array.isArray(data) ? data : (data && (data.results || data.items)) || [];
+    lastResults = results;
+    const list = $("results-list");
+    list.replaceChildren();
+    $("result-count").textContent = (data && data.total != null ? data.total : results.length) + " resultados";
+    if (!results.length) {
+      list.textContent = "No se han encontrado resultados para esta búsqueda.";
+      return;
+    }
+    results.forEach((item) => {
+      const work = item.work || item;
+      const reps = item.representations && item.representations.length ? item.representations : (item.representation ? [item.representation] : []);
+      const card = document.createElement("article");
+      card.className = "result-card";
+      const info = document.createElement("div");
+      const title = document.createElement("h3");
+      title.textContent = work.title || "Obra sin título";
+      const meta = document.createElement("div");
+      meta.className = "result-meta";
+      meta.textContent = [work.composer, work.catalogue, reps.length + " representaciones"].filter(Boolean).join(" · ");
+      info.append(title,meta);
+      const actions = document.createElement("div");
+      actions.className = "result-actions";
+      reps.forEach((rep) => {
+        const fmt = String(rep.format || "").toLowerCase();
+        const supported = /mxl|musicxml|\.xml|midi|\.mid|mscz|mscx|capella|\.capx|\.gp|\.gpx/.test(fmt);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "button button-outline";
+        btn.textContent = "Usar " + (rep.provider || "original") + " · " + (rep.format || "archivo");
+        btn.disabled = rep.available === false || !supported;
+        btn.title = btn.disabled ? "Formato no descargable o no compatible con el editor" : "Crear borrador desde esta representación";
+        btn.addEventListener("click", () => startFromOsap(work,rep,btn));
+        actions.append(btn);
+      });
+      if (!reps.length) {
+        const note = document.createElement("span"); note.className = "result-meta"; note.textContent = "No hay representaciones disponibles."; actions.append(note);
+      }
+      card.append(info,actions);
+      list.append(card);
+    });
+  }
+  async function searchCatalog(query, button) {
+    setBusy(button,true,"Buscando…");
+    showMessage("search-message","Consultando el catálogo OSAP…");
+    $("results-section").classList.remove("hidden");
+    $("results-list").replaceChildren();
+    try {
+      const data = await request("/api/v1/catalog/searches",{method:"POST",body:JSON.stringify({query,limit:20,page:1})});
+      renderResults(data);
+      showMessage("search-message","Búsqueda completada.","success");
+    } catch (error) { showMessage("search-message",error.message,"error"); }
+    finally { setBusy(button,false); }
+  }
+  async function createDraft(title) {
+    return request("/api/v1/drafts",{method:"POST",body:JSON.stringify({title:title || null,resource_type:"score"})});
+  }
+  async function startFromOsap(work, rep, button) {
+    setBusy(button,true,"Preparando…");
+    try {
+      const draft = await createDraft(work.title || null);
+      currentDraft = await request("/api/v1/drafts/" + encodeURIComponent(draft.id) + "/source",{
+        method:"POST",body:JSON.stringify({work_id:String(work.work_id),representation_id:String(rep.id)})
+      });
+      currentDraft.id = draft.id;
+      showDraft(work.title || "Obra de OSAP","Original: " + (rep.provider || "OSAP") + " · " + (rep.format || "formato no indicado"));
+      showMessage("draft-message","Original preparado. Ábrelo en MuseEncore; el original de OSAP no se modifica.");
+      $("draft-section").scrollIntoView({behavior:"smooth",block:"center"});
+    } catch (error) { showMessage("search-message",error.message,"error"); }
+    finally { setBusy(button,false); }
+  }
+  function showDraft(title, description) {
+    $("draft-title").textContent = title;
+    $("draft-description").textContent = description || "Partitura nueva";
+    $("draft-state").textContent = "En edición";
+    $("draft-section").classList.remove("hidden");
+  }
+  async function openEditor() {
+    if (!currentDraft) return;
+    try {
+      const data = await request("/api/v1/drafts/" + encodeURIComponent(currentDraft.id) + "/editor");
+      window.open(data.editor_url,"_blank","noopener");
+    } catch (error) { showMessage("draft-message",error.message,"error"); }
+  }
+  async function uploadMxl(file) {
+    if (!currentDraft || !file) return;
+    showMessage("draft-message","Validando y guardando la partitura…");
+    const form = new FormData(); form.append("file",file);
+    try {
+      const data = await request("/api/v1/drafts/" + encodeURIComponent(currentDraft.id) + "/files",{method:"POST",body:form});
+      $("draft-state").textContent = "Guardado";
+      showMessage("draft-message","Partitura guardada. Work: " + data.work_id + " · Resource: " + data.resource_id + " · File: " + data.file_id,"success");
+    } catch (error) { showMessage("draft-message",error.message,"error"); }
+    $("mxl-file").value = "";
+  }
+
+  $("login-form").addEventListener("submit",async (event)=>{
+    event.preventDefault(); const button=event.submitter; setBusy(button,true,"Entrando…"); showMessage("login-error","");
+    try { await login($("email").value.trim(),$("password").value); }
+    catch(error){accessToken=null;showMessage("login-error",error.message,"error");}
+    finally{setBusy(button,false);}
+  });
+  $("search-form").addEventListener("submit",(event)=>{event.preventDefault();searchCatalog($("search-query").value.trim(),event.submitter);});
+  $("new-draft-button").addEventListener("click",async()=>{
+    const button=$("new-draft-button");setBusy(button,true,"Creando borrador…");
+    try {currentDraft=await createDraft($("new-title").value.trim() || null);showDraft($("new-title").value.trim() || "Nueva partitura","Borrador privado · partitura creada desde cero");showMessage("draft-message","Borrador creado. Abre MuseEncore para escribir y exporta el resultado como .mxl.");$("draft-section").scrollIntoView({behavior:"smooth",block:"center"});}
+    catch(error){showMessage("draft-message",error.message,"error");}
+    finally{setBusy(button,false);}
+  });
+  $("open-editor-button").addEventListener("click",openEditor);
+  $("mxl-file").addEventListener("change",(event)=>uploadMxl(event.target.files[0]));
+  $("logout-button").addEventListener("click",async()=>{
+    try{if(accessToken)await request("/api/v1/auth/logout",{method:"POST"},false);}catch(_){}
+    accessToken=null;currentDraft=null;showLogin();
+  });
+  refreshSession().then(async(ok)=>{
+    if(!ok)return;
+    try{const profile=await request("/api/v1/auth/me",{},false);if(profile.onboarding && profile.onboarding.required){showMessage("login-error","Completa primero el alta de tu cuenta OSAP.","error");return;}showWorkspace(profile.nickname || profile.email || profile.user_id);}
+    catch(_){accessToken=null;}
+  });
+})();
