@@ -1,24 +1,24 @@
 # Chorus
 
-Chorus es una aplicación musical independiente de OSAP, con interfaz, API, base de datos y almacenamiento propios. Se conecta a OSAP para consultar y leer obras y recursos del catálogo compartido, pero no es una sección de su aplicación ni depende de su interfaz.
+Chorus es una aplicación musical independiente de OSAP, con interfaz, API y base de datos propias. Se conecta a OSAP para consultar y leer obras y recursos del catálogo compartido, pero no es una sección de su aplicación ni depende de su interfaz.
 
 Su núcleo es el espacio personal del músico: biblioteca, obras propias, ficheros musicales, colecciones, borradores y herramientas de trabajo. La colaboración se incorpora cuando el usuario participa en grupos o decide compartir su trabajo.
 
 ## Dos procedencias de contenido
 
 - **Catálogo OSAP:** Chorus puede buscar, consultar y leer Works y Resources publicados en OSAP. En esta primera etapa los mantiene como referencias externas; no necesita importar ni duplicar el catálogo.
-- **Obras y trabajos personales:** se almacenan en el espacio propio de Chorus, como ficheros en el nuevo formato musical de Chorus, con sus metadatos, relaciones e índices en la base de datos propia. No necesitan existir previamente en OSAP.
+- **Obras y trabajos personales:** se guardan en la base de datos y el almacenamiento propios de Chorus, utilizando el modelo y el formato de ficheros de V6 de osap-storage. No se inventará un formato Chorus alternativo ni necesitarán existir previamente en el catálogo OSAP.
 
-La base de datos de Chorus es la autoridad sobre la organización personal y los trabajos privados. Los ficheros son el contenido musical; la base de datos registra su identidad, metadatos, versiones y relaciones.
+Chorus mantiene sus propios datos e instancia de persistencia, pero adopta el contrato V6 para representar Work, Resource y File. La separación de aplicaciones y bases de datos no implica crear formatos incompatibles.
 
 ## Principios
 
 - **La persona y su biblioteca son el centro.** Una cuenta y una biblioteca personal, aunque el usuario participe en varios grupos.
-- **Aplicación independiente.** Chorus tiene repositorio, configuración, API, base de datos y almacenamiento propios.
-- **OSAP es el catálogo compartido, no la biblioteca privada.** Chorus consulta OSAP mediante APIs y conserva referencias externas.
-- **Lo privado permanece en Chorus.** Las obras propias, borradores y versiones se guardan en su propio sistema de ficheros y base de datos.
+- **Aplicación independiente.** Chorus tiene repositorio, configuración, API y base de datos propios.
+- **Compatibilidad V6.** Los ficheros y entidades de las obras propias siguen el modelo/formato V6 de osap-storage.
+- **OSAP es el catálogo compartido.** Chorus consulta OSAP mediante APIs y conserva referencias externas.
+- **Lo privado permanece en Chorus.** Las obras propias, borradores y versiones se guardan en la persistencia propia, con formato V6.
 - **Editar no sobrescribe.** Las modificaciones generan nuevas versiones o ficheros.
-- **Las capacidades nacen de las relaciones.** No hay perfiles rígidos de músico, director o compositor.
 - **La colaboración es opcional.** Chorus debe ser útil a una persona que solo quiere organizar, estudiar o escribir música.
 
 ## Herramientas
@@ -28,10 +28,10 @@ Chorus integra herramientas sobre la misma cuenta, biblioteca y modelo de datos.
 ## Primera entrega
 
 1. Aplicación y autenticación propias, conectadas a osap-auth.
-2. Base de datos y almacenamiento propios.
+2. Base de datos propia compatible con el modelo V6.
 3. Escritorio y biblioteca personal.
 4. Lectura y consulta de obras y Resources de OSAP.
-5. Alta y gestión de obras propias en el nuevo formato de ficheros.
+5. Alta y gestión de obras propias usando el formato V6 de osap-storage.
 6. Integración de Muse-encore y del módulo Chorus Study Generator.
 
 Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
@@ -49,4 +49,4 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 
 ## Estado
 
-Proyecto en fase de definición y construcción de fundamentos. Los contratos reales de integración y el formato de ficheros propio deben concretarse antes de implementar persistencia definitiva.
+Proyecto en fase de definición y construcción de fundamentos. Antes de implementar la persistencia se debe contrastar el esquema y los contratos V6 concretos de osap-storage para reutilizarlos fielmente en la base de datos propia de Chorus.
