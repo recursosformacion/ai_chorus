@@ -7,18 +7,18 @@ Chorus Study es la herramienta de estudio coral integrada en Chorus. Reutiliza e
 ## Relación con Chorus
 
 - Utiliza la identidad y los permisos de Chorus.
-- Recibe obras desde la biblioteca común: una PersonalWork del usuario o una partitura/Resource OSAP que el usuario tenga derecho a consultar.
+- Recibe obras desde la biblioteca común: una obra propia representada según V6 o una partitura/Resource OSAP que el usuario tenga derecho a consultar.
 - No crea una segunda copia de la biblioteca.
-- Guarda proyectos, resultados y ficheros generados en el almacenamiento de Chorus.
+- Guarda proyectos, resultados y ficheros generados en la persistencia propia de Chorus, respetando el modelo/formato V6.
 - Registra metadatos, origen, tipo de material y versión del generador en Chorus DB.
 
 ## Flujo lógico
 
 1. El usuario selecciona una obra de su biblioteca.
-2. Chorus obtiene el contenido musical desde sus ficheros propios o, cuando proceda, desde OSAP mediante su API de lectura.
+2. Chorus obtiene el contenido musical desde sus ficheros V6 propios o, cuando proceda, desde OSAP mediante su API de lectura.
 3. Un adaptador convierte el contenido a un contrato de entrada específico para el generador.
 4. El generador produce ejercicios y materiales.
-5. Chorus persiste los resultados como StudyMaterial y ficheros asociados a la obra de origen.
+5. Chorus persiste los resultados como materiales y ficheros relacionados con la obra de origen, usando el modelo V6 donde corresponda.
 6. El usuario consulta, descarga, revisa o comparte esos materiales desde Chorus.
 
 ## Contrato de entrada
@@ -30,7 +30,7 @@ La frontera del módulo debe recibir datos musicales normalizados y validados. L
 ## Persistencia
 
 - Los metadatos del proyecto y de cada material se guardan en Chorus DB.
-- Los PDF, audios u otros resultados se guardan en Chorus File Store.
+- Los PDF, audios u otros resultados se guardan en la persistencia propia de Chorus, respetando el formato y las estructuras V6 aplicables.
 - Cada material conserva referencia a la obra/revisión de origen y a la versión del generador.
 - Los resultados no se guardan en una biblioteca separada.
 
