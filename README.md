@@ -43,6 +43,7 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 - [Roadmap](docs/roadmap.md)
 - [Decisiones de diseño](docs/decisions.md)
 - [Esquema piloto V6 y pruebas de integridad](docs/v6-pilot-schema.md)
+- [Flujo API de creación y edición con OSAP y MuseEncore](docs/work-creation-api.md)
 - [Módulo de estudio coral](docs/study-module.md)
 - [Auditoría de la implementación anterior](docs/existing-implementation-assessment.md)
 - [Revisión técnica del ScoreContract](docs/score-contract-review.md)
@@ -51,4 +52,4 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 
 ## Estado
 
-El primer esquema piloto Work/Resource/File está implementado en SQLite como banco de pruebas y sus seis pruebas de integridad pasan en GitHub Actions. No es todavía la persistencia de producción: faltan elegir el motor definitivo, cerrar el contrato V6 completo y definir el almacenamiento físico, las revisiones y el espacio personal.
+El primer esquema piloto Work/Resource/File y la persistencia de borradores están definidos en SQLite como banco de pruebas. Las doce pruebas de integridad pasan en GitHub Actions. El flujo API de creación, selección de originales OSAP y apertura/exportación mediante MuseEncore está especificado; los endpoints de ejecución siguen pendientes. No es todavía la persistencia de producción: faltan elegir el motor definitivo, cerrar el contrato V6 completo y definir el almacenamiento físico, las revisiones y el espacio personal.
