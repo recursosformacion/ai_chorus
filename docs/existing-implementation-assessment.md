@@ -30,9 +30,9 @@ El generador es una capacidad especializada. No representa el producto Chorus co
 
 ## 4. Contrato de entrada
 
-El `ScoreContract` actual es un contrato de entrada específico para generación a partir de un Score validado. No representa Work, Resource, File, una obra privada de Chorus ni una revisión.
+El `ScoreContract` actual es un contrato de entrada específico para generación a partir de un Score validado. No representa Work, Resource, File ni una revisión V6 completa.
 
-Debe mantenerse como contrato especializado si supera la revisión y las pruebas. Los adaptadores de Chorus convertirán tanto obras propias como contenido OSAP autorizado al formato de entrada que necesite el generador.
+Debe mantenerse como contrato especializado si supera la revisión y las pruebas. Los adaptadores de Chorus convertirán el contenido de una obra propia representada según V6 o de un Resource OSAP autorizado al formato de entrada que necesite el generador.
 
 ## 5. Estrategia de reutilización
 
@@ -40,7 +40,7 @@ Debe mantenerse como contrato especializado si supera la revisión y las pruebas
 2. Revisar el contrato y los adaptadores OSAP.
 3. Ejecutar los tests en el entorno del repositorio original y registrar resultados.
 4. Aislar la lógica de generación de la web y de dependencias de persistencia.
-5. Integrar el módulo en `ai_chorus`, usando Chorus DB y Chorus File Store para sus resultados.
+5. Integrar el módulo en `ai_chorus`, usando la persistencia propia de Chorus y el modelo/formato V6 para sus resultados cuando corresponda.
 6. Preservar el comportamiento mediante pruebas de equivalencia.
 7. No retirar el código original hasta verificar la extracción y sus consumidores.
 
@@ -58,5 +58,5 @@ No copiar ni mover código todavía. No mantener dos implementaciones activas de
 - [ ] Leer los módulos completos.
 - [ ] Ejecutar tests y registrar el resultado real.
 - [ ] Confirmar contratos OSAP usados.
-- [ ] Diseñar adaptadores desde PersonalWork y referencias OSAP.
+- [ ] Diseñar adaptadores desde entidades/ficheros V6 propios y referencias OSAP.
 - [ ] Extraer el generador como módulo de Chorus.
