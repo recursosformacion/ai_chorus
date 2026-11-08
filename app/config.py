@@ -11,9 +11,6 @@ from urllib.parse import urlparse
 @dataclass(frozen=True)
 class Settings:
     auth_base_url: str = ""
-    auth_issuer: str = ""
-    auth_jwks_url: str = ""
-    auth_audience: str = "chorus-api"
     osap_api_base_url: str = ""
     editor_base_url: str = ""
     editor_origin: str = ""
@@ -52,14 +49,8 @@ class Settings:
         else:
             raw_origins = app.get("cors_origins", [])
             cors = tuple(str(x).rstrip("/") for x in raw_origins) if isinstance(raw_origins, list) else ()
-        jwks = value("CHORUS_AUTH_JWKS_URL", auth, "jwks_url")
-        if not jwks and auth_base:
-            jwks = f"{auth_base}/auth/.well-known/jwks.json"
         return cls(
             auth_base_url=auth_base,
-            auth_issuer=value("CHORUS_AUTH_ISSUER", auth, "issuer"),
-            auth_jwks_url=jwks,
-            auth_audience=value("CHORUS_AUTH_AUDIENCE", auth, "audience", "chorus-api"),
             osap_api_base_url=value("CHORUS_OSAP_API_BASE_URL", osap, "api_base_url").rstrip("/"),
             editor_base_url=editor_url,
             editor_origin=editor_origin,
@@ -75,11 +66,6 @@ class Settings:
         )
 
     def validate_auth(self) -> None:
-        missing = [name for name, val in (
-            ("auth.base_url", self.auth_base_url),
-            ("auth.issuer", self.auth_issuer),
-            ("auth.jwks_url", self.auth_jwks_url),
-            ("auth.audience", self.auth_audience),
-        ) if not val]
+        missing = [name for name, val in (("auth.base_url", self.auth_base_url),) if not val]
         if missing:
             raise RuntimeError("Chorus authentication is not configured: " + ", ".join(missing))
