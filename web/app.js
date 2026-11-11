@@ -90,7 +90,7 @@
       list.append(li);
     });
   }
-  async function saveReference(work, rep, button) {
+  async function saveReference(work, rep, button, title) {
     const workId = String(work.work_id || work.id || "");
     if (!workId) {
       showMessage("search-message", "OSAP no devolvió un identificador de obra.", "error");
@@ -102,7 +102,7 @@
         provider: String(rep.provider || "osap").toLowerCase(),
         work_id: workId,
         representation_id: rep.id != null ? String(rep.id) : null,
-        title: work.title || "Obra de OSAP",
+        title: title || work.title || "Obra de OSAP",
         subtitle: work.composer || null
       })});
       showMessage("search-message", "Referencia guardada en tu biblioteca.", "success");
@@ -167,17 +167,45 @@
   function unwrap(doc) {
     return doc && doc.success === true && Object.prototype.hasOwnProperty.call(doc,"data") ? doc.data : doc;
   }
-  function groupRepresentations(reps) {
-    const groups = new Map();
+  function formatLabel(fmt) {
+    const f = String(fmt || "").toLowerCase();
+    if (/mxl|musicxml|xml/.test(f)) return "MusicXML";
+    if (f === "pdf") return "PDF";
+    if (/midi|mid/.test(f)) return "MIDI";
+    if (/mscz|mscx/.test(f)) return "MuseScore";
+    if (f === "sib") return "Sibelius";
+    if (f === "mus") return "Finale";
+    if (/mp3|wav|ogg|audio/.test(f)) return "Audio";
+    return fmt || "Archivo";
+  }
+  function uniqueRepresentations(reps) {
+    const seen = new Set();
+    const out = [];
     for (const rep of reps) {
-      const provider = String(rep.provider || "original");
-      const format = String(rep.format || "archivo");
-      const key = provider.toLowerCase() + "|" + format.toLowerCase();
-      const entry = groups.get(key) || { rep, provider, format, count: 0 };
-      entry.count += 1;
-      groups.set(key, entry);
+      const meta = rep.metadata || {};
+      const key = rep.id || rep.url
+        || [rep.provider, rep.format, meta.resource_id, meta.source_rep_id].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(rep);
     }
-    return [...groups.values()];
+    return out;
+  }
+  function representationTitle(rep, work) {
+    const meta = rep.metadata || {};
+    return meta.representation_title || rep.title || work.title || "Sin título";
+  }
+  function representationPeople(rep, work) {
+    const meta = rep.metadata || {};
+    return [...new Set(
+      [work.composer, meta.composer, meta.editor, meta.arranger, meta.translator]
+        .filter(Boolean)
+    )];
+  }
+  function representationType(rep) {
+    const meta = rep.metadata || {};
+    return [formatLabel(rep.format), meta.instrumentation, meta.voicing]
+      .filter(Boolean).join(" · ");
   }
   function renderResults(doc) {
     const data = unwrap(doc);
@@ -193,8 +221,8 @@
     results.forEach((item) => {
       const work = item.work || item;
       const reps = item.representations && item.representations.length ? item.representations : (item.representation ? [item.representation] : []);
-      const variants = groupRepresentations(reps);
-      const providers = [...new Set(variants.map((variant) => variant.provider))];
+      const components = uniqueRepresentations(reps);
+      const providers = [...new Set(components.map((rep) => String(rep.provider || "origen")))];
       const card = document.createElement("article");
       card.className = "result-card";
 
@@ -206,50 +234,77 @@
       const meta = document.createElement("div");
       meta.className = "result-meta";
       meta.textContent = [work.composer, work.catalogue,
-        variants.length ? variants.length + " formatos · " + providers.join(", ") : "sin representaciones"]
+        components.length ? components.length + " componentes · " + providers.join(", ") : "sin componentes"]
         .filter(Boolean).join(" · ");
       info.append(title, meta);
 
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "button button-outline result-toggle";
-      toggle.disabled = !variants.length;
-      toggle.textContent = "Ver componentes (" + variants.length + ")";
+      toggle.disabled = !components.length;
+      toggle.textContent = "Ver componentes (" + components.length + ")";
 
       const details = document.createElement("div");
       details.className = "result-details hidden";
-      const actions = document.createElement("div");
-      actions.className = "result-actions";
-      variants.forEach(({ rep, provider, format, count }) => {
-        const fmt = String(format).toLowerCase();
-        const supported = /mxl|musicxml|\.xml|midi|\.mid|mscz|mscx|capella|\.capx|\.gp|\.gpx/.test(fmt);
-        const group = document.createElement("div");
-        group.className = "rep-group";
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "button button-outline rep-button";
-        btn.textContent = "Usar " + provider + " · " + format;
-        btn.disabled = rep.available === false || !supported;
-        btn.title = btn.disabled
+      const componentList = document.createElement("div");
+      componentList.className = "component-list";
+      components.forEach((rep) => {
+        const repMeta = rep.metadata || {};
+        const row = document.createElement("div");
+        row.className = "component-row";
+        const main = document.createElement("div");
+        main.className = "component-main";
+        const name = document.createElement("strong");
+        name.textContent = representationTitle(rep, work);
+        const people = document.createElement("span");
+        people.className = "component-meta";
+        const peopleValues = representationPeople(rep, work);
+        people.textContent = peopleValues.length
+          ? peopleValues.join(" · ")
+          : "Personas no indicadas";
+        const type = document.createElement("span");
+        type.className = "component-meta";
+        type.textContent = [representationType(rep), repMeta.license || "Licencia no indicada"]
+          .filter(Boolean).join(" · ");
+        const source = document.createElement("span");
+        source.className = "component-meta";
+        source.textContent = "Proveedor: " + (rep.provider || "origen")
+          + (repMeta.resource_id ? " · recurso " + repMeta.resource_id : "")
+          + (repMeta.source_rep_id ? " · origen " + repMeta.source_rep_id : "");
+        main.append(name, people, type, source);
+
+        const actions = document.createElement("div");
+        actions.className = "component-actions";
+        const supported = /mxl|musicxml|\.xml|midi|\.mid|mscz|mscx|capella|\.capx|\.gp|\.gpx/.test(
+          String(rep.format || "").toLowerCase(),
+        );
+        const use = document.createElement("button");
+        use.type = "button";
+        use.className = "button button-outline";
+        use.textContent = "Usar";
+        use.disabled = rep.available === false || !supported;
+        use.title = use.disabled
           ? "Formato no descargable o no compatible con el editor"
-          : (count > 1 ? count + " variantes; se usará la primera" : "Crear borrador desde esta representación");
-        btn.addEventListener("click", () => startFromOsap(work, rep, btn));
+          : "Crear borrador desde este componente";
+        use.addEventListener("click", () => startFromOsap(work, rep, use));
         const save = document.createElement("button");
         save.type = "button";
-        save.className = "rep-save";
+        save.className = "button button-quiet";
         save.textContent = "Guardar";
         save.title = "Guardar esta referencia en tu biblioteca";
-        save.addEventListener("click", () => saveReference(work, rep, save));
-        group.append(btn, save);
-        actions.append(group);
+        save.addEventListener("click", () => saveReference(work, rep, save, representationTitle(rep, work)));
+        actions.append(use, save);
+
+        row.append(main, actions);
+        componentList.append(row);
       });
-      if (!variants.length) {
+      if (!components.length) {
         const note = document.createElement("span");
         note.className = "result-meta";
         note.textContent = "No hay representaciones disponibles.";
-        actions.append(note);
+        componentList.append(note);
       }
-      details.append(actions);
+      details.append(componentList);
 
       toggle.addEventListener("click", () => {
         const open = details.classList.contains("hidden");
@@ -257,7 +312,7 @@
         card.classList.toggle("open", open);
         toggle.textContent = open
           ? "Ocultar componentes"
-          : "Ver componentes (" + variants.length + ")";
+          : "Ver componentes (" + components.length + ")";
       });
 
       head.append(info, toggle);
