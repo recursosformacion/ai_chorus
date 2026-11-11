@@ -189,7 +189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         initialise_database(cfg)
         yield
 
-    app = FastAPI(title="Chorus API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Chorus API", version="0.2.1", lifespan=lifespan)
 
     origins = list(cfg.cors_origins)
     if cfg.editor_origin and cfg.editor_origin not in origins:
@@ -1039,7 +1039,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         row = owned_draft(draft_id, user)
         if not cfg.editor_base_url:
             raise HTTPException(status_code=503, detail="MuseEncore editor URL is not configured")
-        editor_url = cfg.editor_base_url
+        editor_url = cfg.editor_base_url.rstrip("/") + "/"
         if row["source_file_pointer"]:
             if not cfg.public_base_url or not cfg.editor_origin:
                 raise HTTPException(
