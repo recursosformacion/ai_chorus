@@ -156,10 +156,28 @@
     if (data.onboarding && data.onboarding.required) {
       throw new Error("Tu cuenta necesita completar el alta de OSAP antes de utilizar Chorus.");
     }
-    showWorkspace(data.user_id || email);
+    showWorkspace(email);
+    try {
+      const profile = await request("/api/v1/auth/me", {}, false);
+      showWorkspace(profile.nickname || profile.email || email);
+    } catch (_) {
+      // La etiqueta inicial (email) sigue siendo válida si /auth/me no responde.
+    }
   }
   function unwrap(doc) {
     return doc && doc.success === true && Object.prototype.hasOwnProperty.call(doc,"data") ? doc.data : doc;
+  }
+  function groupRepresentations(reps) {
+    const groups = new Map();
+    for (const rep of reps) {
+      const provider = String(rep.provider || "original");
+      const format = String(rep.format || "archivo");
+      const key = provider.toLowerCase() + "|" + format.toLowerCase();
+      const entry = groups.get(key) || { rep, provider, format, count: 0 };
+      entry.count += 1;
+      groups.set(key, entry);
+    }
+    return [...groups.values()];
   }
   function renderResults(doc) {
     const data = unwrap(doc);
@@ -175,6 +193,8 @@
     results.forEach((item) => {
       const work = item.work || item;
       const reps = item.representations && item.representations.length ? item.representations : (item.representation ? [item.representation] : []);
+      const variants = groupRepresentations(reps);
+      const providers = [...new Set(variants.map((variant) => variant.provider))];
       const card = document.createElement("article");
       card.className = "result-card";
       const info = document.createElement("div");
@@ -182,30 +202,36 @@
       title.textContent = work.title || "Obra sin título";
       const meta = document.createElement("div");
       meta.className = "result-meta";
-      meta.textContent = [work.composer, work.catalogue, reps.length + " representaciones"].filter(Boolean).join(" · ");
+      meta.textContent = [work.composer, work.catalogue,
+        variants.length ? variants.length + " formatos · " + providers.join(", ") : "sin representaciones"]
+        .filter(Boolean).join(" · ");
       info.append(title,meta);
       const actions = document.createElement("div");
       actions.className = "result-actions";
-      reps.forEach((rep) => {
-        const fmt = String(rep.format || "").toLowerCase();
+      variants.forEach(({ rep, provider, format, count }) => {
+        const fmt = String(format).toLowerCase();
         const supported = /mxl|musicxml|\.xml|midi|\.mid|mscz|mscx|capella|\.capx|\.gp|\.gpx/.test(fmt);
+        const group = document.createElement("div");
+        group.className = "rep-group";
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "button button-outline";
-        btn.textContent = "Usar " + (rep.provider || "original") + " · " + (rep.format || "archivo");
+        btn.className = "button button-outline rep-button";
+        btn.textContent = "Usar " + provider + " · " + format;
         btn.disabled = rep.available === false || !supported;
-        btn.title = btn.disabled ? "Formato no descargable o no compatible con el editor" : "Crear borrador desde esta representación";
+        btn.title = btn.disabled
+          ? "Formato no descargable o no compatible con el editor"
+          : (count > 1 ? count + " variantes; se usará la primera" : "Crear borrador desde esta representación");
         btn.addEventListener("click", () => startFromOsap(work,rep,btn));
-        actions.append(btn);
         const save = document.createElement("button");
         save.type = "button";
-        save.className = "button button-quiet";
+        save.className = "rep-save";
         save.textContent = "Guardar";
-        save.title = "Guardar una referencia de esta representación en tu biblioteca";
+        save.title = "Guardar esta referencia en tu biblioteca";
         save.addEventListener("click", () => saveReference(work,rep,save));
-        actions.append(save);
+        group.append(btn, save);
+        actions.append(group);
       });
-      if (!reps.length) {
+      if (!variants.length) {
         const note = document.createElement("span"); note.className = "result-meta"; note.textContent = "No hay representaciones disponibles."; actions.append(note);
       }
       card.append(info,actions);
