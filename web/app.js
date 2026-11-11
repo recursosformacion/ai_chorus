@@ -441,6 +441,14 @@
         if (repMeta.license_conflict) license.append(" ⚠");
         appendPart(license);
         appendPart(rep.provider || "origen");
+        if (repMeta.source_url) {
+          const pageLink = document.createElement("a");
+          pageLink.href = repMeta.source_url;
+          pageLink.target = "_blank";
+          pageLink.rel = "noopener noreferrer";
+          pageLink.textContent = "Página de la obra";
+          appendPart(pageLink);
+        }
         if (repMeta.resource_id) appendPart("rec " + repMeta.resource_id);
         if (repMeta.source_rep_id) appendPart("orig " + repMeta.source_rep_id);
         main.append(name, metaLine);
