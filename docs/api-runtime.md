@@ -73,3 +73,31 @@ python -m http.server 9601 --bind 127.0.0.1 --directory D:\Proyectos\AI_OSAP\mus
 ```
 
 Comprobaciones: `GET http://chorus-app/health` → 200; `GET http://chorus-app/api/v1/library` sin sesión → 401; `http://127.0.0.1:9601/` → editor. La vhost de Apache apunta a `Chorus/web`; si Apache aún no se ha reiniciado, el junction `ai_chorus` mantiene el servicio.
+
+## Login OIDC (2026-11-11)
+
+Chorus actúa como relying party de osap-auth con PKCE; la pantalla de Auth ofrece
+contraseña, Google, GitHub y alta de cuenta nueva.
+
+- `GET /api/v1/auth/oidc/start` → descubre el issuer, genera PKCE/state/nonce y
+  devuelve `authorize_url`.
+- `GET /api/v1/auth/oidc/callback` → valida el state, canjea el código con el
+  `client_secret` del servidor, valida la sesión con `/auth/me` y deja el refresh
+  en la cookie HttpOnly `chorus_refresh`.
+- La web abre el flujo en un popup; `auth-callback.html` devuelve el access token
+  por `postMessage` y lo borra del fragmento.
+
+Registro del cliente (una vez por entorno):
+
+```powershell
+cd D:\Proyectos\AI_OSAP\osap-auth
+.\.venv\Scripts\python.exe -m infrastructure.cli register-oauth-client `
+  --client-id chorus-web `
+  --redirect-uris "http://chorus-app/api/v1/auth/oidc/callback" `
+  --allowed-hosts chorus-app --scopes "openid,profile,email" `
+  --grant-types "authorization_code,refresh_token"
+```
+
+Guardar el secreto en `osap.toml` (`[auth] oidc_client_secret`), junto a
+`oidc_issuer`, `oidc_client_id` y `oidc_redirect_uri`. El secreto nunca se envía al
+navegador.

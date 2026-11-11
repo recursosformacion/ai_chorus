@@ -1,12 +1,14 @@
 """Chorus API pilot: osap-auth identity, OSAP read proxy and private creation drafts."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import mimetypes
 import re
 import secrets
 import sqlite3
+import time
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
@@ -20,6 +22,7 @@ from urllib.parse import quote, urlencode
 import httpx
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.config import Settings
@@ -95,6 +98,7 @@ def initialise_database(settings: Settings) -> None:
             "001_v6_work_resource_file.sql",
             "002_creation_drafts.sql",
             "003_owner_and_library.sql",
+            "004_oidc_states.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -405,6 +409,126 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if isinstance(document, dict) else "Onboarding could not be completed",
             )
         return document
+
+    _oidc_cache: dict[str, str] | None = None
+
+    def oidc_discovery() -> dict[str, str]:
+        nonlocal _oidc_cache
+        if _oidc_cache is None:
+            with httpx.Client(timeout=cfg.auth_timeout_seconds) as client:
+                response = client.get(
+                    f"{cfg.oidc_issuer}/.well-known/openid-configuration"
+                )
+            if response.status_code != 200:
+                raise HTTPException(status_code=503, detail="OIDC discovery failed")
+            document = response.json()
+            authorization = document.get("authorization_endpoint")
+            token = document.get("token_endpoint")
+            if not isinstance(authorization, str) or not isinstance(token, str):
+                raise HTTPException(status_code=503, detail="OIDC discovery is incomplete")
+            _oidc_cache = {
+                "authorization_endpoint": authorization,
+                "token_endpoint": token,
+            }
+        return _oidc_cache
+
+    def pkce_pair() -> tuple[str, str]:
+        verifier = (
+            base64.urlsafe_b64encode(secrets.token_bytes(32))
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+        challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest())
+            .rstrip(b"=")
+            .decode("ascii")
+        )
+        return verifier, challenge
+
+    def oidc_authorize_url(state: str, nonce: str, challenge: str) -> str:
+        endpoints = oidc_discovery()
+        params = {
+            "response_type": "code",
+            "client_id": cfg.oidc_client_id,
+            "redirect_uri": cfg.oidc_redirect_uri,
+            "scope": cfg.oidc_scope,
+            "state": state,
+            "nonce": nonce,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+        return f"{endpoints['authorization_endpoint']}?{urlencode(params)}"
+
+    def oidc_exchange(code: str, verifier: str) -> dict[str, Any]:
+        endpoints = oidc_discovery()
+        data = {
+            "grant_type": "authorization_code",
+            "client_id": cfg.oidc_client_id,
+            "client_secret": cfg.oidc_client_secret,
+            "redirect_uri": cfg.oidc_redirect_uri,
+            "code": code,
+            "code_verifier": verifier,
+        }
+        with httpx.Client(timeout=cfg.auth_timeout_seconds) as client:
+            response = client.post(endpoints["token_endpoint"], data=data)
+        if response.status_code != 200:
+            raise HTTPException(status_code=502, detail="OIDC token exchange failed")
+        tokens = response.json()
+        if not isinstance(tokens, dict) or not tokens.get("access_token"):
+            raise HTTPException(status_code=502, detail="OIDC returned no access token")
+        return tokens
+
+    @app.get("/api/v1/auth/oidc/start")
+    def oidc_start() -> dict[str, Any]:
+        if not cfg.oidc_configured():
+            raise HTTPException(status_code=503, detail="OIDC is not configured")
+        verifier, challenge = pkce_pair()
+        state = secrets.token_urlsafe(24)
+        nonce = secrets.token_urlsafe(24)
+        with _connect(cfg) as conn:
+            conn.execute(
+                "DELETE FROM oidc_states WHERE created_at < ?", (time.time() - 1800,)
+            )
+            conn.execute(
+                "INSERT INTO oidc_states (state, verifier, nonce, created_at) "
+                "VALUES (?,?,?,?)",
+                (state, verifier, nonce, time.time()),
+            )
+        return {
+            "authorize_url": oidc_authorize_url(state, nonce, challenge),
+            "configured": True,
+        }
+
+    @app.get("/api/v1/auth/oidc/callback", response_model=None)
+    def oidc_callback(code: str | None = None, state: str | None = None) -> RedirectResponse:
+        if not code or not state:
+            raise HTTPException(status_code=400, detail="OIDC callback is incomplete")
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT verifier, created_at FROM oidc_states WHERE state = ?", (state,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=400, detail="OIDC state is invalid")
+            conn.execute("DELETE FROM oidc_states WHERE state = ?", (state,))
+        if time.time() - float(row["created_at"]) > 1800:
+            raise HTTPException(status_code=400, detail="OIDC state expired")
+        tokens = oidc_exchange(code, str(row["verifier"]))
+        access_token = str(tokens["access_token"])
+        refresh_token = str(tokens.get("refresh_token") or "")
+        profile_status, profile = auth_call("GET", "/auth/me", token=access_token)
+        if profile_status != 200 or not isinstance(profile, dict):
+            raise HTTPException(status_code=502, detail="OIDC session could not be validated")
+        response = RedirectResponse(
+            f"{cfg.public_base_url}/auth-callback.html"
+            f"#access_token={quote(access_token)}",
+            status_code=302,
+        )
+        if refresh_token:
+            response.set_cookie(
+                "chorus_refresh", refresh_token, httponly=True, secure=cfg.secure_cookies,
+                samesite="lax", path="/api/v1/auth", max_age=30 * 24 * 60 * 60,
+            )
+        return response
 
     @app.post("/api/v1/auth/logout", status_code=204)
     def logout(response: Response, user: Principal = Depends(principal_dependency),

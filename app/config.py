@@ -20,6 +20,11 @@ class Settings:
     cors_origins: tuple[str, ...] = ()
     max_upload_bytes: int = 50 * 1024 * 1024
     source_token_ttl_seconds: int = 300
+    oidc_issuer: str = ""
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""
+    oidc_redirect_uri: str = ""
+    oidc_scope: str = "openid profile email"
     auth_timeout_seconds: float = 15.0
     osap_timeout_seconds: float = 45.0
     secure_cookies: bool = True
@@ -38,6 +43,12 @@ class Settings:
             return os.getenv(env, str(section.get(key, default))).strip()
 
         auth_base = value("CHORUS_AUTH_BASE_URL", auth, "base_url").rstrip("/")
+        public_base = value("CHORUS_PUBLIC_BASE_URL", app, "public_base_url").rstrip("/")
+        oidc_issuer = value("CHORUS_OIDC_ISSUER", auth, "oidc_issuer", auth_base).rstrip("/")
+        oidc_redirect = value(
+            "CHORUS_OIDC_REDIRECT_URI", auth, "oidc_redirect_uri",
+            f"{public_base}/api/v1/auth/oidc/callback" if public_base else "",
+        )
         editor_url = value("CHORUS_EDITOR_BASE_URL", editor, "base_url").rstrip("/")
         editor_origin = value("CHORUS_EDITOR_ORIGIN", editor, "origin").rstrip("/")
         if not editor_origin and editor_url:
@@ -54,7 +65,12 @@ class Settings:
             osap_api_base_url=value("CHORUS_OSAP_API_BASE_URL", osap, "api_base_url").rstrip("/"),
             editor_base_url=editor_url,
             editor_origin=editor_origin,
-            public_base_url=value("CHORUS_PUBLIC_BASE_URL", app, "public_base_url").rstrip("/"),
+            public_base_url=public_base,
+            oidc_issuer=oidc_issuer,
+            oidc_client_id=value("CHORUS_OIDC_CLIENT_ID", auth, "oidc_client_id"),
+            oidc_client_secret=value("CHORUS_OIDC_CLIENT_SECRET", auth, "oidc_client_secret"),
+            oidc_redirect_uri=oidc_redirect,
+            oidc_scope=value("CHORUS_OIDC_SCOPE", auth, "oidc_scope", "openid profile email"),
             database_path=value("CHORUS_DATABASE_PATH", storage, "database_path", "var/chorus.sqlite3"),
             storage_root=value("CHORUS_STORAGE_ROOT", storage, "root", "var/private"),
             cors_origins=cors,
@@ -64,6 +80,9 @@ class Settings:
             osap_timeout_seconds=float(value("CHORUS_OSAP_TIMEOUT", osap, "timeout_seconds", "45")),
             secure_cookies=value("CHORUS_SECURE_COOKIES", app, "secure_cookies", "true").lower() not in {"0", "false", "no"},
         )
+
+    def oidc_configured(self) -> bool:
+        return bool(self.oidc_issuer and self.oidc_client_id and self.oidc_redirect_uri)
 
     def validate_auth(self) -> None:
         missing = [name for name, val in (("auth.base_url", self.auth_base_url),) if not val]

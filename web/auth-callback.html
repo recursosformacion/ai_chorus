@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Completando sesión · Chorus</title>
+  <style>
+    :root{font-family:"DM Sans",system-ui,sans-serif;color:#26332e;background:#f4f5f1}
+    body{display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;text-align:center}
+    p{font-size:14px;color:#718078}
+  </style>
+</head>
+<body>
+  <main>
+    <p id="status">Completando la sesión…</p>
+  </main>
+  <script>
+    (() => {
+      const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+      const token = params.get("access_token");
+      if (!token) {
+        document.getElementById("status").textContent = "No se recibió ninguna sesión de OSAP.";
+        return;
+      }
+      if (window.opener) {
+        window.opener.postMessage({ type: "chorus-oidc", access_token: token }, location.origin);
+        window.close();
+        return;
+      }
+      // Sin ventana padre: devolver el token en el fragmento; la app lo consume y lo borra.
+      location.replace("/#access_token=" + encodeURIComponent(token));
+    })();
+  </script>
+</body>
+</html>

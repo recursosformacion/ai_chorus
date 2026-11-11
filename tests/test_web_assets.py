@@ -32,3 +32,13 @@ def test_apache_development_instructions_match_runtime_port():
     assert "chorus-app" in doc
     assert "127.0.0.1:9600" in doc
     assert "ProxyPass" in doc
+
+
+def test_oidc_login_entrypoint_and_callback_exist():
+    html = (WEB / "index.html").read_text("utf-8")
+    assert 'id="oidc-login"' in html
+    js = (WEB / "app.js").read_text("utf-8")
+    assert '"/api/v1/auth/oidc/start"' in js
+    callback = (WEB / "auth-callback.html").read_text("utf-8")
+    assert "chorus-oidc" in callback
+    assert "access_token" in callback
