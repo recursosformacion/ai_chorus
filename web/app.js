@@ -274,7 +274,21 @@
         source.textContent = "Proveedor: " + (rep.provider || "origen")
           + (repMeta.resource_id ? " · recurso " + repMeta.resource_id : "")
           + (repMeta.source_rep_id ? " · origen " + repMeta.source_rep_id : "");
-        main.append(name, people, type, source);
+        const license = document.createElement("span");
+        license.className = "component-meta";
+        const licenseLabel = repMeta.license || "Licencia no indicada";
+        if (repMeta.license_url) {
+          const link = document.createElement("a");
+          link.href = repMeta.license_url;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = licenseLabel;
+          license.append("Licencia: ", link);
+        } else {
+          license.textContent = "Licencia: " + licenseLabel;
+        }
+        if (repMeta.license_conflict) license.append(" · conflicto");
+        main.append(name, people, type, license, source);
 
         const actions = document.createElement("div");
         actions.className = "component-actions";
