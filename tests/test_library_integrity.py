@@ -288,6 +288,8 @@ class FakeCombinedClient:
         if url.endswith("/auth/me"):
             return FakeHttpResponse(200, _profiles()["token-user-1"])
         if "/api/v1/works/public/" in url:
+            if "work-" in url:
+                return FakeHttpResponse(404, {"detail": "not found"})
             return FakeHttpResponse(200, {"title": "Obra"})
         if url.endswith("/download"):
             return FakeHttpResponse(200, None, make_mxl())
@@ -295,7 +297,7 @@ class FakeCombinedClient:
             return FakeHttpResponse(
                 200,
                 {
-                    "work_id": "999",
+                    "work_id": "index-1",
                     "provider": "cpdl",
                     "format": "musicxml",
                     "file_name": "source.mxl",
@@ -315,7 +317,7 @@ def test_source_accepts_index_work_id_different_from_representation(tmp_path, mo
         response = client.post(
             f"/api/v1/drafts/{draft_id}/source",
             headers=_headers(),
-            json={"work_id": "index-123", "representation_id": "idx-123-cpdl-1-musicxml"},
+            json={"work_id": "work-8987a90f873a41f9", "representation_id": "idx-123-cpdl-1-musicxml"},
         )
         assert response.status_code == 200, response.text
         assert response.json()["source_kind"] == "osap"

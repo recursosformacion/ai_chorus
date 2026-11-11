@@ -822,9 +822,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     requested_ref,
                     returned_ref,
                 )
-        work_metadata, _ = osap_call(
-            "GET", f"/api/v1/works/public/{quote(body.work_id, safe='')}", token=token
-        )
+        # `work.work_id` de la búsqueda es un id estable (`work-…`) que el endpoint
+        # público de obras no acepta; la ficha de la representación sí devuelve el id
+        # público (`index-…`). Se usa ese y, si falla, se sigue con los metadatos de la
+        # representación (el título ya viene de la búsqueda).
+        work_metadata: dict[str, Any] = {}
+        metadata_work_ref = str(returned_work or body.work_id)
+        try:
+            work_metadata, _ = osap_call(
+                "GET",
+                f"/api/v1/works/public/{quote(metadata_work_ref, safe='')}",
+                token=token,
+            )
+        except HTTPException:
+            work_metadata = {}
         _, downloaded = osap_call(
             "GET", f"/api/v1/representations/{encoded_representation_id}/download", token=token
         )
@@ -852,7 +863,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         work_record = work_metadata.get("work") if isinstance(work_metadata, dict) else None
         if not isinstance(work_record, dict):
             work_record = work_metadata if isinstance(work_metadata, dict) else {}
-        work_title = work_record.get("title")
+        work_title = work_record.get("title") or metadata.get("title")
         with _connect(cfg) as conn:
             conn.execute(
                 "UPDATE creation_drafts SET source_kind='osap', source_work_id=?, source_representation_id=?, "

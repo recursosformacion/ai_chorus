@@ -82,16 +82,78 @@
     items.forEach((item) => {
       const li = document.createElement("li");
       li.className = "library-item";
+      const info = document.createElement("div");
+      info.className = "library-info";
       const title = document.createElement("strong");
       title.textContent = item.title || "Sin título";
       const meta = document.createElement("span");
       meta.className = "muted";
       meta.textContent = item.kind === "local_work"
         ? "Obra propia"
-        : "OSAP · " + (item.external_work_id || "");
-      li.append(title, meta);
+        : [item.provider, item.external_work_id, item.external_resource_id]
+          .filter(Boolean).join(" · ") || "Referencia OSAP";
+      info.append(title, meta);
+
+      const actions = document.createElement("div");
+      actions.className = "library-actions";
+      if (collections.length) {
+        const select = document.createElement("select");
+        select.className = "library-select";
+        select.title = "Colección de destino";
+        collections.forEach((collection) => {
+          const option = document.createElement("option");
+          option.value = collection.id;
+          option.textContent = collection.name;
+          select.append(option);
+        });
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "button button-quiet";
+        add.textContent = "Añadir a colección";
+        add.addEventListener("click", () => {
+          void addToCollection(select.value, item.id, add);
+        });
+        actions.append(select, add);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button button-quiet";
+      remove.textContent = "Quitar";
+      remove.addEventListener("click", () => {
+        void removeLibraryItem(item.id, remove);
+      });
+      actions.append(remove);
+
+      li.append(info, actions);
       list.append(li);
     });
+  }
+  async function removeLibraryItem(itemId, button) {
+    setBusy(button, true, "Quitando…");
+    try {
+      await request("/api/v1/library/" + encodeURIComponent(itemId), {method: "DELETE"});
+      await refreshLibrary($("library-query").value.trim());
+      showMessage("library-message", "Elemento quitado de la biblioteca.", "success");
+    } catch (error) {
+      showMessage("library-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  }
+  async function addToCollection(collectionId, itemId, button) {
+    if (!collectionId) return;
+    setBusy(button, true, "Añadiendo…");
+    try {
+      await request(
+        "/api/v1/collections/" + encodeURIComponent(collectionId) + "/items",
+        {method: "POST", body: JSON.stringify({library_item_id: itemId})},
+      );
+      showMessage("library-message", "Añadido a la colección.", "success");
+    } catch (error) {
+      showMessage("library-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
   }
   async function saveReference(work, rep, button, title) {
     const workId = String(work.work_id || work.id || "");
