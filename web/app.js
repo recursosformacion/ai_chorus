@@ -259,36 +259,35 @@
         main.className = "component-main";
         const name = document.createElement("strong");
         name.textContent = representationTitle(rep, work);
-        const people = document.createElement("span");
-        people.className = "component-meta";
         const peopleValues = representationPeople(rep, work);
-        people.textContent = peopleValues.length
-          ? peopleValues.join(" · ")
-          : "Personas no indicadas";
-        const type = document.createElement("span");
-        type.className = "component-meta";
-        type.textContent = [representationType(rep), repMeta.license || "Licencia no indicada"]
-          .filter(Boolean).join(" · ");
-        const source = document.createElement("span");
-        source.className = "component-meta";
-        source.textContent = "Proveedor: " + (rep.provider || "origen")
-          + (repMeta.resource_id ? " · recurso " + repMeta.resource_id : "")
-          + (repMeta.source_rep_id ? " · origen " + repMeta.source_rep_id : "");
+        const metaLine = document.createElement("span");
+        metaLine.className = "component-meta component-line";
+        const appendPart = (node) => {
+          if (metaLine.childNodes.length) metaLine.append(" · ");
+          metaLine.append(node);
+        };
+        if (peopleValues.length) appendPart(peopleValues.join(", "));
+        const typeText = representationType(rep);
+        if (typeText) appendPart(typeText);
         const license = document.createElement("span");
-        license.className = "component-meta";
         const licenseLabel = repMeta.license || "Licencia no indicada";
+        license.append("Licencia: ");
         if (repMeta.license_url) {
           const link = document.createElement("a");
           link.href = repMeta.license_url;
           link.target = "_blank";
           link.rel = "noopener noreferrer";
           link.textContent = licenseLabel;
-          license.append("Licencia: ", link);
+          license.append(link);
         } else {
-          license.textContent = "Licencia: " + licenseLabel;
+          license.append(licenseLabel);
         }
-        if (repMeta.license_conflict) license.append(" · conflicto");
-        main.append(name, people, type, license, source);
+        if (repMeta.license_conflict) license.append(" ⚠");
+        appendPart(license);
+        appendPart(rep.provider || "origen");
+        if (repMeta.resource_id) appendPart("rec " + repMeta.resource_id);
+        if (repMeta.source_rep_id) appendPart("orig " + repMeta.source_rep_id);
+        main.append(name, metaLine);
 
         const actions = document.createElement("div");
         actions.className = "component-actions";
