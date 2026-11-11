@@ -239,7 +239,10 @@
     if (!currentDraft) return;
     try {
       const data = await request("/api/v1/drafts/" + encodeURIComponent(currentDraft.id) + "/editor");
-      window.open(data.editor_url,"_blank","noopener");
+      const title = $("draft-title").textContent || "";
+      const wrapper = "/editor.html?src=" + encodeURIComponent(data.editor_url)
+        + "&title=" + encodeURIComponent(title);
+      window.open(wrapper,"_blank","noopener");
     } catch (error) { showMessage("draft-message",error.message,"error"); }
   }
   async function uploadMxl(file) {

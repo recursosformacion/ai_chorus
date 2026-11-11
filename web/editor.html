@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Editor · Chorus</title>
+  <style>
+    :root{font-family:"DM Sans",system-ui,sans-serif;color:#26332e;background:#f4f5f1;--green:#284c40;--line:#dfe5df;--muted:#718078}
+    *{box-sizing:border-box}html,body{margin:0;height:100%}body{display:flex;flex-direction:column}
+    .editor-bar{height:52px;flex:0 0 52px;display:flex;align-items:center;gap:16px;padding:0 18px;background:#fff;border-bottom:1px solid var(--line)}
+    .editor-bar a{color:var(--green);font-weight:600;text-decoration:none;font-size:13px}
+    .editor-bar a:hover{text-decoration:underline}
+    .editor-bar strong{font-size:14px;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .editor-bar .hint{margin-left:auto;color:var(--muted);font-size:12px}
+    iframe{flex:1;width:100%;border:0;background:#fff}
+    @media(max-width:640px){.editor-bar .hint{display:none}}
+  </style>
+</head>
+<body>
+  <header class="editor-bar">
+    <a href="/" title="Volver a la biblioteca de Chorus">← Volver a Chorus</a>
+    <strong id="editor-title"></strong>
+    <span class="hint">Exporta .mxl y súbelo en Chorus para guardarlo</span>
+  </header>
+  <iframe id="editor-frame" title="MuseEncore"></iframe>
+  <script>
+    (() => {
+      const params = new URLSearchParams(location.search);
+      const src = params.get("src") || "";
+      const title = params.get("title") || "";
+      document.getElementById("editor-title").textContent = title || "MuseEncore";
+      document.title = (title ? title + " · " : "") + "Editor · Chorus";
+      const frame = document.getElementById("editor-frame");
+      if (src) frame.src = src;
+    })();
+  </script>
+</body>
+</html>

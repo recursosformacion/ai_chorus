@@ -129,3 +129,9 @@ origin = "http://127.0.0.1:9601"
 2. Buscar una obra, elegir una representación y crear el borrador.
 3. Pulsar “Abrir en MuseEncore”: Chorus entrega una URL temporal de solo lectura (5 minutos, CORS limitado al origen del editor).
 4. Editar, exportar `.mxl` y subirlo en Chorus; la cadena Work → Resource → File se materializa y aparece en la biblioteca.
+
+## Guardado y vuelta a Chorus
+
+MuseEncore guarda las partituras **en el navegador** (IndexedDB vía Dexie), recuerda la partitura abierta en `localStorage` y mantiene autosaves en IndexedDB. “Guardar en el ordenador” descarga un `.mscz`; “Exportar” descarga PDF/PNG/SVG/MIDI/MusicXML. **No escribe en la base de datos ni en el almacenamiento de Chorus**: el puente es exportar `.mxl` y subirlo desde Chorus. Hasta esa subida no existe copia en Chorus; borrar los datos del sitio elimina las copias del navegador.
+
+La web de Chorus abre el editor en `/editor.html`, una página propia con barra superior “← Volver a Chorus”, el título del borrador y un `iframe` con MuseEncore. Así se recupera la pantalla de Chorus sin depender de que el editor tenga un botón de vuelta propio (no lo tiene). El título se muestra en esa barra; dentro del editor solo aparece si el fichero cargado lo contiene: `?url=` carga la partitura, no un título.
