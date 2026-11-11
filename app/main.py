@@ -581,13 +581,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return result
 
     @app.get("/api/v1/library")
-    def list_library(user: Principal = Depends(current_user)) -> dict[str, Any]:
+    def list_library(
+        q: str | None = None, user: Principal = Depends(current_user)
+    ) -> dict[str, Any]:
+        query = (q or "").strip().lower()
         with _connect(cfg) as conn:
-            rows = conn.execute(
-                "SELECT * FROM library_items WHERE owner_sub = ? "
-                "ORDER BY created_at DESC, id DESC",
-                (user.sub,),
-            ).fetchall()
+            if query:
+                like = f"%{query}%"
+                rows = conn.execute(
+                    "SELECT * FROM library_items WHERE owner_sub = ? AND ("
+                    "LOWER(title) LIKE ? OR LOWER(COALESCE(subtitle, '')) LIKE ? "
+                    "OR LOWER(COALESCE(provider, '')) LIKE ? "
+                    "OR LOWER(COALESCE(metadata_json, '')) LIKE ?) "
+                    "ORDER BY created_at DESC, id DESC",
+                    (user.sub, like, like, like, like),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM library_items WHERE owner_sub = ? "
+                    "ORDER BY created_at DESC, id DESC",
+                    (user.sub,),
+                ).fetchall()
             collections = conn.execute(
                 "SELECT c.*, (SELECT COUNT(*) FROM collection_items ci "
                 "WHERE ci.collection_id = c.id) AS item_count "

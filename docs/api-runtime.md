@@ -101,3 +101,10 @@ cd D:\Proyectos\AI_OSAP\osap-auth
 Guardar el secreto en `osap.toml` (`[auth] oidc_client_secret`), junto a
 `oidc_issuer`, `oidc_client_id` y `oidc_redirect_uri`. El secreto nunca se envía al
 navegador.
+
+## Biblioteca: búsqueda y acceso desde OSAP
+
+- `GET /api/v1/library?q=texto` filtra por título, subtítulo, proveedor y metadatos.
+- `osap-api` expone la fachada `/api/v1/workspace/library` (GET/POST/DELETE): reenvía la
+  petición con el token del usuario a Chorus, que valida la sesión en osap-auth.
+- En la ficha de obra de OSAP, cada representación muestra “Guardar” cuando hay sesión.

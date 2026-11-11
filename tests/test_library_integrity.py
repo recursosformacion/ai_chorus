@@ -238,3 +238,19 @@ def test_library_items_are_scoped_to_the_authenticated_user(tmp_path, monkeypatc
             "/api/v1/library", headers=_headers("token-user-2")
         ).json()["items"]
         assert other_library == []
+
+
+def test_library_can_be_searched_by_title(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    with TestClient(create_app(settings)) as client:
+        install_fake_auth(monkeypatch, _profiles())
+        _upload(client, "Benedictus")
+        _upload(client, "Ave verum")
+
+        found = client.get("/api/v1/library", headers=_headers(), params={"q": "benedictus"})
+        assert found.status_code == 200
+        items = found.json()["items"]
+        assert [item["title"] for item in items] == ["Benedictus"]
+
+        none = client.get("/api/v1/library", headers=_headers(), params={"q": "zzz"})
+        assert none.json()["items"] == []

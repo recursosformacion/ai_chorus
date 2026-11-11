@@ -59,8 +59,11 @@
     $("logout-button").classList.add("hidden");
     $("account-label").textContent = "";
   }
-  async function refreshLibrary() {
-    const data = await request("/api/v1/library");
+  async function refreshLibrary(query) {
+    const path = query
+      ? "/api/v1/library?q=" + encodeURIComponent(query)
+      : "/api/v1/library";
+    const data = await request(path);
     renderLibrary(data || {});
   }
   function renderLibrary(data) {
@@ -418,7 +421,17 @@
     finally{setBusy(button,false);}
   });
   $("open-editor-button").addEventListener("click",openEditor);
-  $("library-refresh").addEventListener("click",()=>{refreshLibrary().catch((error)=>showMessage("library-message",error.message,"error"));});
+  $("library-refresh").addEventListener("click",()=>{refreshLibrary($("library-query").value.trim()).catch((error)=>showMessage("library-message",error.message,"error"));});
+  let libraryTimer = null;
+  $("library-query").addEventListener("input",()=>{
+    clearTimeout(libraryTimer);
+    libraryTimer = setTimeout(()=>{refreshLibrary($("library-query").value.trim()).catch(()=>{});},300);
+  });
+  $("library-search-osap").addEventListener("click",()=>{
+    const query=$("search-query");
+    query.focus();
+    query.scrollIntoView({behavior:"smooth",block:"center"});
+  });
   $("mxl-file").addEventListener("change",(event)=>uploadMxl(event.target.files[0]));
   $("logout-button").addEventListener("click",async()=>{
     try{if(accessToken)await request("/api/v1/auth/logout",{method:"POST"},false);}catch(_){}

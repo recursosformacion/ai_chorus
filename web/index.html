@@ -83,6 +83,11 @@
 
       <section id="library-section" class="panel library-panel">
         <div class="section-heading"><div><p class="eyebrow">BIBLIOTECA PERSONAL</p><h2>Tu biblioteca</h2><p class="muted">Obras propias y referencias del catálogo OSAP.</p></div><button id="library-refresh" class="button button-quiet" type="button">Actualizar</button></div>
+        <div class="library-search">
+          <label class="sr-only" for="library-query">Buscar en mi biblioteca</label>
+          <input id="library-query" type="search" placeholder="Buscar en mi biblioteca…">
+          <button id="library-search-osap" class="button button-quiet" type="button">Buscar en OSAP</button>
+        </div>
         <p id="library-summary" class="muted"></p>
         <ul id="library-items" class="library-list"></ul>
         <p id="library-message" class="message" role="status"></p>
