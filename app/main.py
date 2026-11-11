@@ -426,8 +426,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if response.status_code != 200:
                 raise HTTPException(status_code=503, detail="OIDC discovery failed")
             document = response.json()
-            authorization = document.get("authorization_endpoint")
-            token = document.get("token_endpoint")
+            authorization = cfg.oidc_authorize_url or document.get(
+                "authorization_endpoint"
+            )
+            token = cfg.oidc_token_url or document.get("token_endpoint")
             if not isinstance(authorization, str) or not isinstance(token, str):
                 raise HTTPException(status_code=503, detail="OIDC discovery is incomplete")
             _oidc_cache = {

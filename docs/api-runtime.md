@@ -108,3 +108,14 @@ navegador.
 - `osap-api` expone la fachada `/api/v1/workspace/library` (GET/POST/DELETE): reenvía la
   petición con el token del usuario a Chorus, que valida la sesión en osap-auth.
 - En la ficha de obra de OSAP, cada representación muestra “Guardar” cuando hay sesión.
+
+## Despliegue de producción (2026-11-11)
+
+- Código en `/home/ocw/openmusicrepository.com/chorus`, venv propio, servicio `chorus`
+  (uvicorn 9600) y sitio nginx `chorus.openmusicrepository.com` con TLS.
+- Web en la raíz; editor compilado con base `/muse/` en `/muse/`.
+- Llamadas **servidor a servidor** por `127.0.0.1` (auth 8200, OSAP 8001) para no pasar por
+  Cloudflare; el navegador usa los dominios públicos.
+- OIDC: discovery y token en local; `authorize` público
+  (`https://auth.openmusicrepository.com/auth-api/auth/authorize`), cliente `chorus-web`.
+- SQLite piloto en `var/chorus.sqlite3`; almacenamiento privado en `var/private`.

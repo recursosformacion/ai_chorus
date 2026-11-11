@@ -21,6 +21,8 @@ class Settings:
     max_upload_bytes: int = 50 * 1024 * 1024
     source_token_ttl_seconds: int = 300
     oidc_issuer: str = ""
+    oidc_authorize_url: str = ""
+    oidc_token_url: str = ""
     oidc_client_id: str = ""
     oidc_client_secret: str = ""
     oidc_redirect_uri: str = ""
@@ -67,6 +69,8 @@ class Settings:
             editor_origin=editor_origin,
             public_base_url=public_base,
             oidc_issuer=oidc_issuer,
+            oidc_authorize_url=value("CHORUS_OIDC_AUTHORIZE_URL", auth, "oidc_authorize_url"),
+            oidc_token_url=value("CHORUS_OIDC_TOKEN_URL", auth, "oidc_token_url"),
             oidc_client_id=value("CHORUS_OIDC_CLIENT_ID", auth, "oidc_client_id"),
             oidc_client_secret=value("CHORUS_OIDC_CLIENT_SECRET", auth, "oidc_client_secret"),
             oidc_redirect_uri=oidc_redirect,
