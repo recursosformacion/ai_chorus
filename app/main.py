@@ -189,7 +189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         initialise_database(cfg)
         yield
 
-    app = FastAPI(title="Chorus API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Chorus API", version="0.2.0", lifespan=lifespan)
 
     origins = list(cfg.cors_origins)
     if cfg.editor_origin and cfg.editor_origin not in origins:
