@@ -805,9 +805,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         metadata, _ = osap_call("GET", f"/api/v1/representations/{encoded_representation_id}", token=token)
         if not isinstance(metadata, dict):
             raise HTTPException(status_code=502, detail="Unexpected OSAP representation response")
+        # El id de obra del índice y el que devuelve la ficha de la representación
+        # pueden diferir (id interno vs public_id). La representación ya viene de la
+        # búsqueda del usuario: no bloqueamos el borrador por esa diferencia.
         returned_work = metadata.get("work_id") or metadata.get("workId")
-        if returned_work is not None and str(returned_work) != body.work_id:
-            raise HTTPException(status_code=409, detail="Representation does not belong to the selected Work")
+        requested_work = str(body.work_id or "").strip()
+        if returned_work is not None:
+            requested_ref = requested_work.removeprefix("index-")
+            returned_ref = str(returned_work).strip().removeprefix("index-")
+            if requested_ref != returned_ref:
+                logger.info(
+                    "draft source: work ref differs (requested=%s, representation=%s)",
+                    requested_ref,
+                    returned_ref,
+                )
         work_metadata, _ = osap_call(
             "GET", f"/api/v1/works/public/{quote(body.work_id, safe='')}", token=token
         )

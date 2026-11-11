@@ -80,6 +80,7 @@ def _profiles():
 def _settings(tmp_path) -> Settings:
     return Settings(
         auth_base_url="https://auth.test",
+        osap_api_base_url="http://osap.test",
         database_path=str(tmp_path / "chorus.sqlite3"),
         storage_root=str(tmp_path / "private"),
         secure_cookies=False,
@@ -254,3 +255,67 @@ def test_library_can_be_searched_by_title(tmp_path, monkeypatch):
 
         none = client.get("/api/v1/library", headers=_headers(), params={"q": "zzz"})
         assert none.json()["items"] == []
+
+
+class FakeHttpResponse:
+    def __init__(self, status_code=200, payload=None, content=b""):
+        self.status_code = status_code
+        self._payload = payload
+        self.content = content
+        self.headers = {
+            "content-type": "application/zip",
+            "content-disposition": 'attachment; filename="source.mxl"',
+        }
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
+
+
+class FakeCombinedClient:
+    def __init__(self, timeout=None, follow_redirects=False):
+        self.timeout = timeout
+        self.follow_redirects = follow_redirects
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def request(self, method, url, json=None, headers=None, data=None):
+        if url.endswith("/auth/me"):
+            return FakeHttpResponse(200, _profiles()["token-user-1"])
+        if "/api/v1/works/public/" in url:
+            return FakeHttpResponse(200, {"title": "Obra"})
+        if url.endswith("/download"):
+            return FakeHttpResponse(200, None, make_mxl())
+        if "/api/v1/representations/" in url:
+            return FakeHttpResponse(
+                200,
+                {
+                    "work_id": "123",
+                    "provider": "cpdl",
+                    "format": "musicxml",
+                    "file_name": "source.mxl",
+                },
+            )
+        return FakeHttpResponse(404, {})
+
+
+def test_source_accepts_index_work_id_different_from_representation(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    monkeypatch.setattr("app.main.httpx.Client", FakeCombinedClient)
+    with TestClient(create_app(settings)) as client:
+        created = client.post("/api/v1/drafts", headers=_headers(), json={"title": "Obra"})
+        assert created.status_code == 201
+        draft_id = created.json()["id"]
+
+        response = client.post(
+            f"/api/v1/drafts/{draft_id}/source",
+            headers=_headers(),
+            json={"work_id": "index-123", "representation_id": "idx-123-cpdl-1-musicxml"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["source_kind"] == "osap"
