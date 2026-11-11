@@ -295,7 +295,7 @@ class FakeCombinedClient:
             return FakeHttpResponse(
                 200,
                 {
-                    "work_id": "123",
+                    "work_id": "999",
                     "provider": "cpdl",
                     "format": "musicxml",
                     "file_name": "source.mxl",

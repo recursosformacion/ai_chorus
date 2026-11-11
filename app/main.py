@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import mimetypes
 import re
 import secrets
@@ -27,6 +28,8 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.security import Principal
+
+logger = logging.getLogger(__name__)
 
 
 SUPPORTED_SOURCE_SUFFIXES = {
