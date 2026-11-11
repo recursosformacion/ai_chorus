@@ -57,3 +57,19 @@ Con `osap.toml` apuntando a los hosts locales `http://osap-app` y `http://osap-a
 - `POST /api/v1/auth/login` con credenciales inválidas → 401 (Auth alcanzable, sin 502).
 
 La prueba con credenciales reales y el puente a MuseEncore quedan pendientes de disponer del editor configurado.
+
+## Página web de prueba (2026-11-11)
+
+La web se sirve en `http://chorus-app/` con Apache y el backend en `127.0.0.1:9600`:
+
+```powershell
+# backend
+cd D:\Proyectos\AI_OSAP\Chorus
+$env:CHORUS_CONFIG="osap.toml"
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 9600
+
+# editor MuseEncore (sin tocar hosts)
+python -m http.server 9601 --bind 127.0.0.1 --directory D:\Proyectos\AI_OSAP\muse-encore\dist-editor
+```
+
+Comprobaciones: `GET http://chorus-app/health` → 200; `GET http://chorus-app/api/v1/library` sin sesión → 401; `http://127.0.0.1:9601/` → editor. La vhost de Apache apunta a `Chorus/web`; si Apache aún no se ha reiniciado, el junction `ai_chorus` mantiene el servicio.

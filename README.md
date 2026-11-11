@@ -56,7 +56,7 @@ Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 
 ## Interfaz web
 
-La primera interfaz estática se encuentra en `web/` (HTML, CSS y JavaScript sin framework ni build). Apache la sirve desde el `DocumentRoot` y reenvía `/api/` a FastAPI en `127.0.0.1:9600`, siguiendo el patrón del entorno `osap-app`. Incluye acceso con cuenta OSAP, búsqueda de obras, selección de una representación, creación de borradores y el intercambio MXL con MuseEncore. La configuración del VirtualHost está en [docs/apache-dev.md](docs/apache-dev.md). MuseEncore es una aplicación GitHub independiente: se clona con sus submódulos, se compila y Apache sirve su directorio `dist-editor`; ver [docs/muse-encore-install.md](docs/muse-encore-install.md).
+La primera interfaz estática se encuentra en `web/` (HTML, CSS y JavaScript sin framework ni build). Apache la sirve en **`http://chorus-app/`** desde el `DocumentRoot` y reenvía `/api/` a FastAPI en `127.0.0.1:9600`, siguiendo el patrón del entorno `osap-app`. El editor MuseEncore compilado se sirve aparte (en local, `http://127.0.0.1:9601`; ver `docs/muse-encore-install.md`). Incluye acceso con cuenta OSAP, búsqueda de obras, selección de una representación, creación de borradores y el intercambio MXL con MuseEncore. La configuración del VirtualHost está en [docs/apache-dev.md](docs/apache-dev.md). MuseEncore es una aplicación GitHub independiente: se clona con sus submódulos, se compila y Apache sirve su directorio `dist-editor`; ver [docs/muse-encore-install.md](docs/muse-encore-install.md).
 
 ## Estado
 

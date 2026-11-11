@@ -101,3 +101,31 @@ Cuando se decida actualizar la versión:
 - No se modifica el repositorio upstream de MuseEncore.
 - No se integra su almacenamiento local de partituras con la biblioteca Chorus; el intercambio inicial sigue siendo por URL temporal de lectura y exportación/subida MXL.
 - El build debe realizarse cada vez que se actualice el repositorio; Apache sirve el directorio `dist-editor`, no los fuentes TypeScript.
+
+## Estado local (2026-11-11)
+
+- Dependencias instaladas con el npm real (`C:\Program Files\nodejs\npm.cmd`); el alias `npm` del PATH apunta a pnpm y falla con `ci`.
+- `npm run build:editor` completado: `dist-editor/` generado (~102 MB).
+- Para probar sin tocar el fichero `hosts` (requiere administrador), el editor se sirve con un servidor estático:
+
+```powershell
+python -m http.server 9601 --bind 127.0.0.1 --directory D:\Proyectos\AI_OSAP\muse-encore\dist-editor
+```
+
+  y en `ai_chorus/osap.toml`:
+
+```toml
+[editor]
+base_url = "http://127.0.0.1:9601"
+origin = "http://127.0.0.1:9601"
+```
+
+- El VirtualHost `muse-encore-app` ya está añadido a `httpd-vhosts.conf`. Para usarlo: añadir `127.0.0.1 muse-encore-app` al fichero `hosts` como administrador, reiniciar Apache y cambiar `base_url`/`origin` a `http://muse-encore-app`.
+- La vhost de Chorus se corrigió a `D:/Proyectos/AI_OSAP/Chorus/web`; hasta el próximo reinicio de Apache se usa un junction `ai_chorus -> Chorus` para no bloquear las pruebas.
+
+## Flujo de prueba con el editor
+
+1. Abrir `http://chorus-app/` e iniciar sesión con una cuenta OSAP.
+2. Buscar una obra, elegir una representación y crear el borrador.
+3. Pulsar “Abrir en MuseEncore”: Chorus entrega una URL temporal de solo lectura (5 minutos, CORS limitado al origen del editor).
+4. Editar, exportar `.mxl` y subirlo en Chorus; la cadena Work → Resource → File se materializa y aparece en la biblioteca.
