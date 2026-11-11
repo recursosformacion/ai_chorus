@@ -72,9 +72,9 @@ def test_database_migrations_are_repeatable(tmp_path):
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
-        assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens"} <= tables
+        assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens", "library_items", "collections", "collection_items"} <= tables
         applied = conn.execute("SELECT COUNT(*) FROM chorus_schema_migrations").fetchone()[0]
-        assert applied == 2
+        assert applied == 3
 
 
 def test_api_health_and_authentication_fail_closed(tmp_path):

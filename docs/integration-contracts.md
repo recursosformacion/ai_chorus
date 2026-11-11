@@ -65,7 +65,7 @@ El flujo de login, refresh e introspección mediante /auth/me está implementado
 
 - [ ] Contrastar el esquema, serialización e invariantes V6 completos en osap-storage.
 - [ ] Elegir el motor definitivo y traducir/probar las restricciones en ese motor.
-- [x] Verificar claims, JWKS, issuer/audience y endpoints de login/refresh de osap-auth; falta habilitar chorus-api en la configuración desplegada.
+- [x] Verificar claims, JWKS, issuer/audience y endpoints de login/refresh de osap-auth; el piloto usa la audiencia predeterminada `osap-api` (decisión CH-016). `chorus-api` queda pendiente como endurecimiento, no como requisito del piloto.
 - [ ] Revisar OpenAPI OSAP de la versión desplegada.
 - [ ] Identificar endpoints reales de búsqueda de Work, consulta de Resource y lectura de File.
 - [ ] Definir caché de metadatos y tratamiento de referencias no disponibles.

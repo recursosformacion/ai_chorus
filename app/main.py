@@ -53,6 +53,24 @@ class OnboardingBody(BaseModel):
     privacy_version: str = Field(min_length=1, max_length=40)
 
 
+class LibraryReferenceBody(BaseModel):
+    provider: str = Field(default="osap", min_length=1, max_length=40)
+    work_id: str = Field(min_length=1, max_length=200)
+    representation_id: str | None = Field(default=None, max_length=200)
+    title: str = Field(min_length=1, max_length=500)
+    subtitle: str | None = Field(default=None, max_length=500)
+    metadata: dict[str, Any] | None = None
+
+
+class CollectionBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class CollectionItemBody(BaseModel):
+    library_item_id: str = Field(min_length=1, max_length=64)
+
+
 def utcnow() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -73,7 +91,11 @@ def initialise_database(settings: Settings) -> None:
             "CREATE TABLE IF NOT EXISTS chorus_schema_migrations "
             "(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
         )
-        for name in ("001_v6_work_resource_file.sql", "002_creation_drafts.sql"):
+        for name in (
+            "001_v6_work_resource_file.sql",
+            "002_creation_drafts.sql",
+            "003_owner_and_library.sql",
+        ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
             ).fetchone()
@@ -270,6 +292,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Draft not found")
         return row
 
+    def library_item_dto(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        raw = item.pop("metadata_json", None)
+        item["metadata"] = json.loads(raw) if raw else None
+        return item
+
+    def collection_dto(row: sqlite3.Row) -> dict[str, Any]:
+        return dict(row)
+
+    def owned_library_item(item_id: str, user: Principal) -> sqlite3.Row:
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT * FROM library_items WHERE id = ? AND owner_sub = ?",
+                (item_id, user.sub),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Library item not found")
+        return row
+
+    def owned_collection(collection_id: str, user: Principal) -> sqlite3.Row:
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT * FROM collections WHERE id = ? AND owner_sub = ?",
+                (collection_id, user.sub),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Collection not found")
+        return row
+
     def draft_dto(row: sqlite3.Row) -> dict[str, Any]:
         return {
             "id": row["id"], "status": row["status"], "source_kind": row["source_kind"],
@@ -363,6 +414,209 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.delete_cookie("chorus_refresh", path="/api/v1/auth")
         response.status_code = 204
         return response
+
+    @app.get("/api/v1/works/{work_id}/integrity")
+    def work_integrity(work_id: str, user: Principal = Depends(current_user)) -> dict[str, Any]:
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT w.id AS work_id, r.id AS resource_id, f.id AS file_id, "
+                "f.sha256, f.size_bytes, f.storage_pointer "
+                "FROM works w JOIN resources r ON r.id = w.required_resource_id "
+                "JOIN files f ON f.id = r.required_file_id "
+                "WHERE w.id = ? AND w.owner_sub = ?",
+                (work_id, user.sub),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Work not found")
+        root = Path(cfg.storage_root).resolve()
+        path = (root / row["storage_pointer"]).resolve()
+        result: dict[str, Any] = {
+            "work_id": row["work_id"],
+            "resource_id": row["resource_id"],
+            "file_id": row["file_id"],
+            "expected_sha256": row["sha256"],
+            "actual_sha256": None,
+            "size_bytes": row["size_bytes"],
+            "status": "unknown",
+        }
+        if path != root and root not in path.parents:
+            result["status"] = "invalid_pointer"
+            return result
+        if not path.is_file():
+            result["status"] = "missing"
+            return result
+        data = path.read_bytes()
+        actual = hashlib.sha256(data).hexdigest()
+        result["actual_sha256"] = actual
+        result["size_bytes"] = len(data)
+        result["status"] = (
+            "ok"
+            if actual == row["sha256"] and len(data) == (row["size_bytes"] or 0)
+            else "mismatch"
+        )
+        return result
+
+    @app.get("/api/v1/library")
+    def list_library(user: Principal = Depends(current_user)) -> dict[str, Any]:
+        with _connect(cfg) as conn:
+            rows = conn.execute(
+                "SELECT * FROM library_items WHERE owner_sub = ? "
+                "ORDER BY created_at DESC, id DESC",
+                (user.sub,),
+            ).fetchall()
+            collections = conn.execute(
+                "SELECT c.*, (SELECT COUNT(*) FROM collection_items ci "
+                "WHERE ci.collection_id = c.id) AS item_count "
+                "FROM collections c WHERE c.owner_sub = ? ORDER BY c.name",
+                (user.sub,),
+            ).fetchall()
+        return {
+            "items": [library_item_dto(row) for row in rows],
+            "collections": [collection_dto(row) for row in collections],
+        }
+
+    @app.post("/api/v1/library/references", status_code=201)
+    def add_reference(body: LibraryReferenceBody, user: Principal = Depends(current_user)) -> Any:
+        provider = body.provider.strip().lower()
+        with _connect(cfg) as conn:
+            existing = conn.execute(
+                "SELECT * FROM library_items WHERE owner_sub = ? AND provider = ? "
+                "AND external_work_id = ? "
+                "AND COALESCE(external_resource_id, '') = COALESCE(?, '')",
+                (user.sub, provider, body.work_id, body.representation_id),
+            ).fetchone()
+            if existing is not None:
+                return library_item_dto(existing)
+            now = utcnow()
+            item_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO library_items "
+                "(id,owner_sub,kind,provider,external_work_id,external_resource_id,"
+                "title,subtitle,metadata_json,created_at,updated_at) "
+                "VALUES (?,?, 'osap_reference', ?,?,?,?,?,?,?,?)",
+                (
+                    item_id,
+                    user.sub,
+                    provider,
+                    body.work_id,
+                    body.representation_id,
+                    body.title.strip(),
+                    body.subtitle,
+                    json.dumps(body.metadata, ensure_ascii=False) if body.metadata else None,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM library_items WHERE id = ?", (item_id,)
+            ).fetchone()
+        return library_item_dto(row)
+
+    @app.post("/api/v1/library/works/{work_id}", status_code=201)
+    def add_local_work(work_id: str, user: Principal = Depends(current_user)) -> Any:
+        with _connect(cfg) as conn:
+            work = conn.execute(
+                "SELECT id, title, subtitle FROM works WHERE id = ? AND owner_sub = ?",
+                (work_id, user.sub),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Work not found")
+            existing = conn.execute(
+                "SELECT * FROM library_items WHERE owner_sub = ? AND work_id = ?",
+                (user.sub, work_id),
+            ).fetchone()
+            if existing is not None:
+                return library_item_dto(existing)
+            now = utcnow()
+            item_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO library_items "
+                "(id,owner_sub,kind,work_id,title,subtitle,created_at,updated_at) "
+                "VALUES (?,?, 'local_work', ?,?,?,?,?)",
+                (item_id, user.sub, work_id, work["title"], work["subtitle"], now, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM library_items WHERE id = ?", (item_id,)
+            ).fetchone()
+        return library_item_dto(row)
+
+    @app.delete("/api/v1/library/{item_id}", status_code=204)
+    def remove_library_item(item_id: str, user: Principal = Depends(current_user)) -> Response:
+        owned_library_item(item_id, user)
+        with _connect(cfg) as conn:
+            conn.execute(
+                "DELETE FROM library_items WHERE id = ? AND owner_sub = ?",
+                (item_id, user.sub),
+            )
+        return Response(status_code=204)
+
+    @app.get("/api/v1/collections")
+    def list_collections(user: Principal = Depends(current_user)) -> dict[str, Any]:
+        with _connect(cfg) as conn:
+            rows = conn.execute(
+                "SELECT c.*, (SELECT COUNT(*) FROM collection_items ci "
+                "WHERE ci.collection_id = c.id) AS item_count "
+                "FROM collections c WHERE c.owner_sub = ? ORDER BY c.name",
+                (user.sub,),
+            ).fetchall()
+        return {"collections": [collection_dto(row) for row in rows]}
+
+    @app.post("/api/v1/collections", status_code=201)
+    def create_collection(body: CollectionBody, user: Principal = Depends(current_user)) -> Any:
+        now = utcnow()
+        collection_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM collections WHERE owner_sub = ? AND name = ?",
+                (user.sub, body.name.strip()),
+            ).fetchone()
+            if existing is not None:
+                raise HTTPException(status_code=409, detail="Collection name already exists")
+            conn.execute(
+                "INSERT INTO collections (id,owner_sub,name,description,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (collection_id, user.sub, body.name.strip(), body.description, now, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM collections WHERE id = ?", (collection_id,)
+            ).fetchone()
+        return collection_dto(row)
+
+    @app.post("/api/v1/collections/{collection_id}/items", status_code=201)
+    def add_collection_item(
+        collection_id: str, body: CollectionItemBody, user: Principal = Depends(current_user)
+    ) -> Any:
+        owned_collection(collection_id, user)
+        owned_library_item(body.library_item_id, user)
+        now = utcnow()
+        with _connect(cfg) as conn:
+            position = conn.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM collection_items "
+                "WHERE collection_id = ?",
+                (collection_id,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT OR IGNORE INTO collection_items "
+                "(collection_id,library_item_id,position,added_at) VALUES (?,?,?,?)",
+                (collection_id, body.library_item_id, position, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM collection_items WHERE collection_id = ? AND library_item_id = ?",
+                (collection_id, body.library_item_id),
+            ).fetchone()
+        return dict(row)
+
+    @app.delete("/api/v1/collections/{collection_id}/items/{item_id}", status_code=204)
+    def remove_collection_item(
+        collection_id: str, item_id: str, user: Principal = Depends(current_user)
+    ) -> Response:
+        owned_collection(collection_id, user)
+        with _connect(cfg) as conn:
+            conn.execute(
+                "DELETE FROM collection_items WHERE collection_id = ? AND library_item_id = ?",
+                (collection_id, item_id),
+            )
+        return Response(status_code=204)
 
     @app.post("/api/v1/catalog/searches")
     def catalog_search(payload: dict[str, Any], user: Principal = Depends(current_user),
@@ -560,8 +814,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if current["status"] != "editing":
                     raise HTTPException(status_code=409, detail="Draft is not editable")
                 conn.execute(
-                    "INSERT INTO works (id,title,created_at,updated_at,required_resource_id) VALUES (?,?,?,?,?)",
-                    (work_id, title, now, now, resource_id),
+                    "INSERT INTO works (id,title,created_at,updated_at,required_resource_id,owner_sub) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (work_id, title, now, now, resource_id, user.sub),
                 )
                 conn.execute(
                     "INSERT INTO resources (id,work_id,resource_type,title,provenance,rights_license,created_at,updated_at,required_file_id) "
@@ -573,6 +828,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "INSERT INTO files (id,resource_id,name,mime_type,size_bytes,status,sha256,storage_pointer,created_at,updated_at) "
                     "VALUES (?,?,?,?,?,'available',?,?,?,?)",
                     (file_id, resource_id, filename, "application/vnd.recordare.musicxml", len(data), sha, pointer, now, now),
+                )
+                conn.execute(
+                    "INSERT OR IGNORE INTO library_items "
+                    "(id,owner_sub,kind,work_id,title,created_at,updated_at) "
+                    "VALUES (?,?, 'local_work', ?, ?, ?, ?)",
+                    (uuid.uuid4().hex, user.sub, work_id, title, now, now),
                 )
                 changed = conn.execute(
                     "UPDATE creation_drafts SET status='materialized',materialized_work_id=?,updated_at=? "

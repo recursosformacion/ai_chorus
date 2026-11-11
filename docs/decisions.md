@@ -109,3 +109,10 @@ Chorus utilizará el editor web oficial de MuseEncore sin copiar ni modificar su
 **Estado:** Aceptada.
 
 Chorus consulta OSAP mediante `POST /api/v1/searches`, `GET /api/v1/searches/{search_id}`, `GET /api/v1/representations/{representation_id}` y `GET /api/v1/representations/{representation_id}/download`. El usuario puede elegir una representación compatible con MuseEncore como base de trabajo. Chorus conserva los identificadores externos y la procedencia/derechos conocidos; nunca modifica el original ni escribe en OSAP.
+## CH-016 — Audiencia del piloto: la predeterminada de osap-auth
+
+**Estado:** Aceptada para el piloto.
+
+Chorus no solicita una audiencia propia en `POST /auth/login`: usa la audiencia predeterminada de osap-auth (`osap-api`) y delega la validación de cada sesión en `GET /auth/me`. Esto permite ejecutar el piloto sin cambios en Auth ni en su configuración desplegada.
+
+Una audiencia `chorus-api` es el endurecimiento previsto: requiere añadirla a `allowed_token_audiences`, aceptarla en `/auth/me` y solicitarla desde Chorus. No es requisito para la primera entrega y no debe presentarse como ya habilitada.

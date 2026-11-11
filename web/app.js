@@ -51,12 +51,67 @@
     $("workspace-view").classList.remove("hidden");
     $("logout-button").classList.remove("hidden");
     $("account-label").textContent = profileLabel || "Sesión iniciada";
+    refreshLibrary().catch(()=>{});
   }
   function showLogin() {
     $("workspace-view").classList.add("hidden");
     $("login-view").classList.remove("hidden");
     $("logout-button").classList.add("hidden");
     $("account-label").textContent = "";
+  }
+  async function refreshLibrary() {
+    const data = await request("/api/v1/library");
+    renderLibrary(data || {});
+  }
+  function renderLibrary(data) {
+    const items = data.items || [];
+    const collections = data.collections || [];
+    $("library-summary").textContent = items.length + " elementos · " + collections.length + " colecciones";
+    const list = $("library-items");
+    list.replaceChildren();
+    if (!items.length) {
+      const empty = document.createElement("li");
+      empty.className = "muted";
+      empty.textContent = "Aún no has guardado obras ni referencias.";
+      list.append(empty);
+      return;
+    }
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      li.className = "library-item";
+      const title = document.createElement("strong");
+      title.textContent = item.title || "Sin título";
+      const meta = document.createElement("span");
+      meta.className = "muted";
+      meta.textContent = item.kind === "local_work"
+        ? "Obra propia"
+        : "OSAP · " + (item.external_work_id || "");
+      li.append(title, meta);
+      list.append(li);
+    });
+  }
+  async function saveReference(work, rep, button) {
+    const workId = String(work.work_id || work.id || "");
+    if (!workId) {
+      showMessage("search-message", "OSAP no devolvió un identificador de obra.", "error");
+      return;
+    }
+    setBusy(button, true, "Guardando…");
+    try {
+      await request("/api/v1/library/references", {method:"POST",body:JSON.stringify({
+        provider: String(rep.provider || "osap").toLowerCase(),
+        work_id: workId,
+        representation_id: rep.id != null ? String(rep.id) : null,
+        title: work.title || "Obra de OSAP",
+        subtitle: work.composer || null
+      })});
+      showMessage("search-message", "Referencia guardada en tu biblioteca.", "success");
+      await refreshLibrary();
+    } catch (error) {
+      showMessage("search-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
   }
   async function login(email, password) {
     const data = await request("/api/v1/auth/login", {method:"POST",body:JSON.stringify({email,password})}, false);
@@ -105,6 +160,13 @@
         btn.title = btn.disabled ? "Formato no descargable o no compatible con el editor" : "Crear borrador desde esta representación";
         btn.addEventListener("click", () => startFromOsap(work,rep,btn));
         actions.append(btn);
+        const save = document.createElement("button");
+        save.type = "button";
+        save.className = "button button-quiet";
+        save.textContent = "Guardar";
+        save.title = "Guardar una referencia de esta representación en tu biblioteca";
+        save.addEventListener("click", () => saveReference(work,rep,save));
+        actions.append(save);
       });
       if (!reps.length) {
         const note = document.createElement("span"); note.className = "result-meta"; note.textContent = "No hay representaciones disponibles."; actions.append(note);
@@ -188,6 +250,7 @@
       const data = await request("/api/v1/drafts/" + encodeURIComponent(currentDraft.id) + "/files",{method:"POST",body:form});
       $("draft-state").textContent = "Guardado";
       showMessage("draft-message","Partitura guardada. Work: " + data.work_id + " · Resource: " + data.resource_id + " · File: " + data.file_id,"success");
+      refreshLibrary().catch(()=>{});
     } catch (error) { showMessage("draft-message",error.message,"error"); }
     $("mxl-file").value = "";
   }
@@ -206,6 +269,7 @@
     finally{setBusy(button,false);}
   });
   $("open-editor-button").addEventListener("click",openEditor);
+  $("library-refresh").addEventListener("click",()=>{refreshLibrary().catch((error)=>showMessage("library-message",error.message,"error"));});
   $("mxl-file").addEventListener("change",(event)=>uploadMxl(event.target.files[0]));
   $("logout-button").addEventListener("click",async()=>{
     try{if(accessToken)await request("/api/v1/auth/logout",{method:"POST"},false);}catch(_){}

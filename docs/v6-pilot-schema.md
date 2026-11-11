@@ -69,3 +69,13 @@ tests/test_v6_schema.py verifica:
 - ausencia de unicidad de negocio sobre SHA-256.
 
 El workflow de GitHub Actions V6 schema tests se ha ejecutado correctamente: 6 passed. La ejecución CI valida este DDL y estas invariantes en SQLite; no sustituye las pruebas de integración con el motor definitivo.
+
+## 6. Migración 003 — propiedad y biblioteca personal
+
+`003_owner_and_library.sql` añade:
+
+- `works.owner_sub`: propietario derivado de osap-auth; las obras antiguas pueden quedar sin propietario.
+- `library_items`: elementos de la biblioteca personal con dos tipos, `local_work` (referencia a una Work propia) y `osap_reference` (proveedor + identificadores externos + metadatos mínimos, sin duplicar el contenido de OSAP). Los índices únicos impiden duplicados por usuario.
+- `collections` y `collection_items`: colecciones privadas y orden de sus elementos.
+
+La integridad se comprueba con `GET /api/v1/works/{id}/integrity`, que recalcula el SHA-256 del fichero privado y compara tamaño y huella con la base de datos. La suite cubre fichero ausente, fichero corrupto, separación de versiones y aislamiento entre usuarios.

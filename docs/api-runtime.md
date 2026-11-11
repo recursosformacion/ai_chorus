@@ -31,6 +31,10 @@ Arranque del backend: ver el comando de la sección siguiente. Una vez levantado
 - GET /api/v1/drafts/{id}/editor: crea enlace temporal para MuseEncore.
 - GET /api/v1/editor-sources/{token}: fuente temporal CORS restringida al origen configurado del editor.
 - POST /api/v1/drafts/{id}/files: valida y guarda un archivo .mxl; materializa Work → Resource → File en una transacción.
+- GET /api/v1/works/{id}/integrity: comprueba que el fichero privado existe y que su SHA-256 y tamaño coinciden con la base de datos.
+- GET /api/v1/library y POST /api/v1/library/references: biblioteca personal y referencias OSAP sin duplicar contenido.
+- POST /api/v1/library/works/{id}: añade una obra propia a la biblioteca; se crea automáticamente al materializar.
+- GET/POST /api/v1/collections y POST/DELETE /api/v1/collections/{id}/items: colecciones personales.\n- GET /api/v1/works/{id}/integrity: comprueba que el fichero privado existe y que su SHA-256 y tamaño coinciden con la base de datos.\n- GET /api/v1/library y POST /api/v1/library/references: biblioteca personal y referencias OSAP sin duplicar contenido.\n- POST /api/v1/library/works/{id}: añade una obra propia a la biblioteca; se crea automáticamente al materializar.\n- GET/POST /api/v1/collections y POST/DELETE /api/v1/collections/{id}/items: colecciones personales.
 
 Todas las rutas de catálogo, borradores y carga requieren un access token de usuario válido y onboarding completado. Chorus lo valida mediante osap-auth /auth/me y lo reenvía a osap-api al consultar o descargar para conservar cuotas y analítica de usuario. El propietario se deriva del user_id devuelto por Auth, nunca del cuerpo de la petición.
 
@@ -40,4 +44,16 @@ Todas las rutas de catálogo, borradores y carga requieren un access token de us
 - Los ficheros se guardan en almacenamiento local privado. No hay aún backend de almacenamiento distribuido ni recuperación ante desastre.
 - La API de catálogo depende de los endpoints actuales documentados en work-creation-api.md; la forma de los DTO debe seguir contrastándose con respuestas de la instancia desplegada.
 - La integración de MuseEncore requiere exportar .mxl y subirlo a Chorus; no hay callback remoto de exportación.
-- La audiencia chorus-api debe habilitarse en osap-auth. No se modifica ni la API ni la configuración de Auth desde este repositorio.
+- El piloto usa la audiencia predeterminada de osap-auth (`osap-api`) y valida cada sesión en `/auth/me`. La audiencia propia `chorus-api` queda como endurecimiento posterior (CH-016); no se modifica Auth desde este repositorio.
+
+## Verificación del piloto (2026-11-11)
+
+Con `osap.toml` apuntando a los hosts locales `http://osap-app` y `http://osap-auth/auth-api`:
+
+- `GET /health` → 200 `{"status":"ok","service":"chorus-api"}`.
+- `GET /api/v1/auth/me` sin token → 401 (cierre por defecto).
+- `GET /api/v1/catalog/searches/x` sin token → 401.
+- `GET /api/v1/auth/legal/current` → 200 (proxy a Auth).
+- `POST /api/v1/auth/login` con credenciales inválidas → 401 (Auth alcanzable, sin 502).
+
+La prueba con credenciales reales y el puente a MuseEncore quedan pendientes de disponer del editor configurado.

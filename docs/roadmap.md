@@ -20,21 +20,21 @@ El primer runtime está en la rama feature/chorus-api-runtime. Su estado es pilo
 - [x] Implementar almacenamiento local privado de ficheros para el piloto; queda pendiente sustituirlo por el backend definitivo.
 - [x] Revisar contratos reales de autenticación y lectura OSAP; documentar la validación delegada en osap-auth /auth/me.
 - [x] Preparar configuración propia (osap.toml.example), sin secretos.
-- [ ] Preparar pruebas de integridad, versiones, checksums y recuperación.
+- [x] Preparar pruebas de integridad, versiones, checksums y recuperación (endpoint `/api/v1/works/{id}/integrity`, 30 pruebas).
 
 Criterio de salida: Chorus puede persistir obras propias con el formato/modelo V6 y consultar OSAP en modo lectura.
 
 ## Fase 1 — Escritorio y biblioteca personal
 
 - [x] Implementar login/refresh/logout delegados a osap-auth; con validación remota de perfil y onboarding mediante /auth/me.
-- [ ] Crear el espacio personal en Chorus DB.
+- [x] Crear el espacio personal en Chorus DB (`works.owner_sub`, `library_items`).
 - [ ] Escritorio y biblioteca.
 - [x] Implementar proxy de búsqueda y lectura de representaciones OSAP mediante API.
-- [ ] Guardar referencias externas OSAP sin duplicar sus contenidos.
+- [x] Guardar referencias externas OSAP sin duplicar sus contenidos (API de biblioteca).
 - [x] Materializar Work/Resource/File desde una carga MXL con transacción SQLite; pendiente motor definitivo.
 - [ ] Guardar ficheros con el formato V6 en la persistencia propia.
 - [ ] Registrar metadatos, índices, versiones y relaciones en Chorus DB.
-- [ ] Colecciones personales.
+- [x] Colecciones personales (API y listado web).
 
 Criterio de salida: un usuario puede consultar OSAP y, de forma independiente, crear y organizar sus propias obras en Chorus usando V6.
 
