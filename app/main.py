@@ -102,6 +102,7 @@ def initialise_database(settings: Settings) -> None:
             "002_creation_drafts.sql",
             "003_owner_and_library.sql",
             "004_oidc_states.sql",
+            "005_local_draft_source.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -876,6 +877,161 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             updated = conn.execute("SELECT * FROM creation_drafts WHERE id=?", (draft_id,)).fetchone()
         return draft_dto(updated)
 
+    @app.get("/api/v1/drafts/{draft_id}/source-file", response_model=None)
+    def download_draft_source(
+        draft_id: str, user: Principal = Depends(current_user)
+    ) -> Response:
+        row = owned_draft(draft_id, user)
+        if not row["source_file_pointer"]:
+            raise HTTPException(status_code=404, detail="El borrador no tiene fichero de origen")
+        raw = _read_private(cfg, str(row["source_file_pointer"]))
+        filename = _safe_name(str(row["source_file_name"] or "chorus-source.mxl"))
+        media = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        return Response(
+            raw,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @app.post("/api/v1/library/{item_id}/draft", status_code=201)
+    def draft_from_library(
+        item_id: str,
+        user: Principal = Depends(current_user),
+        authorization: str | None = Header(default=None),
+    ) -> Any:
+        """Abre una obra de la biblioteca como borrador de edición."""
+        item = owned_library_item(item_id, user)
+        title = str(item["title"] or "Obra")
+        if item["kind"] == "osap_reference":
+            representation_id = str(item["external_resource_id"] or "")
+            if not representation_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="La referencia no tiene una representación descargable",
+                )
+            draft = create_draft(DraftBody(title=title), user)
+            return select_source(
+                str(draft["id"]),
+                SourceBody(
+                    work_id=str(item["external_work_id"] or ""),
+                    representation_id=representation_id,
+                ),
+                user,
+                authorization,
+            )
+        if not item["work_id"]:
+            raise HTTPException(status_code=404, detail="La obra ya no existe")
+        with _connect(cfg) as conn:
+            work = conn.execute(
+                "SELECT id, title, required_resource_id FROM works WHERE id = ? AND owner_sub = ?",
+                (item["work_id"], user.sub),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Work not found")
+            resource = conn.execute(
+                "SELECT id, required_file_id, resource_type, rights_license FROM resources WHERE id = ?",
+                (work["required_resource_id"],),
+            ).fetchone()
+            file_row = conn.execute(
+                "SELECT id, name, mime_type, sha256, storage_pointer FROM files WHERE id = ?",
+                (resource["required_file_id"] if resource else "",),
+            ).fetchone()
+        if resource is None or file_row is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        raw = _read_private(cfg, str(file_row["storage_pointer"]))
+        suffix = Path(str(file_row["name"])).suffix or ".mxl"
+        pointer = _save_private(cfg, raw, suffix)
+        sha = hashlib.sha256(raw).hexdigest()
+        now = utcnow()
+        draft_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            conn.execute(
+                "INSERT INTO creation_drafts (id,owner_sub,status,source_kind,source_work_id,"
+                "source_file_name,source_file_pointer,source_sha256,source_rights_license,"
+                "title,resource_type,created_at,updated_at) "
+                "VALUES (?,?, 'editing','local',?,?,?,?,?,?,?,?,?)",
+                (
+                    draft_id,
+                    user.sub,
+                    str(work["id"]),
+                    str(file_row["name"]),
+                    pointer,
+                    sha,
+                    resource["rights_license"],
+                    title,
+                    resource["resource_type"],
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM creation_drafts WHERE id = ?", (draft_id,)
+            ).fetchone()
+        return draft_dto(row)
+
+    @app.get("/api/v1/library/{item_id}/download", response_model=None)
+    def download_library_item(
+        item_id: str,
+        user: Principal = Depends(current_user),
+        authorization: str | None = Header(default=None),
+    ) -> Response:
+        """Descarga el fichero de una obra de la biblioteca (para MuseScore)."""
+        item = owned_library_item(item_id, user)
+        if item["kind"] == "osap_reference":
+            representation_id = str(item["external_resource_id"] or "")
+            if not representation_id:
+                raise HTTPException(status_code=404, detail="La referencia no tiene fichero")
+            token = authorization[7:].strip() if authorization else None
+            _, downloaded = osap_call(
+                "GET",
+                f"/api/v1/representations/{quote(representation_id, safe='')}/download",
+                token=token,
+            )
+            disposition = downloaded.headers.get("content-disposition", "")
+            match = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)', disposition, re.I)
+            filename = _safe_name(
+                match.group(1) if match else f"{item['title'] or 'obra'}.mxl"
+            )
+            media = downloaded.headers.get("content-type", "application/octet-stream")
+            return Response(
+                downloaded.content,
+                media_type=media.split(";", 1)[0],
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        if not item["work_id"]:
+            raise HTTPException(status_code=404, detail="La obra ya no existe")
+        with _connect(cfg) as conn:
+            work = conn.execute(
+                "SELECT id, required_resource_id FROM works WHERE id = ? AND owner_sub = ?",
+                (item["work_id"], user.sub),
+            ).fetchone()
+            resource = (
+                conn.execute(
+                    "SELECT required_file_id FROM resources WHERE id = ?",
+                    (work["required_resource_id"],),
+                ).fetchone()
+                if work
+                else None
+            )
+            file_row = (
+                conn.execute(
+                    "SELECT name, mime_type, storage_pointer FROM files WHERE id = ?",
+                    (resource["required_file_id"],),
+                ).fetchone()
+                if resource
+                else None
+            )
+        if file_row is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        raw = _read_private(cfg, str(file_row["storage_pointer"]))
+        filename = _safe_name(str(file_row["name"]))
+        media = str(file_row["mime_type"] or "application/octet-stream")
+        return Response(
+            raw,
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     @app.get("/api/v1/drafts/{draft_id}/editor")
     def open_editor(draft_id: str, user: Principal = Depends(current_user)) -> dict[str, str]:
         row = owned_draft(draft_id, user)
@@ -896,12 +1052,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "INSERT INTO editor_source_tokens (token_hash, draft_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
                     (token_hash, draft_id, expires, utcnow()),
                 )
-            source_url = cfg.public_base_url + f"/api/v1/editor-sources/{token}"
+            source_name = _safe_name(str(row["source_file_name"] or "source.mxl"))
+            if not Path(source_name).suffix:
+                source_name += "." + str(row["source_format"] or "mxl").lstrip(".")
+            # MuseEncore deduce el tipo por la extensión del nombre de la URL.
+            source_url = (
+                f"{cfg.public_base_url}/api/v1/editor-sources/{token}/{quote(source_name)}"
+            )
             editor_url += ("&" if "?" in editor_url else "?") + urlencode({"url": source_url})
         return {"editor_url": editor_url}
 
     @app.get("/api/v1/editor-sources/{token}")
-    def editor_source(token: str, request: Request) -> Response:
+    @app.get("/api/v1/editor-sources/{token}/{filename}")
+    def editor_source(
+        token: str, request: Request, filename: str | None = None
+    ) -> Response:
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         with _connect(cfg) as conn:
             row = conn.execute(

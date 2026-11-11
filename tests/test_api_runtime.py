@@ -74,7 +74,7 @@ def test_database_migrations_are_repeatable(tmp_path):
         }
         assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens", "library_items", "collections", "collection_items", "oidc_states"} <= tables
         applied = conn.execute("SELECT COUNT(*) FROM chorus_schema_migrations").fetchone()[0]
-        assert applied == 4
+        assert applied == 5
 
 
 def test_api_health_and_authentication_fail_closed(tmp_path):

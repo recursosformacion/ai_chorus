@@ -32,6 +32,24 @@
     if (response.status === 204) return null;
     return response.json();
   }
+  async function downloadBlob(path, fallbackName) {
+    const headers = new Headers();
+    if (accessToken) headers.set("Authorization", "Bearer " + accessToken);
+    const response = await fetch(path, {headers, credentials: "same-origin"});
+    if (!response.ok) throw new Error("No se pudo descargar el fichero");
+    const disposition = response.headers.get("content-disposition") || "";
+    const match = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(disposition);
+    const name = match ? decodeURIComponent(match[1]) : fallbackName;
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
   async function refreshSession() {
     try {
       const response = await fetch("/api/v1/auth/refresh", {method:"POST", credentials:"same-origin"});
@@ -96,6 +114,25 @@
 
       const actions = document.createElement("div");
       actions.className = "library-actions";
+      const canOpen = item.kind !== "osap_reference" || Boolean(item.external_resource_id);
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "button button-outline";
+      open.textContent = "Abrir en MuseEncore";
+      open.disabled = !canOpen;
+      open.addEventListener("click", () => {
+        void openLibraryItem(item, open);
+      });
+      const download = document.createElement("button");
+      download.type = "button";
+      download.className = "button button-quiet";
+      download.textContent = "Descargar";
+      download.title = "Descargar para abrir con MuseScore";
+      download.disabled = !canOpen;
+      download.addEventListener("click", () => {
+        void downloadLibraryItem(item);
+      });
+      actions.append(open, download);
       if (collections.length) {
         const select = document.createElement("select");
         select.className = "library-select";
@@ -154,6 +191,63 @@
     } finally {
       setBusy(button, false);
     }
+  }
+  async function downloadDraftSource() {
+    if (!currentDraft) return;
+    try {
+      await downloadBlob(
+        "/api/v1/drafts/" + encodeURIComponent(currentDraft.id) + "/source-file",
+        "chorus-source.mxl",
+      );
+      showMessage(
+        "draft-message",
+        "Descargado. Ábrelo con MuseScore; al terminar, exporta .mxl y súbelo aquí.",
+        "success",
+      );
+    } catch (error) {
+      showMessage("draft-message", error.message, "error");
+    }
+  }
+  async function openLibraryItem(item, button) {
+    setBusy(button, true, "Preparando…");
+    try {
+      const draft = await request(
+        "/api/v1/library/" + encodeURIComponent(item.id) + "/draft",
+        {method: "POST"},
+      );
+      currentDraft = draft;
+      const editor = await request(
+        "/api/v1/drafts/" + encodeURIComponent(draft.id) + "/editor",
+      );
+      const title = item.title || "";
+      window.open(
+        "/editor.html?src=" + encodeURIComponent(editor.editor_url)
+          + "&title=" + encodeURIComponent(title),
+        "_blank", "noopener",
+      );
+    } catch (error) {
+      showMessage("library-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  }
+  async function downloadLibraryItem(item) {
+    try {
+      await downloadBlob(
+        "/api/v1/library/" + encodeURIComponent(item.id) + "/download",
+        (item.title || "obra") + ".mxl",
+      );
+      showMessage("library-message", "Descargado para abrir con MuseScore.", "success");
+    } catch (error) {
+      showMessage("library-message", error.message, "error");
+    }
+  }
+  function openDraftModal(title) {
+    $("modal-draft-title").textContent = title || "Tu partitura";
+    $("draft-modal").classList.remove("hidden");
+  }
+  function closeDraftModal() {
+    $("draft-modal").classList.add("hidden");
   }
   async function saveReference(work, rep, button, title) {
     const workId = String(work.work_id || work.id || "");
@@ -496,6 +590,12 @@
     finally{setBusy(button,false);}
   });
   $("open-editor-button").addEventListener("click",openEditor);
+  $("download-draft-button").addEventListener("click",()=>{void downloadDraftSource();});
+  $("modal-close").addEventListener("click",closeDraftModal);
+  $("draft-modal").addEventListener("click",(event)=>{if(event.target===$("draft-modal"))closeDraftModal();});
+  $("modal-open-editor").addEventListener("click",()=>{closeDraftModal();void openEditor();});
+  $("modal-download").addEventListener("click",()=>{void downloadDraftSource();});
+  $("modal-file").addEventListener("change",(event)=>{const file=event.target.files&&event.target.files[0];if(file){closeDraftModal();void uploadMxl(file);}});
   $("library-refresh").addEventListener("click",()=>{refreshLibrary($("library-query").value.trim()).catch((error)=>showMessage("library-message",error.message,"error"));});
   let libraryTimer = null;
   $("library-query").addEventListener("input",()=>{

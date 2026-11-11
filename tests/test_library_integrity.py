@@ -81,6 +81,9 @@ def _settings(tmp_path) -> Settings:
     return Settings(
         auth_base_url="https://auth.test",
         osap_api_base_url="http://osap.test",
+        public_base_url="http://chorus.test",
+        editor_base_url="http://editor.test",
+        editor_origin="http://editor.test",
         database_path=str(tmp_path / "chorus.sqlite3"),
         storage_root=str(tmp_path / "private"),
         secure_cookies=False,
@@ -321,3 +324,38 @@ def test_source_accepts_index_work_id_different_from_representation(tmp_path, mo
         )
         assert response.status_code == 200, response.text
         assert response.json()["source_kind"] == "osap"
+
+
+def test_library_item_can_open_and_download_a_local_work(tmp_path, monkeypatch):
+    settings = _settings(tmp_path)
+    with TestClient(create_app(settings)) as client:
+        install_fake_auth(monkeypatch, _profiles())
+        _upload(client, "Obra local")
+        items = client.get("/api/v1/library", headers=_headers()).json()["items"]
+        item_id = items[0]["id"]
+
+        draft = client.post(f"/api/v1/library/{item_id}/draft", headers=_headers())
+        assert draft.status_code == 201, draft.text
+        assert draft.json()["source_kind"] == "local"
+
+        source = client.get(
+            f"/api/v1/drafts/{draft.json()['id']}/source-file", headers=_headers()
+        )
+        assert source.status_code == 200
+        assert source.content.startswith(b"PK")
+
+        editor = client.get(
+            f"/api/v1/drafts/{draft.json()['id']}/editor", headers=_headers()
+        )
+        assert editor.status_code == 200, editor.text
+        editor_url = editor.json()["editor_url"]
+        assert ".mxl" in editor_url
+        from urllib.parse import parse_qs, urlparse
+        source_url = parse_qs(urlparse(editor_url).query)["url"][0]
+        shared = client.get(urlparse(source_url).path)
+        assert shared.status_code == 200
+        assert shared.content.startswith(b"PK")
+
+        download = client.get(f"/api/v1/library/{item_id}/download", headers=_headers())
+        assert download.status_code == 200
+        assert "attachment" in download.headers.get("content-disposition", "")

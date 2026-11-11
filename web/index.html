@@ -75,6 +75,7 @@
         <div class="section-heading"><div><p class="eyebrow">BORRADOR ACTUAL</p><h2 id="draft-title">Tu partitura</h2><p id="draft-description" class="muted"></p></div><span id="draft-state" class="status">En edición</span></div>
         <div class="draft-actions">
           <button id="open-editor-button" class="button button-primary" type="button">Abrir en MuseEncore</button>
+          <button id="download-draft-button" class="button button-outline" type="button">Descargar para MuseScore</button>
           <label class="button button-outline file-button" for="mxl-file">Subir MusicXML (.mxl)</label>
           <input id="mxl-file" class="hidden" type="file" accept=".mxl,application/zip">
         </div>
@@ -96,5 +97,19 @@
   </main>
 
   <footer><span>CHORUS</span><span>Tu música, tus recursos, tu espacio.</span></footer>
-</body>
+
+  <div id="draft-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-draft-title">
+    <div class="modal-card">
+      <p class="eyebrow">ORIGINAL PREPARADO</p>
+      <h2 id="modal-draft-title">Tu partitura</h2>
+      <p class="muted">Elige cómo seguir: edita en MuseEncore, descarga para MuseScore o sube el resultado.</p>
+      <div class="modal-actions">
+        <button id="modal-open-editor" class="button button-primary" type="button">Abrir en MuseEncore</button>
+        <button id="modal-download" class="button button-outline" type="button">Descargar para MuseScore</button>
+        <label class="button button-outline file-button" for="modal-file">Subir .mxl</label>
+        <input id="modal-file" class="hidden" type="file" accept=".mxl,application/zip">
+        <button id="modal-close" class="button button-quiet" type="button">Cerrar</button>
+      </div>
+    </div>
+  </div></body>
 </html>
