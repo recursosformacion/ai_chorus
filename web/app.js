@@ -197,6 +197,9 @@
       const providers = [...new Set(variants.map((variant) => variant.provider))];
       const card = document.createElement("article");
       card.className = "result-card";
+
+      const head = document.createElement("div");
+      head.className = "result-head";
       const info = document.createElement("div");
       const title = document.createElement("h3");
       title.textContent = work.title || "Obra sin título";
@@ -205,7 +208,16 @@
       meta.textContent = [work.composer, work.catalogue,
         variants.length ? variants.length + " formatos · " + providers.join(", ") : "sin representaciones"]
         .filter(Boolean).join(" · ");
-      info.append(title,meta);
+      info.append(title, meta);
+
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "button button-outline result-toggle";
+      toggle.disabled = !variants.length;
+      toggle.textContent = "Ver componentes (" + variants.length + ")";
+
+      const details = document.createElement("div");
+      details.className = "result-details hidden";
       const actions = document.createElement("div");
       actions.className = "result-actions";
       variants.forEach(({ rep, provider, format, count }) => {
@@ -221,20 +233,35 @@
         btn.title = btn.disabled
           ? "Formato no descargable o no compatible con el editor"
           : (count > 1 ? count + " variantes; se usará la primera" : "Crear borrador desde esta representación");
-        btn.addEventListener("click", () => startFromOsap(work,rep,btn));
+        btn.addEventListener("click", () => startFromOsap(work, rep, btn));
         const save = document.createElement("button");
         save.type = "button";
         save.className = "rep-save";
         save.textContent = "Guardar";
         save.title = "Guardar esta referencia en tu biblioteca";
-        save.addEventListener("click", () => saveReference(work,rep,save));
+        save.addEventListener("click", () => saveReference(work, rep, save));
         group.append(btn, save);
         actions.append(group);
       });
       if (!variants.length) {
-        const note = document.createElement("span"); note.className = "result-meta"; note.textContent = "No hay representaciones disponibles."; actions.append(note);
+        const note = document.createElement("span");
+        note.className = "result-meta";
+        note.textContent = "No hay representaciones disponibles.";
+        actions.append(note);
       }
-      card.append(info,actions);
+      details.append(actions);
+
+      toggle.addEventListener("click", () => {
+        const open = details.classList.contains("hidden");
+        details.classList.toggle("hidden", !open);
+        card.classList.toggle("open", open);
+        toggle.textContent = open
+          ? "Ocultar componentes"
+          : "Ver componentes (" + variants.length + ")";
+      });
+
+      head.append(info, toggle);
+      card.append(head, details);
       list.append(card);
     });
   }
