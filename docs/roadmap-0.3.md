@@ -55,22 +55,34 @@ ventana fue abierta por script (es el caso).
 
 ## 4. Funciones de grupo
 
-### 4.1 Identidad y permisos
+### 4.1 Identidad, permisos y datos de miembro
 
 - `groups`: `id`, `entity_id` (osap-auth), `name`, `timezone`, `created_by`, `settings`.
 - `group_members`: `group_id`, `user_id`, `role` (`manager`/`member`), `status`,
-  `joined_at`.
-- El representante de la entidad es `manager` por defecto; puede nombrar más managers.
-- El admin de OSAP puede administrar cualquier grupo (auditado).
+  `joined_at`, **`voice`/`instrument`** (código canónico cuando exista + etiqueta),
+  `section` (cuerda, cuerda alta, percusión…), notas.
+- La voz/instrumento es **por grupo**: una persona puede cantar en un coro y tocar en una
+  banda. El código se valida contra los vocabularios de osap-storage (`instruments`,
+  voces); la etiqueta libre queda para lo que no encaje.
+- Mantenimiento:
+  - **Responsable del grupo** (manager) puede editar voces/instrumentos de sus miembros.
+  - **Cada usuario** puede editar su propia voz/instrumento y sus datos de contacto.
+  - **Admin web de OSAP** (`role=admin` en osap-auth) puede editar cualquier grupo y
+    miembro; toda acción queda auditada.
+- El grupo se enlaza con la entidad de osap-auth, pero puede haber varios grupos por
+  entidad; el representante de la entidad es manager por defecto.
 
 ### 4.2 Agenda de ensayos y actuaciones
 
-- `events`: tipo (`rehearsal`/`concert`/`other`), título, inicio/fin, lugar, notas,
+- `events`: tipo (`rehearsal`/`concert`/`other`/`note`), título, inicio/fin, lugar, notas,
   recurrencia (RRULE), cancelación, visibilidad.
+- **Alcance de la nota**: `scope` = `global` o `groups`, con `event_groups` para los
+  grupos afectados. El responsable puede marcar **Global y/o grupos**; así una nota
+  global llega a todos y una de grupo solo a sus miembros.
 - `event_rsvps`: `yes`/`no`/`maybe` + comentario.
 - Vista mes/semana/lista; feed ICS por grupo y por usuario
   (`/api/v1/groups/{id}/calendar.ics?token=…`).
-- Zona horaria por grupo; recordatorios (email/push) 24 h y 2 h antes.
+- Zona horaria por grupo; recordatorios 24 h y 2 h antes, por los canales elegidos.
 
 ### 4.3 Repertorio
 
@@ -103,21 +115,78 @@ ventana fue abierta por script (es el caso).
 - Miembros con voz/instrumento, disponibilidad y contacto (opt-in).
 - Privacidad: por defecto solo nombre y rol; el email/teléfono lo decide cada miembro.
 
-## 5. Fases
+### 4.8 Preferencias de comunicación y noticias globales
+
+- Cada usuario elige **cómo recibe los comunicados**: WhatsApp, correo electrónico y
+  mensajería OSAP (in-app), con casillas independientes y opt-in explícito.
+- `user_contact_preferences`: `user_id`, `channel` (`whatsapp`/`email`/`inapp`),
+  `enabled`, `verified_at`, `updated_at`. El teléfono y el email viven en el perfil.
+- Por grupo se podrá afinar más adelante (`group_notification_preferences`), empezando por
+  la preferencia global.
+- **Noticias globales** (fase posterior): el usuario elegirá qué categorías desea recibir
+  (`news_categories` + `user_news_preferences`). De momento solo se modela la preferencia
+  de canales; el catálogo de noticias globales se añadirá cuando exista el feed.
+- WhatsApp requiere proveedor (Meta Cloud API/Twilio) y plantillas aprobadas; el primer
+  corte puede limitarse a enlaces `wa.me`/recordatorios manuales.
+
+## 5. Modelo de datos propuesto (SQLite, migraciones 006+)
+
+```sql
+CREATE TABLE groups (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, name TEXT NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'Europe/Madrid', created_by TEXT NOT NULL,
+  settings TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE group_members (
+  id TEXT PRIMARY KEY, group_id TEXT NOT NULL, user_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'member', status TEXT NOT NULL DEFAULT 'active',
+  voice_code TEXT, voice_label TEXT, section TEXT, notes TEXT,
+  joined_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  UNIQUE(group_id, user_id)
+);
+CREATE TABLE events (
+  id TEXT PRIMARY KEY, group_id TEXT, scope TEXT NOT NULL DEFAULT 'groups',
+  kind TEXT NOT NULL, title TEXT NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT,
+  location TEXT, notes TEXT, recurrence TEXT, created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cancelled_at TEXT
+);
+CREATE TABLE event_groups (
+  event_id TEXT NOT NULL, group_id TEXT NOT NULL, PRIMARY KEY(event_id, group_id)
+);
+CREATE TABLE event_rsvps (
+  event_id TEXT NOT NULL, user_id TEXT NOT NULL, status TEXT NOT NULL,
+  comment TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(event_id, user_id)
+);
+CREATE TABLE announcements (
+  id TEXT PRIMARY KEY, group_id TEXT, scope TEXT NOT NULL DEFAULT 'groups',
+  title TEXT NOT NULL, body TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0,
+  author_id TEXT NOT NULL, published_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE attendance (
+  event_id TEXT NOT NULL, user_id TEXT NOT NULL, status TEXT NOT NULL,
+  recorded_by TEXT NOT NULL, recorded_at TEXT NOT NULL, PRIMARY KEY(event_id, user_id)
+);
+```
+
+Las tablas de repertorio, documentos, tareas y noticias globales se añaden en fases
+posteriores, siguiendo el mismo patrón de `group_id` + permisos.
+
+## 6. Fases
 
 | Fase | Alcance | Criterio de salida |
 | --- | --- | --- |
-| 1 | Grupos/miembros, agenda + RSVP + ICS, repertorio | Un grupo crea un ensayo, los miembros confirman y lo ven en su calendario |
-| 2 | Anuncios, noticias, notificaciones, asistencia | Aviso publicado y asistencia registrada por evento |
-| 3 | Documentos/actas, tareas/turnos, directorio | Acta adjunta a evento y tareas asignadas |
-| 4 | Mensajería, push móvil, analítica de grupo | Chat por grupo y notificaciones push |
+| 1 | Grupos/miembros con voz/instrumento, agenda global+grupos con RSVP/ICS, repertorio | Un grupo crea un ensayo, asigna voces y los miembros confirman y lo ven en su calendario |
+| 2 | Anuncios, noticias, notificaciones, asistencia, preferencias de canal | Aviso publicado y asistencia registrada; cada usuario recibe por sus canales |
+| 3 | Documentos/actas, tareas/turnos, directorio, WhatsApp verificado | Acta adjunta a evento, tareas asignadas y WhatsApp con plantilla aprobada |
+| 4 | Mensajería, push móvil, noticias globales por categoría, analítica | Chat por grupo, push y suscripción a noticias globales |
 
-## 6. Orden inmediato propuesto
+## 7. Orden inmediato propuesto
 
 1. Puente MuseEncore (guardar/cerrar) y prueba en Android.
 2. Duración de sesión y dispositivos activos.
-3. Fase 1 de grupos (modelo + agenda + RSVP + ICS + repertorio).
+3. Fase 1: modelo de grupos/miembros (voz/instrumento), agenda global+grupos, RSVP/ICS y
+   repertorio.
 
-Decisiones pendientes: ¿la agenda y el repertorio son por **entidad** o por **grupo**
-independiente dentro de la entidad? ¿Quién puede crear grupos: solo el representante o
-cualquier miembro? ¿Email transaccional con el proveedor actual o solo in-app al principio?
+Decisiones pendientes: quién puede crear grupos (responsable de entidad, managers o
+cualquier miembro), proveedor de WhatsApp y si el primer corte de comunicaciones sale
+solo in-app/email antes de integrar WhatsApp.
