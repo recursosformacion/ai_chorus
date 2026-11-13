@@ -176,6 +176,86 @@ Recomendación: SMS solo como **canal urgente** (cancelación de ensayo/conciert
 in-app y email (coste casi nulo). Si se aprueba, empezar con OVH SMS por cercanía y coste,
 o Twilio si se quiere una API única para WhatsApp + SMS.
 
+### 4.11 Facturación de la entidad y canales de pago
+
+La entidad es la que contrata y paga; los usuarios solo eligen canales. Modelo propuesto:
+
+- **Base gratuita**: in-app y email. No requiere pago ni intervención del representante.
+- **Add-ons de pago**: SMS y WhatsApp mediante **saldo prepago** por entidad. Es más simple
+  que una suscripción y evita cobros recurrentes fallidos; la suscripción mensual puede
+  añadirse después con las mismas tablas.
+- **Paquetes configurables** (importes de ejemplo, a validar):
+  - 100 SMS = 5 €; 500 SMS = 20 €; 1.000 SMS = 35 €.
+  - 500 conversaciones WhatsApp de utilidad = 25 €; 1.000 = 45 €.
+  - Precio y créditos viven en `billing_products`, no en el código: se pueden cambiar sin
+    desplegar.
+- **PayPal**:
+  - Primera versión con **PayPal Orders API** (pago único de un paquete) y webhook de
+    confirmación. El saldo se abona solo cuando el webhook confirma `COMPLETED`.
+  - Segunda versión: **PayPal Subscriptions** para planes mensuales/anuales, con
+    `paid_until`, renovación y cancelación.
+  - Sandbox para desarrollo; moneda EUR; el representante ve facturas/recibos de PayPal.
+- **Quién paga**: el representante de la entidad. El admin web puede activar saldo
+  manualmente (cortesía, compensación o pago fuera de PayPal), siempre auditado.
+- **Cuándo se paga**: al registrar la entidad se puede omitir; los canales de pago quedan
+  inactivos y se activan cuando el representante compra saldo o el admin lo asigna.
+- **Visibilidad para el usuario**: las casillas de WhatsApp y SMS se muestran **siempre**
+  en su ficha, pero **deshabilitadas** si su entidad no tiene el canal activo o saldo, con
+  el texto «Tu entidad no ha activado este canal» y un enlace al representante. Si el canal
+  está activo pero falta verificar el teléfono, se pide la verificación.
+- **Consumo**: cada envío descuenta saldo de la entidad del grupo; si no hay saldo, no se
+  envía y se avisa al manager. Aviso de saldo bajo al representante. Sin saldo negativo.
+- **Multi-entidad**: la preferencia del usuario es global, pero el envío comprueba el saldo
+  de la entidad de cada grupo; un grupo sin saldo no bloquea a los demás.
+- **Impuestos**: precio con IVA mostrado según país; datos fiscales de la entidad (NIF)
+  para la factura; PayPal como medio de pago, no como sustituto de la factura.
+
+Endpoints previstos (osap-auth, que es donde vive la entidad y el saldo):
+
+- `GET /auth/entities/{id}/entitlements` → canales disponibles + saldo (para Chorus).
+- `GET /auth/entities/{id}/billing` → plan, saldo, umbral, historial.
+- `POST /auth/entities/{id}/billing/orders` → crea orden PayPal de un producto.
+- `POST /auth/billing/paypal/webhook` → confirma pago y abona saldo (idempotente).
+- `POST /auth/admin/entities/{id}/billing/credits` → ajuste manual del admin.
+
+Datos:
+
+```sql
+CREATE TABLE billing_products (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL,
+  price_cents INTEGER NOT NULL, currency TEXT NOT NULL DEFAULT 'EUR',
+  sms_credits INTEGER NOT NULL DEFAULT 0,
+  whatsapp_credits INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE entity_billing_accounts (
+  entity_id TEXT PRIMARY KEY, currency TEXT NOT NULL DEFAULT 'EUR',
+  sms_credits INTEGER NOT NULL DEFAULT 0,
+  whatsapp_credits INTEGER NOT NULL DEFAULT 0,
+  low_balance_threshold INTEGER NOT NULL DEFAULT 20,
+  status TEXT NOT NULL DEFAULT 'inactive', updated_at TEXT NOT NULL
+);
+CREATE TABLE billing_orders (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, product_id TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'paypal', provider_order_id TEXT,
+  status TEXT NOT NULL, amount_cents INTEGER NOT NULL, created_at TEXT NOT NULL,
+  paid_at TEXT
+);
+CREATE TABLE billing_ledger (
+  id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, kind TEXT NOT NULL,
+  sms_delta INTEGER NOT NULL DEFAULT 0, whatsapp_delta INTEGER NOT NULL DEFAULT 0,
+  reference TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE billing_events (
+  id TEXT PRIMARY KEY, provider TEXT NOT NULL, provider_event_id TEXT NOT NULL UNIQUE,
+  entity_id TEXT, type TEXT NOT NULL, payload TEXT NOT NULL, processed_at TEXT
+);
+```
+
+Riesgos: webhooks duplicados (idempotencia por `provider_event_id`), reembolsos (ledger
+negativo y revisión manual), caducidad del saldo (propuesta: 12 meses, avisar antes),
+y facturación con IVA (asesoría). El saldo nunca se comparte entre entidades.
+
 ## 5. Modelo de datos propuesto (SQLite, migraciones 006+)
 
 ```sql
@@ -224,7 +304,7 @@ posteriores, siguiendo el mismo patrón de `group_id` + permisos.
 | --- | --- | --- |
 | 1 | Grupos/miembros con voz/instrumento, agenda global+grupos con RSVP/ICS, repertorio | Un grupo crea un ensayo, asigna voces y los miembros confirman y lo ven en su calendario |
 | 2 | Anuncios, noticias, notificaciones, asistencia, preferencias de canal | Aviso publicado y asistencia registrada; cada usuario recibe por sus canales |
-| 3 | Documentos/actas, tareas/turnos, directorio, WhatsApp verificado y SMS urgente | Acta adjunta a evento, tareas asignadas, WhatsApp con plantilla aprobada y SMS de urgencia con opt-in |
+| 3 | Documentos/actas, tareas/turnos, directorio, facturación PayPal, WhatsApp verificado y SMS urgente | Acta adjunta, tareas asignadas, saldo comprado con PayPal, WhatsApp con plantilla y SMS de urgencia con opt-in |
 | 4 | Mensajería, push móvil, noticias globales por categoría, analítica | Chat por grupo, push y suscripción a noticias globales |
 
 ## 7. Orden inmediato propuesto
@@ -234,7 +314,8 @@ posteriores, siguiendo el mismo patrón de `group_id` + permisos.
 3. Fase 1: modelo de grupos/miembros (voz/instrumento), agenda global+grupos, RSVP/ICS y
    repertorio.
 
-Decisiones pendientes: proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud
-API después), proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio)
-y si el primer corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp y
-SMS. La creación de grupos queda cerrada: solo representante de entidad y admin web.
+Decisiones pendientes: precios de los paquetes (los importes de arriba son una propuesta),
+proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
+proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
+corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp, SMS y PayPal. La
+creación de grupos queda cerrada: solo representante de entidad y admin web.
