@@ -924,7 +924,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "kind": membership.get("entity_kind") or "grupo",
             }
             for membership in memberships
-            if membership.get("is_representative") is True
+            if admin or membership.get("is_representative") is True
         ]
         return {
             "groups": [
@@ -1549,4 +1549,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
 
