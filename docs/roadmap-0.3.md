@@ -70,7 +70,7 @@ ventana fue abierta por script (es el caso).
   - **Admin web de OSAP** (`role=admin` en osap-auth) puede editar cualquier grupo y
     miembro; toda acción queda auditada.
 - El grupo se enlaza con la entidad de osap-auth, pero puede haber varios grupos por
-  entidad. **Solo el representante de la entidad crea grupos**; los managers gestionan los
+  entidad. **Solo un gestor de la entidad (o el admin) crea grupos**; los managers gestionan los
   grupos existentes (miembros, voces, agenda) y el admin web puede crear/gestionar
   cualquiera. Un miembro no crea grupos.
 
@@ -257,6 +257,57 @@ Riesgos: webhooks duplicados (idempotencia por `provider_event_id`), reembolsos 
 negativo y revisión manual), caducidad del saldo (propuesta: 12 meses, avisar antes),
 y facturación con IVA (asesoría). El saldo nunca se comparte entre entidades.
 
+### 4.12 Entidades y gestores (rediseño)
+
+Reglas acordadas:
+
+- La **entidad la crea el admin web**, no el usuario. Se acaba el alta libre de entidades.
+- Al crearla, el admin asigna uno o varios **gestores** entre usuarios ya registrados.
+- El **gestor** puede editar los datos de la entidad, asignar/quitar otros gestores y crear
+  grupos en Chorus. No puede dejar la entidad sin ningún gestor.
+- La **pertenencia** (miembro de una entidad) es independiente de la gestión: un usuario
+  puede pertenecer a varias entidades y gestionar otras.
+- El admin conserva acceso total y todo queda auditado.
+
+Modelo:
+
+- `entity_managers` (`entity_id`, `user_id`, `assigned_by`, `created_at`; PK compuesta).
+- `entity_memberships` sigue existiendo para “pertenece a”.
+- `is_representative` se sustituye por `is_manager` derivado de `entity_managers`; se
+  mantiene el alias antiguo durante la migración.
+- Migración: cada `entities.created_by` actual pasa a ser manager; las pertenencias no
+  cambian; los creadores de entidades existentes conservan su capacidad de gestión.
+
+Onboarding:
+
+- “Crear entidad” se convierte en **solicitar entidad** (pendiente) o se elimina del alta.
+  Recomendación: solicitud + aprobación del admin, para no romper el flujo actual.
+
+Chorus:
+
+- `GET /api/v1/entities` (entidades que gestiona o a las que pertenece).
+- `PATCH /api/v1/entities/{id}` (gestor): nombre, tipo, correo, zona horaria, descripción.
+- `POST/DELETE /api/v1/entities/{id}/managers` (gestor/admin; no dejar la entidad sin
+  gestores).
+- `GET/POST /api/v1/entities/{id}/groups` (los grupos siguen viviendo en Chorus).
+- Página **Entidades** para gestores: datos, gestores y grupos de cada entidad.
+
+Admin web:
+
+- Mantenimiento de entidades: crear, editar y asignar gestores.
+- Ficha de usuario: “Pertenece a” (selector múltiple + añadir/quitar) y “Gestiona”
+  (entidades que administra, con acceso a sus datos y gestores).
+
+Fases:
+
+| Fase | Alcance |
+| --- | --- |
+| 1 | `entity_managers`, migración de `created_by`, alta de entidad por admin, asignación de gestores, página Entidades en Chorus |
+| 2 | Solicitud/aprobación desde onboarding, traspaso de gestores, auditoría fina y permisos por grupo |
+
+Criterio de salida: el admin crea una entidad, asigna a dos gestores; uno de ellos edita
+el correo, añade un tercer gestor y crea un grupo; un miembro no gestor no puede editar.
+
 ## 5. Modelo de datos propuesto (SQLite, migraciones 006+)
 
 ```sql
@@ -321,4 +372,5 @@ proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
 proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
 corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp, SMS y PayPal. La
 creación de grupos queda cerrada: solo representante de entidad y admin web.
+
 
