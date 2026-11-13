@@ -81,7 +81,8 @@ ventana fue abierta por script (es el caso).
 - **Alcance de la nota**: `scope` = `global` o `groups`, con `event_groups` para los
   grupos afectados. El responsable puede marcar **Global y/o grupos**; así una nota
   global llega a todos y una de grupo solo a sus miembros.
-- `event_rsvps`: `yes`/`no`/`maybe` + comentario.
+- `event_rsvps`: **binario** `yes`/`no` (Asisto / No asisto) + comentario. Ensayos y
+  actuaciones/citas deben mostrar siempre esos dos botones; las notas no llevan RSVP.
 - Vista mes/semana/lista; feed ICS por grupo y por usuario
   (`/api/v1/groups/{id}/calendar.ics?token=…`).
 - Zona horaria por grupo; recordatorios 24 h y 2 h antes, por los canales elegidos.
@@ -281,7 +282,8 @@ CREATE TABLE event_groups (
   event_id TEXT NOT NULL, group_id TEXT NOT NULL, PRIMARY KEY(event_id, group_id)
 );
 CREATE TABLE event_rsvps (
-  event_id TEXT NOT NULL, user_id TEXT NOT NULL, status TEXT NOT NULL,
+  event_id TEXT NOT NULL, user_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('yes', 'no')),
   comment TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(event_id, user_id)
 );
 CREATE TABLE announcements (
@@ -302,7 +304,7 @@ posteriores, siguiendo el mismo patrón de `group_id` + permisos.
 
 | Fase | Alcance | Criterio de salida |
 | --- | --- | --- |
-| 1 | Grupos/miembros con voz/instrumento, agenda global+grupos con RSVP/ICS, repertorio | Un grupo crea un ensayo, asigna voces y los miembros confirman y lo ven en su calendario |
+| 1 | Grupos/miembros con voz/instrumento, agenda global+grupos con RSVP/ICS, repertorio | Un grupo crea un ensayo y una actuación; cada miembro responde Asisto / No asisto y lo ve en su calendario |
 | 2 | Anuncios, noticias, notificaciones, asistencia, preferencias de canal | Aviso publicado y asistencia registrada; cada usuario recibe por sus canales |
 | 3 | Documentos/actas, tareas/turnos, directorio, facturación PayPal, WhatsApp verificado y SMS urgente | Acta adjunta, tareas asignadas, saldo comprado con PayPal, WhatsApp con plantilla y SMS de urgencia con opt-in |
 | 4 | Mensajería, push móvil, noticias globales por categoría, analítica | Chat por grupo, push y suscripción a noticias globales |
@@ -319,3 +321,4 @@ proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
 proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
 corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp, SMS y PayPal. La
 creación de grupos queda cerrada: solo representante de entidad y admin web.
+

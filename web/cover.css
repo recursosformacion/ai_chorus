@@ -265,6 +265,20 @@
 .rsvp.selected { background: var(--green); border-color: var(--green); color: #fff; }
 .rsvp-count { margin-left: auto; font-size: 11px; color: var(--muted); }
 .event-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 15px; }
+.event-extra {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.event-extra-info { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.event-extra-info strong { font-size: 12.5px; }
+.event-extra-info .muted { margin: 0; font-size: 10.5px; }
+.event-extra .badge { margin-bottom: 2px; }
 .attendee-stack { display: flex; }
 .attendee-stack span {
   width: 26px;

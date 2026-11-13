@@ -31,17 +31,26 @@
     if (event.key === "Escape") closePopover();
   });
 
-  const rsvpCount = document.getElementById("rsvp-count");
-  const rsvpButtons = Array.from(document.querySelectorAll(".rsvp"));
-  rsvpButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const already = button.classList.contains("selected");
-      rsvpButtons.forEach((item) => item.classList.remove("selected"));
-      if (!already) button.classList.add("selected");
-      if (rsvpCount) {
-        rsvpCount.textContent = already ? "18 de 34 han respondido" : "19 de 34 han respondido";
-      }
-      showToast(already ? "Respuesta retirada." : "Asistencia guardada. ¡Gracias!");
+  document.querySelectorAll(".rsvp-buttons").forEach((group) => {
+    const buttons = Array.from(group.querySelectorAll(".rsvp"));
+    const article = group.closest("article");
+    const count = article?.querySelector(".rsvp-count");
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const already = button.classList.contains("selected");
+        buttons.forEach((item) => item.classList.remove("selected"));
+        if (!already) button.classList.add("selected");
+        if (count) {
+          count.textContent = already ? "18 de 34 han respondido" : "19 de 34 han respondido";
+        }
+        if (already) {
+          showToast("Respuesta retirada.");
+        } else if (button.dataset.rsvp === "yes") {
+          showToast("Asistencia confirmada. ¡Gracias!");
+        } else {
+          showToast("Ausencia registrada. El responsable lo verá.");
+        }
+      });
     });
   });
 
