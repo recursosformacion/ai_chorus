@@ -281,7 +281,7 @@ Modelo:
 Onboarding:
 
 - “Crear entidad” se convierte en **solicitar entidad** (pendiente) o se elimina del alta.
-  Recomendación: solicitud + aprobación del admin, para no romper el flujo actual.
+  Recomendación: solicitud + aprobación del gestor de la entidad (o del admin si aún no hay gestor), para no romper el flujo actual.
 
 Chorus:
 
@@ -302,7 +302,7 @@ Fases:
 
 | Fase | Alcance |
 | --- | --- |
-| 1 | `entity_managers`, migración de `created_by`, alta de entidad por admin, asignación de gestores, página Entidades en Chorus |
+| 1 | `entity_managers`, migración de `created_by`, Alta de entidad por admin, asignación de gestores, página Entidades en Chorus |
 | 2 | Solicitud/aprobación desde onboarding, traspaso de gestores, auditoría fina y permisos por grupo |
 
 Criterio de salida: el admin crea una entidad, asigna a dos gestores; uno de ellos edita
@@ -372,5 +372,6 @@ proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
 proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
 corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp, SMS y PayPal. La
 creación de grupos queda cerrada: solo representante de entidad y admin web.
+
 
 
