@@ -119,8 +119,8 @@ ventana fue abierta por script (es el caso).
 
 ### 4.8 Preferencias de comunicación y noticias globales
 
-- Cada usuario elige **cómo recibe los comunicados**: WhatsApp, correo electrónico y
-  mensajería OSAP (in-app), con casillas independientes y opt-in explícito.
+- Cada usuario elige **cómo recibe los comunicados**: WhatsApp, correo electrónico,
+  mensajería OSAP (in-app) y **SMS**, con casillas independientes y opt-in explícito.
 - `user_contact_preferences`: `user_id`, `channel` (`whatsapp`/`email`/`inapp`),
   `enabled`, `verified_at`, `updated_at`. El teléfono y el email viven en el perfil.
 - Por grupo se podrá afinar más adelante (`group_notification_preferences`), empezando por
@@ -152,6 +152,29 @@ Datos importantes:
 Recomendación: fase 2 con **in-app + email**; WhatsApp mediante `wa.me` para lo manual y,
 si se quiere automatizar, **Meta Cloud API directo** con presupuesto pequeño y plantillas
 de utilidad. No usar librerías no oficiales en producción.
+
+### 4.10 SMS: coste y uso recomendado
+
+No hay SMS gratuitos para producción; solo créditos de prueba. Coste orientativo en
+España: **0,04–0,09 € por SMS** según proveedor y volumen.
+
+| Opción | Coste | Notas |
+| --- | --- | --- |
+| OVH SMS | ~0,04–0,06 €/SMS | UE, emisor alfanumérico, API sencilla |
+| Twilio | ~0,07–0,09 €/SMS + tarifas | Crédito de prueba; global; buena API |
+| Vonage / MessageBird / Telnyx / Plivo | similar | Prueba y luego tarifa; sender ID según país |
+| AWS SNS | pago por SMS | Sin capa gratuita útil para producción |
+| Email-to-SMS (puertas de operador) | “gratis” | **No fiable**: muchas retiradas, formato y entrega irregulares |
+| Gateway con móvil Android | coste del SIM | Necesita un teléfono encendido; no es producción |
+
+Límites: 160 caracteres GSM-7 (70 en Unicode), los mensajes largos se parten y se cobran
+por segmento; hace falta remitente alfanumérico o número dedicado; consentimiento
+explícito y baja fácil (GDPR). No sirve para contenido rico ni adjuntos.
+
+Recomendación: SMS solo como **canal urgente** (cancelación de ensayo/concierto, cambio de
+última hora), desactivado por defecto, con opt-in y límite de frecuencia. Para lo rutinario,
+in-app y email (coste casi nulo). Si se aprueba, empezar con OVH SMS por cercanía y coste,
+o Twilio si se quiere una API única para WhatsApp + SMS.
 
 ## 5. Modelo de datos propuesto (SQLite, migraciones 006+)
 
@@ -201,7 +224,7 @@ posteriores, siguiendo el mismo patrón de `group_id` + permisos.
 | --- | --- | --- |
 | 1 | Grupos/miembros con voz/instrumento, agenda global+grupos con RSVP/ICS, repertorio | Un grupo crea un ensayo, asigna voces y los miembros confirman y lo ven en su calendario |
 | 2 | Anuncios, noticias, notificaciones, asistencia, preferencias de canal | Aviso publicado y asistencia registrada; cada usuario recibe por sus canales |
-| 3 | Documentos/actas, tareas/turnos, directorio, WhatsApp verificado | Acta adjunta a evento, tareas asignadas y WhatsApp con plantilla aprobada |
+| 3 | Documentos/actas, tareas/turnos, directorio, WhatsApp verificado y SMS urgente | Acta adjunta a evento, tareas asignadas, WhatsApp con plantilla aprobada y SMS de urgencia con opt-in |
 | 4 | Mensajería, push móvil, noticias globales por categoría, analítica | Chat por grupo, push y suscripción a noticias globales |
 
 ## 7. Orden inmediato propuesto
@@ -212,6 +235,6 @@ posteriores, siguiendo el mismo patrón de `group_id` + permisos.
    repertorio.
 
 Decisiones pendientes: proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud
-API después) y si el primer corte de comunicaciones sale solo in-app/email antes de
-integrar WhatsApp. La creación de grupos queda cerrada: solo representante de entidad y
-admin web.
+API después), proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio)
+y si el primer corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp y
+SMS. La creación de grupos queda cerrada: solo representante de entidad y admin web.
