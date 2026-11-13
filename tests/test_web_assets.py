@@ -7,12 +7,14 @@ WEB = ROOT / "web"
 
 def test_chorus_web_entrypoint_and_assets_exist():
     html = (WEB / "index.html").read_text("utf-8")
-    assert 'href="/styles.css"' in html
-    assert 'src="/app.js"' in html
+    assert 'href="/styles.css' in html
+    assert 'src="/app.js' in html
     assert 'id="login-form"' in html
     assert 'id="search-form"' in html
     assert 'id="new-draft-button"' in html
     assert 'id="mxl-file"' in html
+    assert 'id="dashboard"' in html
+    assert 'id="dash-search-form"' in html
 
 
 def test_web_uses_chorus_api_and_never_calls_osap_directly():
@@ -42,3 +44,4 @@ def test_oidc_login_entrypoint_and_callback_exist():
     callback = (WEB / "auth-callback.html").read_text("utf-8")
     assert "chorus-oidc" in callback
     assert "access_token" in callback
+

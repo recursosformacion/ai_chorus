@@ -74,6 +74,7 @@
     const displayName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : "músico";
     if ($("dash-name")) $("dash-name").textContent = displayName;
     refreshLibrary().catch(()=>{});
+    loadAgenda().catch(()=>{});
   }
   function showLogin() {
     $("workspace-view").classList.add("hidden");
@@ -89,6 +90,167 @@
     const data = await request(path);
     renderLibrary(data || {});
   }
+  let agendaState = { groups: [], entities: [], events: [], can_create_group: false };
+
+  function kindLabel(kind) {
+    return { rehearsal: "Ensayo", concert: "Actuación", note: "Nota" }[kind] || kind;
+  }
+
+  function formatEventDate(value) {
+    try {
+      return new Intl.DateTimeFormat("es-ES", {
+        weekday: "short", day: "numeric", month: "short",
+        hour: "2-digit", minute: "2-digit",
+      }).format(new Date(value));
+    } catch (_) {
+      return value || "";
+    }
+  }
+
+  async function loadAgenda() {
+    agendaState = await request("/api/v1/agenda");
+    renderAgenda();
+  }
+
+  function renderGroupCard() {
+    const groups = agendaState.groups || [];
+    const content = $("dash-group-content");
+    const empty = $("dash-group-empty");
+    if (groups.length) {
+      const group = groups[0];
+      content.classList.remove("hidden");
+      empty.classList.add("hidden");
+      content.replaceChildren();
+      const identity = document.createElement("div");
+      identity.className = "group-identity";
+      const mark = document.createElement("span");
+      mark.className = "group-mark";
+      mark.textContent = (group.name || "G").slice(0, 2).toUpperCase();
+      const box = document.createElement("div");
+      const title = document.createElement("h2");
+      title.textContent = group.name;
+      const subtitle = document.createElement("p");
+      subtitle.className = "muted";
+      subtitle.textContent = (group.role === "manager" ? "Responsable" : "Miembro")
+        + (groups.length > 1 ? ` · ${groups.length} grupos` : "");
+      box.append(title, subtitle);
+      identity.append(mark, box);
+      content.append(identity);
+      if (group.join_code) {
+        const code = document.createElement("p");
+        code.className = "dash-group-code";
+        code.append("Código para invitar: ");
+        const strong = document.createElement("strong");
+        strong.textContent = group.join_code;
+        code.append(strong);
+        content.append(code);
+      }
+      return;
+    }
+    content.classList.add("hidden");
+    empty.classList.remove("hidden");
+    const form = $("dash-group-form");
+    form.classList.toggle(
+      "hidden", !(agendaState.can_create_group && (agendaState.entities || []).length),
+    );
+    const select = $("dash-group-entity");
+    select.replaceChildren(new Option("— Elegir entidad —", ""));
+    (agendaState.entities || []).forEach((entity) => {
+      select.append(new Option(`${entity.name} (${entity.kind})`, entity.id));
+    });
+  }
+
+  function renderEvent(event, primary) {
+    const card = document.createElement("article");
+    card.className = "dash-event" + (primary ? " dash-event-primary" : "");
+    const head = document.createElement("div");
+    head.className = "dash-event-head";
+    const left = document.createElement("div");
+    const title = document.createElement("h3");
+    title.textContent = event.title;
+    const meta = document.createElement("p");
+    meta.className = "dash-event-meta";
+    meta.textContent = [
+      formatEventDate(event.starts_at), event.location, event.group_name,
+    ].filter(Boolean).join(" · ");
+    left.append(title, meta);
+    const kind = document.createElement("span");
+    kind.className = "dash-event-kind " + event.kind;
+    kind.textContent = kindLabel(event.kind);
+    head.append(left, kind);
+    card.append(head);
+    if (event.notes) {
+      const notes = document.createElement("p");
+      notes.className = "dash-event-notes";
+      notes.textContent = event.notes;
+      card.append(notes);
+    }
+    if (event.rsvp_required) {
+      const row = document.createElement("div");
+      row.className = "rsvp-buttons";
+      const label = document.createElement("span");
+      label.className = "rsvp-label";
+      label.textContent = "¿Asistes?";
+      row.append(label);
+      [["yes", "Asisto"], ["no", "No asisto"]].forEach(([status, text]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "rsvp" + (event.my_rsvp === status ? " selected" : "");
+        button.textContent = text;
+        button.addEventListener("click", () => { void setRsvp(event.id, status, button); });
+        row.append(button);
+      });
+      card.append(row);
+    }
+    return card;
+  }
+
+  function renderAgenda() {
+    const events = agendaState.events || [];
+    const content = $("dash-next-content");
+    const empty = $("dash-next-empty");
+    const badge = $("dash-event-badge");
+    if (events.length) {
+      content.classList.remove("hidden");
+      empty.classList.add("hidden");
+      badge.textContent = `${events.length} ${events.length === 1 ? "evento" : "eventos"}`;
+      badge.className = "badge " + (events[0].my_rsvp ? "badge-green" : "badge-gold");
+      content.replaceChildren();
+      events.forEach((event, index) => content.append(renderEvent(event, index === 0)));
+    } else {
+      content.classList.add("hidden");
+      content.replaceChildren();
+      empty.classList.remove("hidden");
+      badge.textContent = "Sin agenda";
+      badge.className = "badge badge-muted";
+    }
+    const manageable = (agendaState.groups || []).filter((group) => group.can_manage);
+    $("dash-event-admin").classList.toggle("hidden", manageable.length === 0);
+    const select = $("dash-event-group");
+    select.replaceChildren();
+    manageable.forEach((group) => select.append(new Option(group.name, group.id)));
+    renderGroupCard();
+  }
+
+  async function setRsvp(eventId, status, button) {
+    setBusy(button, true, "Guardando…");
+    try {
+      await request(`/api/v1/events/${encodeURIComponent(eventId)}/rsvp`, {
+        method: "POST",
+        body: JSON.stringify({ status }),
+      });
+      await loadAgenda();
+      showMessage(
+        "dash-event-message",
+        status === "yes" ? "Asistencia confirmada." : "Ausencia registrada.",
+        "success",
+      );
+    } catch (error) {
+      showMessage("dash-event-message", error.message, "error");
+      setBusy(button, false);
+    }
+  }
+
   function renderLibrary(data) {
     const items = data.items || [];
     const collections = data.collections || [];
@@ -642,6 +804,56 @@
     const message=$("dash-message");
     message.textContent="Aviso registrado. Cuando el grupo esté activo, el responsable lo verá en Chorus.";
     message.className="message success";
+  });
+  $("dash-group-form").addEventListener("submit",async (event)=>{
+    event.preventDefault();
+    const button=event.submitter; setBusy(button,true,"Creando…");
+    try {
+      await request("/api/v1/groups",{method:"POST",body:JSON.stringify({
+        entity_id:$("dash-group-entity").value,
+        name:$("dash-group-name").value.trim(),
+      })});
+      $("dash-group-name").value="";
+      showMessage("dash-group-message","Grupo creado.","success");
+      await loadAgenda();
+    } catch(error) { showMessage("dash-group-message",error.message,"error"); }
+    finally { setBusy(button,false); }
+  });
+  $("dash-join-form").addEventListener("submit",async (event)=>{
+    event.preventDefault();
+    const button=event.submitter; setBusy(button,true,"Uniendo…");
+    try {
+      await request("/api/v1/groups/join",{method:"POST",body:JSON.stringify({
+        code:$("dash-join-code").value.trim(),
+      })});
+      $("dash-join-code").value="";
+      showMessage("dash-group-message","Ya formas parte del grupo.","success");
+      await loadAgenda();
+    } catch(error) { showMessage("dash-group-message",error.message,"error"); }
+    finally { setBusy(button,false); }
+  });
+  $("dash-add-event").addEventListener("click",()=>{
+    $("dash-event-form").classList.toggle("hidden");
+  });
+  $("dash-event-form").addEventListener("submit",async (event)=>{
+    event.preventDefault();
+    const button=event.submitter; setBusy(button,true,"Guardando…");
+    try {
+      const startsAt=new Date($("dash-event-start").value);
+      if (Number.isNaN(startsAt.getTime())) throw new Error("Fecha inválida");
+      await request("/api/v1/events",{method:"POST",body:JSON.stringify({
+        group_id:$("dash-event-group").value,
+        kind:$("dash-event-kind").value,
+        title:$("dash-event-title").value.trim(),
+        starts_at:startsAt.toISOString(),
+        location:$("dash-event-location").value.trim() || null,
+      })});
+      $("dash-event-form").reset();
+      $("dash-event-form").classList.add("hidden");
+      showMessage("dash-event-message","Evento creado.","success");
+      await loadAgenda();
+    } catch(error) { showMessage("dash-event-message",error.message,"error"); }
+    finally { setBusy(button,false); }
   });
   $("new-draft-button").addEventListener("click",async()=>{
     const button=$("new-draft-button");setBusy(button,true,"Creando borrador…");

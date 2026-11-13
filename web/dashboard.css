@@ -86,6 +86,72 @@
 .chorus-dashboard .attendance-bars span:nth-child(4n) { background: #d5dfd6; }
 .chorus-dashboard .channel-list { margin-top: 2px; }
 .chorus-dashboard .message { min-height: 0; margin: 8px 0 0; }
+.mini-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.mini-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #5d6b62;
+}
+.mini-form input,
+.mini-form select {
+  width: auto;
+  min-width: 120px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font: 12px "DM Sans", sans-serif;
+  color: var(--ink);
+}
+.mini-form input[type="datetime-local"] { min-width: 185px; }
+.mini-form .button { min-height: 34px; }
+.dash-event {
+  border: 1px solid #edf1ec;
+  border-radius: 12px;
+  padding: 13px 14px;
+  background: #fafbf9;
+}
+.dash-event + .dash-event { margin-top: 8px; }
+.dash-event-primary { background: #fff; border-color: #dbe5dc; }
+.dash-event-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.dash-event h3 { margin: 0; font-size: 14px; line-height: 1.35; }
+.dash-event-meta { margin: 3px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+.dash-event-notes { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.dash-event .rsvp-buttons { margin-top: 10px; }
+.dash-event .rsvp { padding: 6px 12px; }
+.dash-event-kind {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: #eef3ee;
+  color: #4d7059;
+}
+.dash-event-kind.concert { background: #f7ecd8; color: #8a6527; }
+.dash-event-kind.note { background: #eef0f3; color: #68737c; }
+.dash-group-code {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: #f7f2e7;
+  border: 1px solid #eadfc9;
+  font-size: 11.5px;
+  color: #6c5434;
+}
+.dash-group-code strong { letter-spacing: 2px; font-size: 13px; }
 
 @media (max-width: 900px) {
   .app-nav { display: none; }

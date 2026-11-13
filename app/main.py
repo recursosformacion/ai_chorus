@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -77,8 +77,105 @@ class CollectionItemBody(BaseModel):
     library_item_id: str = Field(min_length=1, max_length=64)
 
 
+class GroupBody(BaseModel):
+    entity_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    timezone: str = Field(default="Europe/Madrid", max_length=80)
+
+
+class JoinGroupBody(BaseModel):
+    code: str = Field(min_length=4, max_length=12)
+
+
+class EventBody(BaseModel):
+    group_id: str = Field(min_length=1, max_length=64)
+    kind: Literal["rehearsal", "concert", "note"]
+    title: str = Field(min_length=1, max_length=200)
+    starts_at: str = Field(min_length=10, max_length=64)
+    ends_at: str | None = Field(default=None, max_length=64)
+    location: str | None = Field(default=None, max_length=300)
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class RsvpBody(BaseModel):
+    status: Literal["yes", "no"]
+    comment: str | None = Field(default=None, max_length=1000)
+
+
 def utcnow() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _roles(profile: dict[str, Any]) -> set[str]:
+    roles = profile.get("roles")
+    return {str(role) for role in roles} if isinstance(roles, list) else set()
+
+
+def _approved_memberships(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    memberships = profile.get("memberships")
+    if not isinstance(memberships, list):
+        return []
+    return [
+        membership for membership in memberships
+        if isinstance(membership, dict) and membership.get("status") == "approved"
+    ]
+
+
+def _is_admin(profile: dict[str, Any]) -> bool:
+    return "admin" in _roles(profile)
+
+
+def _is_representative(profile: dict[str, Any], entity_id: str) -> bool:
+    return _is_admin(profile) or any(
+        membership.get("entity_id") == entity_id
+        and membership.get("is_representative") is True
+        for membership in _approved_memberships(profile)
+    )
+
+
+def _normalise_iso(value: str) -> str:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat()
+
+
+def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "entity_id": row["entity_id"],
+        "name": row["name"],
+        "timezone": row["timezone"],
+        "join_code": row["join_code"],
+        "role": role,
+        "can_manage": can_manage,
+    }
+
+
+def _join_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(6))
+
+
+def _event_dto(
+    row: sqlite3.Row, *, my_rsvp: str | None, group_name: str | None, can_manage: bool
+) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "group_id": row["group_id"],
+        "entity_id": row["entity_id"],
+        "scope": row["scope"],
+        "kind": row["kind"],
+        "title": row["title"],
+        "starts_at": row["starts_at"],
+        "ends_at": row["ends_at"],
+        "location": row["location"],
+        "notes": row["notes"],
+        "group_name": group_name,
+        "my_rsvp": my_rsvp,
+        "rsvp_required": row["kind"] != "note",
+        "can_manage": can_manage,
+    }
 
 
 def _connect(settings: Settings) -> sqlite3.Connection:
@@ -103,6 +200,7 @@ def initialise_database(settings: Settings) -> None:
             "003_owner_and_library.sql",
             "004_oidc_states.sql",
             "005_local_draft_source.sql",
+            "006_groups_events.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -241,6 +339,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail={"code": "ONBOARDING_REQUIRED", "onboarding": onboarding},
             )
         return principal_from_profile(profile)
+
+    def current_profile(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        profile = profile_from_authorization(authorization)
+        onboarding = profile.get("onboarding")
+        if isinstance(onboarding, dict) and onboarding.get("required") is True:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "ONBOARDING_REQUIRED", "onboarding": onboarding},
+            )
+        return profile
 
     def auth_call(method: str, path: str, *, payload: dict[str, Any] | None = None,
                   token: str | None = None) -> tuple[int, Any]:
@@ -762,6 +870,264 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return Response(status_code=204)
 
+    @app.get("/api/v1/agenda")
+    def get_agenda(profile: dict[str, Any] = Depends(current_profile)) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        memberships = _approved_memberships(profile)
+        entity_ids = {
+            str(membership["entity_id"])
+            for membership in memberships
+            if membership.get("entity_id")
+        }
+        with _connect(cfg) as conn:
+            group_rows = conn.execute(
+                "SELECT g.*, gm.role FROM group_members gm "
+                "JOIN groups g ON g.id = gm.group_id "
+                "WHERE gm.user_sub = ? AND gm.status = 'active' ORDER BY g.name",
+                (user_id,),
+            ).fetchall()
+            group_ids = [row["id"] for row in group_rows]
+            roles = {row["id"]: row["role"] for row in group_rows}
+
+            visibility: list[str] = []
+            params: list[Any] = []
+            if admin:
+                visibility.append("1 = 1")
+            if group_ids:
+                visibility.append(
+                    "e.scope = 'groups' AND e.group_id IN ("
+                    + ",".join("?" for _ in group_ids) + ")"
+                )
+                params.extend(group_ids)
+            if entity_ids:
+                visibility.append(
+                    "e.scope = 'global' AND e.entity_id IN ("
+                    + ",".join("?" for _ in entity_ids) + ")"
+                )
+                params.extend(sorted(entity_ids))
+            events: list[sqlite3.Row] = []
+            if visibility:
+                events = conn.execute(
+                    "SELECT e.*, g.name AS group_name, r.status AS my_rsvp "
+                    "FROM events e LEFT JOIN groups g ON g.id = e.group_id "
+                    "LEFT JOIN event_rsvps r ON r.event_id = e.id AND r.user_sub = ? "
+                    "WHERE e.cancelled_at IS NULL AND e.starts_at >= ? AND ("
+                    + " OR ".join(visibility) + ") "
+                    "ORDER BY e.starts_at LIMIT 50",
+                    (user_id, utcnow(), *params),
+                ).fetchall()
+        representative_entities = [
+            {
+                "id": str(membership["entity_id"]),
+                "name": membership.get("entity_name") or "Entidad",
+                "kind": membership.get("entity_kind") or "grupo",
+            }
+            for membership in memberships
+            if membership.get("is_representative") is True
+        ]
+        return {
+            "groups": [
+                _group_dto(
+                    row,
+                    row["role"],
+                    admin or row["role"] == "manager",
+                )
+                for row in group_rows
+            ],
+            "entities": representative_entities,
+            "can_create_group": admin or bool(representative_entities),
+            "events": [
+                _event_dto(
+                    row,
+                    my_rsvp=row["my_rsvp"],
+                    group_name=row["group_name"],
+                    can_manage=admin or roles.get(row["group_id"]) == "manager",
+                )
+                for row in events
+            ],
+        }
+
+    @app.post("/api/v1/groups", status_code=201)
+    def create_group(
+        body: GroupBody, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        entity_id = body.entity_id.strip()
+        if not _is_representative(profile, entity_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Only the entity representative can create groups",
+            )
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Group name is required")
+        now = utcnow()
+        group_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            existing = conn.execute(
+                "SELECT * FROM groups WHERE entity_id = ? AND name = ?",
+                (entity_id, name),
+            ).fetchone()
+            if existing is not None:
+                raise HTTPException(status_code=409, detail="Group name already exists")
+            join_code = _join_code()
+            while conn.execute(
+                "SELECT 1 FROM groups WHERE join_code = ?", (join_code,)
+            ).fetchone() is not None:
+                join_code = _join_code()
+            conn.execute(
+                "INSERT INTO groups "
+                "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    group_id, entity_id, name, body.timezone.strip(),
+                    user_id, join_code, now, now,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO group_members "
+                "(id,group_id,user_sub,role,status,joined_at,updated_at) "
+                "VALUES (?,?,?,'manager','active',?,?)",
+                (uuid.uuid4().hex, group_id, user_id, now, now),
+            )
+            row = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+        return _group_dto(row, "manager", True)
+
+    @app.post("/api/v1/groups/join")
+    def join_group(
+        body: JoinGroupBody, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        code = body.code.strip().upper()
+        now = utcnow()
+        with _connect(cfg) as conn:
+            group = conn.execute(
+                "SELECT * FROM groups WHERE join_code = ?", (code,)
+            ).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Invalid group code")
+            membership = conn.execute(
+                "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?",
+                (group["id"], user_id),
+            ).fetchone()
+            if membership is None:
+                conn.execute(
+                    "INSERT INTO group_members "
+                    "(id,group_id,user_sub,role,status,joined_at,updated_at) "
+                    "VALUES (?,?,?,'member','active',?,?)",
+                    (uuid.uuid4().hex, group["id"], user_id, now, now),
+                )
+                role = "member"
+            else:
+                conn.execute(
+                    "UPDATE group_members SET status = 'active', updated_at = ? "
+                    "WHERE id = ?",
+                    (now, membership["id"]),
+                )
+                role = membership["role"]
+        return _group_dto(group, role, role == "manager")
+
+    @app.post("/api/v1/events", status_code=201)
+    def create_event(
+        body: EventBody, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        try:
+            starts_at = _normalise_iso(body.starts_at)
+            ends_at = _normalise_iso(body.ends_at) if body.ends_at else None
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid event date") from exc
+        now = utcnow()
+        event_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT * FROM groups WHERE id = ?", (body.group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            role = conn.execute(
+                "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                "AND status = 'active'",
+                (group["id"], user_id),
+            ).fetchone()
+            if not admin and (role is None or role["role"] != "manager"):
+                raise HTTPException(status_code=403, detail="Group manager role required")
+            conn.execute(
+                "INSERT INTO events "
+                "(id,group_id,entity_id,scope,kind,title,starts_at,ends_at,location,notes,"
+                "created_by,created_at,updated_at) "
+                "VALUES (?,?,?,'groups',?,?,?,?,?,?,?,?,?)",
+                (
+                    event_id,
+                    group["id"],
+                    group["entity_id"],
+                    body.kind,
+                    body.title.strip(),
+                    starts_at,
+                    ends_at,
+                    body.location,
+                    body.notes,
+                    user_id,
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO event_groups (event_id, group_id) VALUES (?,?)",
+                (event_id, group["id"]),
+            )
+            row = conn.execute(
+                "SELECT e.*, g.name AS group_name FROM events e "
+                "JOIN groups g ON g.id = e.group_id WHERE e.id = ?",
+                (event_id,),
+            ).fetchone()
+        return _event_dto(
+            row, my_rsvp=None, group_name=row["group_name"], can_manage=True
+        )
+
+    @app.post("/api/v1/events/{event_id}/rsvp")
+    def set_rsvp(
+        event_id: str,
+        body: RsvpBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            event = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            if event is None:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if event["kind"] == "note":
+                raise HTTPException(status_code=400, detail="Notes do not take RSVP")
+            allowed = _is_admin(profile)
+            if not allowed and event["scope"] == "global":
+                allowed = any(
+                    membership.get("entity_id") == event["entity_id"]
+                    for membership in _approved_memberships(profile)
+                )
+            if not allowed:
+                allowed = conn.execute(
+                    "SELECT 1 FROM group_members WHERE group_id = ? AND user_sub = ? "
+                    "AND status = 'active'",
+                    (event["group_id"], user_id),
+                ).fetchone() is not None
+            if not allowed:
+                allowed = conn.execute(
+                    "SELECT 1 FROM event_groups eg JOIN group_members gm "
+                    "ON gm.group_id = eg.group_id "
+                    "WHERE eg.event_id = ? AND gm.user_sub = ? AND gm.status = 'active'",
+                    (event_id, user_id),
+                ).fetchone() is not None
+            if not allowed:
+                raise HTTPException(status_code=403, detail="Not a member of this group")
+            conn.execute(
+                "INSERT INTO event_rsvps (event_id,user_sub,status,comment,updated_at) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(event_id,user_sub) DO UPDATE SET "
+                "status = excluded.status, comment = excluded.comment, "
+                "updated_at = excluded.updated_at",
+                (event_id, user_id, body.status, body.comment, utcnow()),
+            )
+        return {"event_id": event_id, "status": body.status}
+
     @app.post("/api/v1/catalog/searches")
     def catalog_search(payload: dict[str, Any], user: Principal = Depends(current_user),
                        authorization: str | None = Header(default=None)) -> Any:
@@ -1183,3 +1549,4 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
