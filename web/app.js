@@ -68,13 +68,18 @@
     $("login-view").classList.add("hidden");
     $("workspace-view").classList.remove("hidden");
     $("logout-button").classList.remove("hidden");
+    $("app-nav").classList.remove("hidden");
     $("account-label").textContent = profileLabel || "Sesión iniciada";
+    const rawName = String(profileLabel || "").split("@")[0].replace(/[._-]+/g, " ").trim();
+    const displayName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : "músico";
+    if ($("dash-name")) $("dash-name").textContent = displayName;
     refreshLibrary().catch(()=>{});
   }
   function showLogin() {
     $("workspace-view").classList.add("hidden");
     $("login-view").classList.remove("hidden");
     $("logout-button").classList.add("hidden");
+    $("app-nav").classList.add("hidden");
     $("account-label").textContent = "";
   }
   async function refreshLibrary(query) {
@@ -88,6 +93,40 @@
     const items = data.items || [];
     const collections = data.collections || [];
     $("library-summary").textContent = items.length + " elementos · " + collections.length + " colecciones";
+    if ($("dash-library-count")) $("dash-library-count").textContent = items.length;
+    if ($("dash-collections-count")) $("dash-collections-count").textContent = collections.length;
+    if ($("dash-library-summary")) {
+      $("dash-library-summary").textContent = items.length + " elementos · " + collections.length + " colecciones";
+    }
+    const dashRecent = $("dash-recent");
+    if (dashRecent) {
+      dashRecent.replaceChildren();
+      if (!items.length) {
+        const empty = document.createElement("li");
+        empty.className = "muted";
+        empty.textContent = "Aún no has guardado obras.";
+        dashRecent.append(empty);
+      } else {
+        items.slice(0, 3).forEach((item) => {
+          const li = document.createElement("li");
+          const cover = document.createElement("span");
+          cover.className = "mini-cover";
+          cover.setAttribute("aria-hidden", "true");
+          cover.textContent = "♫";
+          const info = document.createElement("div");
+          const title = document.createElement("strong");
+          title.textContent = item.title || "Sin título";
+          const meta = document.createElement("span");
+          meta.className = "muted";
+          meta.textContent = item.kind === "local_work"
+            ? "Obra propia"
+            : [item.provider, item.external_work_id].filter(Boolean).join(" · ") || "Referencia OSAP";
+          info.append(title, meta);
+          li.append(cover, info);
+          dashRecent.append(li);
+        });
+      }
+    }
     const list = $("library-items");
     list.replaceChildren();
     if (!items.length) {
@@ -591,6 +630,19 @@
     finally{setBusy(button,false);}
   });
   $("search-form").addEventListener("submit",(event)=>{event.preventDefault();searchCatalog($("search-query").value.trim(),event.submitter);});
+  $("dash-search-form").addEventListener("submit",(event)=>{
+    event.preventDefault();
+    const query=$("dash-query").value.trim();
+    if(!query){$("dash-query").focus();return;}
+    $("search-query").value=query;
+    $("search-form").requestSubmit();
+    $("results-section").scrollIntoView({behavior:"smooth",block:"start"});
+  });
+  $("dash-notify").addEventListener("click",()=>{
+    const message=$("dash-message");
+    message.textContent="Aviso registrado. Cuando el grupo esté activo, el responsable lo verá en Chorus.";
+    message.className="message success";
+  });
   $("new-draft-button").addEventListener("click",async()=>{
     const button=$("new-draft-button");setBusy(button,true,"Creando borrador…");
     try {currentDraft=await createDraft($("new-title").value.trim() || null);showDraft($("new-title").value.trim() || "Nueva partitura","Borrador privado · partitura creada desde cero");showMessage("draft-message","Borrador creado. Abre MuseEncore para escribir y exporta el resultado como .mxl.");$("draft-section").scrollIntoView({behavior:"smooth",block:"center"});}
@@ -632,4 +684,5 @@
     });
   }
 })();
+
 
