@@ -70,7 +70,9 @@ ventana fue abierta por script (es el caso).
   - **Admin web de OSAP** (`role=admin` en osap-auth) puede editar cualquier grupo y
     miembro; toda acción queda auditada.
 - El grupo se enlaza con la entidad de osap-auth, pero puede haber varios grupos por
-  entidad; el representante de la entidad es manager por defecto.
+  entidad. **Solo el representante de la entidad crea grupos**; los managers gestionan los
+  grupos existentes (miembros, voces, agenda) y el admin web puede crear/gestionar
+  cualquiera. Un miembro no crea grupos.
 
 ### 4.2 Agenda de ensayos y actuaciones
 
@@ -128,6 +130,28 @@ ventana fue abierta por script (es el caso).
   de canales; el catálogo de noticias globales se añadirá cuando exista el feed.
 - WhatsApp requiere proveedor (Meta Cloud API/Twilio) y plantillas aprobadas; el primer
   corte puede limitarse a enlaces `wa.me`/recordatorios manuales.
+
+### 4.9 WhatsApp: qué es gratis y qué no
+
+| Opción | Coste | ¿Automatiza envíos? | Notas |
+| --- | --- | --- | --- |
+| Enlace `wa.me` / `api.whatsapp.com` | Gratis | No: abre WhatsApp con el texto; el usuario pulsa enviar | Sirve para recordatorios manuales; sin confirmación ni métricas |
+| Meta WhatsApp Cloud API (directo) | Sin cuota de plataforma; ~1.000 conversaciones de servicio/mes gratis; las iniciadas por la empresa (plantillas) se pagan | Sí | Oficial; número dedicado, opt-in y plantillas aprobadas |
+| Twilio WhatsApp Sandbox | Gratis para pruebas (limitado) | Sí, en sandbox | Producción de pago; útil para validar el flujo |
+| BSP (360dialog, Gupshup, Vonage…) | Prueba y luego tarifa | Sí | Añaden capa comercial y soporte |
+| Librerías no oficiales (Baileys, whatsapp-web.js, CallMeBot…) | “Gratis” | Sí | **No recomendado**: va contra los términos de WhatsApp y expone a bloqueos |
+
+Datos importantes:
+
+- La API oficial **no publica en grupos de WhatsApp**; solo envía mensajes 1:1. Para un
+  grupo habría que enviar a cada miembro (con opt-in) o compartir un enlace de invitación.
+- Los mensajes iniciados por la empresa requieren **plantilla aprobada** y una ventana de
+  servicio de 24 h; fuera de ella se cobra.
+- El teléfono debe ser un número dedicado a la API, no el WhatsApp personal del grupo.
+
+Recomendación: fase 2 con **in-app + email**; WhatsApp mediante `wa.me` para lo manual y,
+si se quiere automatizar, **Meta Cloud API directo** con presupuesto pequeño y plantillas
+de utilidad. No usar librerías no oficiales en producción.
 
 ## 5. Modelo de datos propuesto (SQLite, migraciones 006+)
 
@@ -187,6 +211,7 @@ posteriores, siguiendo el mismo patrón de `group_id` + permisos.
 3. Fase 1: modelo de grupos/miembros (voz/instrumento), agenda global+grupos, RSVP/ICS y
    repertorio.
 
-Decisiones pendientes: quién puede crear grupos (responsable de entidad, managers o
-cualquier miembro), proveedor de WhatsApp y si el primer corte de comunicaciones sale
-solo in-app/email antes de integrar WhatsApp.
+Decisiones pendientes: proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud
+API después) y si el primer corte de comunicaciones sale solo in-app/email antes de
+integrar WhatsApp. La creación de grupos queda cerrada: solo representante de entidad y
+admin web.
