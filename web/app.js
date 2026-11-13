@@ -550,7 +550,7 @@
       currentDraft.id = draft.id;
       showDraft(work.title || "Obra de OSAP","Original: " + (rep.provider || "OSAP") + " · " + (rep.format || "formato no indicado"));
       showMessage("draft-message","Original preparado. Ábrelo en MuseEncore; el original de OSAP no se modifica.");
-      $("draft-section").scrollIntoView({behavior:"smooth",block:"center"});
+      openDraftModal(work.title || "Obra de OSAP");
     } catch (error) { showMessage("search-message",error.message,"error"); }
     finally { setBusy(button,false); }
   }
@@ -632,3 +632,4 @@
     });
   }
 })();
+
