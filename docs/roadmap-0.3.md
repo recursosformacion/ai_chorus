@@ -57,7 +57,8 @@ ventana fue abierta por script (es el caso).
 
 ### 4.1 Identidad, permisos y datos de miembro
 
-- `groups`: `id`, `entity_id` (osap-auth), `name`, `timezone`, `created_by`, `settings`.
+- `groups`: `id`, `entity_id` (osap-auth), 
+ame`, `timezone`, `created_by`, `settings`.
 - `group_members`: `group_id`, `user_id`, `role` (`manager`/`member`), `status`,
   `joined_at`, **`voice`/`instrument`** (código canónico cuando exista + etiqueta),
   `section` (cuerda, cuerda alta, percusión…), notas.
@@ -76,12 +77,14 @@ ventana fue abierta por script (es el caso).
 
 ### 4.2 Agenda de ensayos y actuaciones
 
-- `events`: tipo (`rehearsal`/`concert`/`other`/`note`), título, inicio/fin, lugar, notas,
+- `events`: tipo (`rehearsal`/`concert`/`other`/
+ote`), título, inicio/fin, lugar, notas,
   recurrencia (RRULE), cancelación, visibilidad.
 - **Alcance de la nota**: `scope` = `global` o `groups`, con `event_groups` para los
   grupos afectados. El responsable puede marcar **Global y/o grupos**; así una nota
   global llega a todos y una de grupo solo a sus miembros.
-- `event_rsvps`: **binario** `yes`/`no` (Asisto / No asisto) + comentario. Ensayos y
+- `event_rsvps`: **binario** `yes`/
+o` (Asisto / No asisto) + comentario. Ensayos y
   actuaciones/citas deben mostrar siempre esos dos botones; las notas no llevan RSVP.
 - Vista mes/semana/lista; feed ICS por grupo y por usuario
   (`/api/v1/groups/{id}/calendar.ics?token=…`).
@@ -91,7 +94,8 @@ ventana fue abierta por script (es el caso).
 
 - `setlists`: nombre, evento opcional, estado (`draft`/`confirmed`).
 - `setlist_items`: posición, obra (`work_id`), recurso de biblioteca, notas, estado de
-  preparación (`new`/`learning`/`ready`), responsable.
+  preparación (
+ew`/`learning`/`ready`), responsable.
 - Enlaza con `library_items` de Chorus; el director ve el conjunto y cada miembro su
   parte.
 
@@ -99,7 +103,8 @@ ventana fue abierta por script (es el caso).
 
 - `announcements` (tablón): título, cuerpo, fijado, autor, visibilidad, adjuntos.
 - `comments` sobre anuncios y eventos.
-- `notifications` in-app (campana) + resumen por email; preferencias por usuario.
+- 
+otifications` in-app (campana) + resumen por email; preferencias por usuario.
 - Fase posterior: mensajería 1:1 o hilos por grupo, con mención y moderación.
 
 ### 4.5 Asistencia y actas
@@ -127,7 +132,8 @@ ventana fue abierta por script (es el caso).
 - Por grupo se podrá afinar más adelante (`group_notification_preferences`), empezando por
   la preferencia global.
 - **Noticias globales** (fase posterior): el usuario elegirá qué categorías desea recibir
-  (`news_categories` + `user_news_preferences`). De momento solo se modela la preferencia
+  (
+ews_categories` + `user_news_preferences`). De momento solo se modela la preferencia
   de canales; el catálogo de noticias globales se añadirá cuando exista el feed.
 - WhatsApp requiere proveedor (Meta Cloud API/Twilio) y plantillas aprobadas; el primer
   corte puede limitarse a enlaces `wa.me`/recordatorios manuales.
@@ -232,6 +238,9 @@ Modelo:
 Onboarding:
 
 - “Crear entidad” se convierte en **solicitar entidad** (pendiente) o se elimina del alta.
+- `/alta.html` recoge **nombre y email del gestor**; debe estar registrado con ese email.
+  Si no lo está, el formulario enlaza al alta de usuario y el admin lo verifica antes de
+  crear la entidad y asignarlo.
   Recomendación: solicitud + aprobación del gestor de la entidad (o del admin si aún no hay gestor), para no romper el flujo actual.
 
 Chorus:
@@ -323,6 +332,7 @@ proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
 proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
 corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp y SMS. La creación
 de grupos queda cerrada: solo un gestor de entidad y el admin web.
+
 
 
 
