@@ -87,6 +87,11 @@ class JoinGroupBody(BaseModel):
     code: str = Field(min_length=4, max_length=12)
 
 
+class HandoffBody(BaseModel):
+    access_token: str = Field(min_length=10)
+    refresh_token: str | None = None
+
+
 class EntityLeadBody(BaseModel):
     entity_name: str = Field(min_length=2, max_length=160)
     entity_kind: str = Field(
@@ -493,6 +498,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         result = {k: doc[k] for k in ("access_token", "user_id", "roles", "email_verified") if k in doc}
         result["onboarding"] = profile.get("onboarding")
+        return result
+
+    @app.post("/api/v1/auth/handoff")
+    def handoff(body: HandoffBody, response: Response) -> dict[str, Any]:
+        """Sesión SSO desde OSAP: valida el token y deja el refresh en cookie."""
+        profile_status, profile = auth_call("GET", "/auth/me", token=body.access_token)
+        if profile_status != 200 or not isinstance(profile, dict):
+            raise HTTPException(status_code=401, detail="Invalid handoff token")
+        if body.refresh_token:
+            response.set_cookie(
+                "chorus_refresh", body.refresh_token, httponly=True,
+                secure=cfg.secure_cookies, samesite="lax", path="/api/v1/auth",
+                max_age=30 * 24 * 60 * 60,
+            )
+        result = {
+            "access_token": body.access_token,
+            "user_id": profile.get("user_id"),
+            "roles": profile.get("roles", []),
+            "email_verified": profile.get("email_verified"),
+            "onboarding": profile.get("onboarding"),
+            "nickname": profile.get("nickname"),
+            "email": profile.get("email"),
+        }
         return result
 
     @app.post("/api/v1/auth/refresh")
@@ -1646,6 +1674,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
 
 
 

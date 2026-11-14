@@ -487,6 +487,24 @@
       showMessage("login-error", error.message, "error");
     }
   }
+  async function completeHandoff(token, refreshToken) {
+    try {
+      const data = await request("/api/v1/auth/handoff", {
+        method: "POST",
+        body: JSON.stringify({ access_token: token, refresh_token: refreshToken || null }),
+      }, false);
+      accessToken = data.access_token;
+      if (data.onboarding && data.onboarding.required) {
+        showMessage("login-error", "Completa primero el alta de tu cuenta OSAP.", "error");
+        return;
+      }
+      showWorkspace(data.nickname || data.email || data.user_id);
+    } catch (error) {
+      accessToken = null;
+      showMessage("login-error", error.message || "No se pudo iniciar la sesión desde OSAP.", "error");
+    }
+  }
+
   async function completeOidc(accessTokenValue) {
     accessToken = accessTokenValue;
     try {
@@ -889,8 +907,14 @@
     try{if(accessToken)await request("/api/v1/auth/logout",{method:"POST"},false);}catch(_){}
     accessToken=null;currentDraft=null;showLogin();
   });
+  const query = new URLSearchParams(location.search);
+  const handoffToken = query.get("token");
+  const handoffRefresh = query.get("refresh_token") || "";
   const hashToken = new URLSearchParams(location.hash.replace(/^#/, "")).get("access_token");
-  if (hashToken) {
+  if (handoffToken) {
+    history.replaceState(null, "", location.pathname + location.hash);
+    void completeHandoff(handoffToken, handoffRefresh);
+  } else if (hashToken) {
     history.replaceState(null, "", location.pathname + location.search);
     void completeOidc(hashToken);
   } else {
@@ -901,6 +925,7 @@
     });
   }
 })();
+
 
 
 
