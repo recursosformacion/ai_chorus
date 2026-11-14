@@ -6,8 +6,8 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#243b35">
   <title>Solicitar alta de coral · Chorus</title>
-  <link rel="stylesheet" href="/styles.css?v=0.6.0">
-  <link rel="stylesheet" href="/alta.css?v=0.6.0">
+  <link rel="stylesheet" href="/styles.css?v=0.7.0">
+  <link rel="stylesheet" href="/alta.css?v=0.7.0">
 </head>
 <body class="alta-page">
   <header class="alta-topbar">
@@ -78,6 +78,24 @@
         </fieldset>
 
         <fieldset>
+          <legend>Gestor de la entidad</legend>
+          <p class="alta-help">El gestor administrará la entidad y sus grupos en Chorus. Debe estar dado de alta como usuario de OSAP.</p>
+          <div class="alta-grid">
+            <label>Nombre del gestor
+              <input name="manager_name" required maxlength="160" placeholder="Nombre y apellidos">
+            </label>
+            <label>Email del gestor
+              <input name="manager_email" type="email" required maxlength="254" placeholder="gestor@ejemplo.es">
+            </label>
+          </div>
+          <label class="alta-check">
+            <input type="checkbox" name="manager_has_account">
+            <span><strong>El gestor ya tiene cuenta OSAP</strong><small>Si no la tiene, puede <a href="https://auth.openmusicrepository.com/auth/register" target="_blank" rel="noopener">crear su cuenta</a> antes del alta.</small></span>
+          </label>
+          <p class="alta-help">Cuando demos de alta la coral, el gestor deberá estar registrado con ese email.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Qué os interesa</legend>
           <label class="alta-check">
             <input type="checkbox" name="subscription">
@@ -114,9 +132,11 @@
     <span>Datos tratados solo para gestionar tu solicitud de alta.</span>
   </footer>
 
-  <script src="/alta.js?v=0.6.0"></script>
+  <script src="/alta.js?v=0.7.0"></script>
 </body>
 </html>
+
+
 
 
 

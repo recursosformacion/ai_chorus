@@ -26,6 +26,9 @@
       contact_name: String(data.get("contact_name") || "").trim(),
       contact_email: String(data.get("contact_email") || "").trim(),
       contact_phone: String(data.get("contact_phone") || "").trim() || null,
+      manager_name: String(data.get("manager_name") || "").trim(),
+      manager_email: String(data.get("manager_email") || "").trim(),
+      manager_has_account: Boolean(data.get("manager_has_account")),
       website: String(data.get("website") || "").trim() || null,
       interests,
       message: String(data.get("message") || "").trim() || null,
@@ -64,3 +67,4 @@
     }
   });
 })();
+

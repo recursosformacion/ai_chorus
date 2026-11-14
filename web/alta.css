@@ -52,6 +52,12 @@
   color: #5f7f6d;
 }
 .alta-points strong { color: var(--ink); }
+.alta-help {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
 .alta-free-note {
   margin: 0 0 18px;
   padding: 11px 13px;
@@ -165,7 +171,13 @@
 @media (max-width: 560px) {
   .alta-topbar { padding: 14px; }
   .alta-grid { grid-template-columns: 1fr; }
-  .alta-free-note {
+  .alta-help {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.alta-free-note {
   margin: 0 0 18px;
   padding: 11px 13px;
   border: 1px solid #eadfc9;
@@ -179,5 +191,6 @@
 .alta-form-card { padding: 18px; }
   .alta-footer { padding: 16px 14px 22px; flex-wrap: wrap; }
 }
+
 
 

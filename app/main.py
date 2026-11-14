@@ -97,6 +97,9 @@ class EntityLeadBody(BaseModel):
     contact_name: str = Field(min_length=2, max_length=160)
     contact_email: str = Field(min_length=5, max_length=254)
     contact_phone: str | None = Field(default=None, max_length=40)
+    manager_name: str = Field(min_length=2, max_length=160)
+    manager_email: str = Field(min_length=5, max_length=254)
+    manager_has_account: bool = False
     website: str | None = Field(default=None, max_length=300)
     interests: list[Literal["subscription", "whatsapp", "sms"]] = Field(
         default_factory=list
@@ -221,6 +224,7 @@ def initialise_database(settings: Settings) -> None:
             "005_local_draft_source.sql",
             "006_groups_events.sql",
             "007_entity_leads.sql",
+            "008_entity_lead_manager.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -899,13 +903,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="Consent is required")
         if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", body.contact_email):
             raise HTTPException(status_code=400, detail="Invalid contact email")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", body.manager_email):
+            raise HTTPException(status_code=400, detail="Invalid manager email")
         lead_id = uuid.uuid4().hex
         with _connect(cfg) as conn:
             conn.execute(
                 "INSERT INTO entity_leads "
                 "(id,entity_name,entity_kind,city,members,contact_name,contact_email,"
-                "contact_phone,website,interests,message,consent,status,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'new', ?)",
+                "contact_phone,website,interests,message,consent,status,created_at,"
+                "manager_name,manager_email,manager_has_account) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'new', ?,?,?,?)",
                 (
                     lead_id,
                     body.entity_name.strip(),
@@ -920,6 +927,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     body.message,
                     1,
                     utcnow(),
+                    body.manager_name.strip(),
+                    body.manager_email.strip().lower(),
+                    1 if body.manager_has_account else 0,
                 ),
             )
         return {"id": lead_id, "status": "received"}
@@ -945,6 +955,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "contact_name": row["contact_name"],
                 "contact_email": row["contact_email"],
                 "contact_phone": row["contact_phone"],
+                "manager_name": row["manager_name"],
+                "manager_email": row["manager_email"],
+                "manager_has_account": bool(row["manager_has_account"]),
                 "website": row["website"],
                 "interests": json.loads(row["interests"] or "[]"),
                 "message": row["message"],
@@ -1633,6 +1646,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
+
 
 
 

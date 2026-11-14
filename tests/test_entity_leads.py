@@ -55,6 +55,9 @@ PAYLOAD = {
     "contact_name": "Ana Belmonte",
     "contact_email": "ana@example.com",
     "contact_phone": "+34600000000",
+    "manager_name": "Ana Belmonte",
+    "manager_email": "ana@example.com",
+    "manager_has_account": True,
     "website": "https://coral.example",
     "interests": ["subscription", "whatsapp"],
     "message": "Nos interesa la agenda y el repertorio.",
@@ -101,3 +104,4 @@ def test_honeypot_no_guarda(tmp_path, monkeypatch):
         )
         assert response.status_code == 201
         assert response.json()["id"] == ""
+
