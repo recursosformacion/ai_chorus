@@ -1,0 +1,62 @@
+.planes-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 24px 44px;
+}
+.planes-hero { max-width: 760px; }
+.planes-hero h1 {
+  margin: 10px 0 14px;
+  font-size: clamp(38px, 5vw, 58px);
+  line-height: 1.02;
+  letter-spacing: -2px;
+}
+.planes-hero .lead { font-size: 16px; max-width: 680px; }
+.planes-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.planes-table-wrap {
+  margin-top: 34px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 16px 44px rgba(36, 59, 53, .07);
+}
+.planes-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.planes-table th,
+.planes-table td { padding: 14px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid #edf1ec; }
+.planes-table thead th {
+  background: #f7f9f6;
+  font-size: 11px;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: #6f7f74;
+  font-weight: 700;
+}
+.planes-table thead th:first-child { width: 44%; }
+.planes-table thead th span { display: block; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 10.5px; color: #9aa79d; }
+.planes-table tbody tr:last-child td { border-bottom: 0; }
+.planes-table td strong { display: block; font-size: 13px; }
+.planes-table td span { display: block; margin-top: 3px; font-size: 11px; color: var(--muted); line-height: 1.45; }
+.planes-table td:nth-child(2) { background: #fbfcfa; }
+.planes-table td:nth-child(3) { background: #fbf7ee; }
+.planes-cards {
+  margin-top: 26px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.planes-cards article {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+}
+.planes-cards h2 { margin: 0 0 6px; font-size: 16px; letter-spacing: -.4px; }
+.planes-cards p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.planes-note { margin-top: 20px; font-size: 11px; color: #8b9a8e; }
+
+@media (max-width: 760px) {
+  .planes-shell { padding: 20px 14px 34px; }
+  .planes-table-wrap { overflow-x: auto; }
+  .planes-table { min-width: 620px; }
+  .planes-cards { grid-template-columns: 1fr; }
+}

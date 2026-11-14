@@ -52,6 +52,17 @@
   color: #5f7f6d;
 }
 .alta-points strong { color: var(--ink); }
+.alta-free-note {
+  margin: 0 0 18px;
+  padding: 11px 13px;
+  border: 1px solid #eadfc9;
+  border-radius: 11px;
+  background: #fbf7ee;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #6c5434;
+}
+.alta-free-note a { color: #5f481f; font-weight: 600; }
 .alta-form-card {
   background: #fff;
   border: 1px solid var(--line);
@@ -154,7 +165,19 @@
 @media (max-width: 560px) {
   .alta-topbar { padding: 14px; }
   .alta-grid { grid-template-columns: 1fr; }
-  .alta-form-card { padding: 18px; }
+  .alta-free-note {
+  margin: 0 0 18px;
+  padding: 11px 13px;
+  border: 1px solid #eadfc9;
+  border-radius: 11px;
+  background: #fbf7ee;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #6c5434;
+}
+.alta-free-note a { color: #5f481f; font-weight: 600; }
+.alta-form-card { padding: 18px; }
   .alta-footer { padding: 16px 14px 22px; flex-wrap: wrap; }
 }
+
 
