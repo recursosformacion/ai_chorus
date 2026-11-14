@@ -305,6 +305,30 @@ Sí conviene tocarlo, pero de forma quirúrgica y compatible con el proyecto ori
 
 Evitar un fork profundo: cambios pequeños, con feature flags y sincronización con upstream.
 
+### 4.15 Fusión de entidades (auth) con «Los amigos» (osap-api)
+
+Hay dos registros de la misma realidad: `amigos_groups` en osap-api (ficha pública,
+miembros, artículos, coral details) y `entities` en osap-auth (acceso, gestores,
+pertenencias). **No deben duplicar datos.**
+
+- **Canónico**: `amigos_groups` para nombre, tipo, slug, descripción, web, correo, logo,
+  estado, modalidad editorial y ficha de coral.
+- **Capa de acceso**: `entities` de auth solo para gestores, pertenencias y derechos de
+  canal. Se enlaza 1:1 con el grupo; recomendado usar el **mismo id** (o
+  `external_group_id` único) para que Chorus use un solo `entity_id`.
+- **Admin**: una sola ficha, `AdminAmigosGroupPage`, con secciones “Datos públicos”,
+  “Ficha de coral”, “Acceso y gestores” y “Chorus”. La página `AdminEntitiesPage` deja de
+  crear entidades sueltas; queda como listado de accesos o se retira.
+- **Campos**: nombre/tipo/correo/web/logo/estado viven en Amigos; auth guarda gestores,
+  pertenencias y canales. `amigos_coral_details.linked_entity` puede apuntar al id de auth.
+- **Migración**: emparejar por id/slug/correo; crear auth entity para grupos existentes
+  sin acceso; conservar IDs públicos y URLs.
+- **Chorus**: el enlace del menú “Mis Amigos” ya está añadido; los grupos de Chorus usan el
+  id compartido y los gestores de auth.
+
+Orden: 1) enlace por id, 2) ficha única en admin, 3) retirar el alta duplicada, 4) migrar
+grupos existentes y verificar 301/URLs.
+
 ## 5. Modelo de datos propuesto (SQLite, migraciones 006+)
 
 ```sql
@@ -369,6 +393,7 @@ proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
 proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
 corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp y SMS. La creación
 de grupos queda cerrada: solo un gestor de entidad y el admin web.
+
 
 
 
