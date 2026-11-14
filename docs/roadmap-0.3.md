@@ -314,8 +314,11 @@ pertenencias). **No deben duplicar datos.**
 - **Canónico**: `amigos_groups` para nombre, tipo, slug, descripción, web, correo, logo,
   estado, modalidad editorial y ficha de coral.
 - **Capa de acceso**: `entities` de auth solo para gestores, pertenencias y derechos de
-  canal. Se enlaza 1:1 con el grupo; recomendado usar el **mismo id** (o
-  `external_group_id` único) para que Chorus use un solo `entity_id`.
+  canal. Se enlaza 1:1 con el grupo usando el **mismo id** (o `external_group_id`
+  único) para que Chorus use un solo `entity_id`. **No se copian** nombre, tipo, correo,
+  web, logo ni estado: son datos mutables de Amigos y una copia se desincroniza.
+  Si hace falta rendimiento, se usa un read-model de solo lectura con invalidación,
+  nunca un campo editable en auth.
 - **Admin**: una sola ficha, `AdminAmigosGroupPage`, con secciones “Datos públicos”,
   “Ficha de coral”, “Acceso y gestores” y “Chorus”. La página `AdminEntitiesPage` deja de
   crear entidades sueltas; queda como listado de accesos o se retira.
@@ -393,6 +396,7 @@ proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
 proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
 corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp y SMS. La creación
 de grupos queda cerrada: solo un gestor de entidad y el admin web.
+
 
 
 
