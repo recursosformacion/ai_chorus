@@ -422,7 +422,7 @@
       );
       const title = item.title || "";
       window.open(
-        "/editor.html?src=" + encodeURIComponent(editor.editor_url)
+        "/editor.html?v=0.8.0&src=" + encodeURIComponent(editor.editor_url)
           + "&title=" + encodeURIComponent(title),
         "_blank", "noopener",
       );
@@ -508,6 +508,10 @@
       void completeOidc(data.access_token);
     } else if (data.type === "chorus-oidc-error") {
       showMessage("login-error", data.message || "No se pudo completar el acceso.", "error");
+    } else if (data.type === "chorus:score" && currentDraft && data.draftId === currentDraft.id) {
+      const blob = new Blob([data.data], {type: "application/vnd.recordare.musicxml"});
+      const file = new File([blob], data.fileName || "partitura.mxl", {type: blob.type});
+      void uploadMxl(file);
     }
   });
   async function login(email, password) {
@@ -766,9 +770,10 @@
     try {
       const data = await request("/api/v1/drafts/" + encodeURIComponent(currentDraft.id) + "/editor");
       const title = $("draft-title").textContent || "";
-      const wrapper = "/editor.html?src=" + encodeURIComponent(data.editor_url)
-        + "&title=" + encodeURIComponent(title);
-      window.open(wrapper,"_blank","noopener");
+      const wrapper = "/editor.html?v=0.8.0&src=" + encodeURIComponent(data.editor_url)
+        + "&title=" + encodeURIComponent(title)
+        + "&draft_id=" + encodeURIComponent(currentDraft.id);
+      window.open(wrapper,"_blank");
     } catch (error) { showMessage("draft-message",error.message,"error"); }
   }
   async function uploadMxl(file) {
@@ -896,5 +901,7 @@
     });
   }
 })();
+
+
 
 

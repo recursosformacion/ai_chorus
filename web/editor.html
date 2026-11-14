@@ -7,20 +7,23 @@
   <style>
     :root{font-family:"DM Sans",system-ui,sans-serif;color:#26332e;background:#f4f5f1;--green:#284c40;--line:#dfe5df;--muted:#718078}
     *{box-sizing:border-box}html,body{margin:0;height:100%}body{display:flex;flex-direction:column}
-    .editor-bar{height:52px;flex:0 0 52px;display:flex;align-items:center;gap:16px;padding:0 18px;background:#fff;border-bottom:1px solid var(--line)}
+    .editor-bar{height:52px;flex:0 0 52px;display:flex;align-items:center;gap:14px;padding:0 18px;background:#fff;border-bottom:1px solid var(--line)}
     .editor-bar a{color:var(--green);font-weight:600;text-decoration:none;font-size:13px}
     .editor-bar a:hover{text-decoration:underline}
     .editor-bar strong{font-size:14px;letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .editor-bar .hint{margin-left:auto;color:var(--muted);font-size:12px}
+    .editor-bar .save{border:1px solid var(--green);background:var(--green);color:#fff;border-radius:8px;padding:7px 11px;font:600 12px "DM Sans",sans-serif;cursor:pointer}
+    .editor-bar .save:disabled{opacity:.45;cursor:wait}
     iframe{flex:1;width:100%;border:0;background:#fff}
-    @media(max-width:640px){.editor-bar .hint{display:none}}
+    @media(max-width:760px){.editor-bar .hint{display:none}.editor-bar{height:auto;min-height:52px;flex-wrap:wrap;padding:8px 14px}}
   </style>
 </head>
 <body>
   <header class="editor-bar">
-    <a href="/" title="Volver a la biblioteca de Chorus">← Volver a Chorus</a>
+    <a href="/" id="back-link" title="Volver a la biblioteca de Chorus">← Volver a Chorus</a>
     <strong id="editor-title"></strong>
-    <span class="hint">Exporta .mxl y súbelo en Chorus para guardarlo</span>
+    <span class="hint" id="editor-hint">Guarda y cierra para enviar la partitura a Chorus</span>
+    <button class="save" id="save-close" type="button" disabled>Guardar y cerrar</button>
   </header>
   <iframe id="editor-frame" title="MuseEncore"></iframe>
   <script>
@@ -28,11 +31,88 @@
       const params = new URLSearchParams(location.search);
       const src = params.get("src") || "";
       const title = params.get("title") || "";
+      const draftId = params.get("draft_id") || "";
+      const frame = document.getElementById("editor-frame");
+      const hint = document.getElementById("editor-hint");
+      const save = document.getElementById("save-close");
+      let ready = false;
+      let busy = false;
+
       document.getElementById("editor-title").textContent = title || "MuseEncore";
       document.title = (title ? title + " · " : "") + "Editor · Chorus";
-      const frame = document.getElementById("editor-frame");
       if (src) frame.src = src;
+      frame.addEventListener("load", () => { frame.contentWindow?.postMessage({ type: "chorus:ping" }, "*"); });
+      if (!draftId) {
+        save.classList.add("hidden");
+        hint.textContent = "Exporta .mxl y súbelo en Chorus para guardarlo";
+      } else {
+        save.disabled = false;
+      }
+
+      function setBusy(value, text) {
+        busy = value;
+        save.disabled = value;
+        if (text) hint.textContent = text;
+      }
+
+      function requestExport() {
+        if (busy || !frame.contentWindow) return;
+        if (!ready) {
+          setBusy(true, "Esperando al editor…");
+          frame.contentWindow.postMessage({ type: "chorus:ping" }, "*");
+          return;
+        }
+        setBusy(true, "Exportando la partitura…");
+        frame.contentWindow.postMessage({ type: "chorus:request-export" }, "*");
+      }
+
+      function download(data, name) {
+        const blob = new Blob([data], { type: "application/vnd.recordare.musicxml" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = name || "partitura.mxl";
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        setBusy(false, "Descargado. Súbelo en Chorus para guardarlo");
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.source !== frame.contentWindow) return;
+        const data = event.data || {};
+        if (data.type === "chorus:ready") {
+          ready = true;
+          save.disabled = false;
+          return;
+        }
+        if (data.type === "chorus:error") {
+          setBusy(false, "No se pudo exportar: " + (data.message || "error"));
+          return;
+        }
+        if (data.type !== "chorus:score") return;
+        const fileName = data.fileName || "partitura.mxl";
+        if (window.opener && draftId) {
+          window.opener.postMessage(
+            { type: "chorus:score", draftId, fileName, data: data.data },
+            location.origin,
+          );
+          setBusy(true, "Partitura enviada. Cerrando…");
+          setTimeout(() => window.close(), 800);
+        } else {
+          download(data.data, fileName);
+        }
+      });
+
+      save.addEventListener("click", requestExport);
+      document.getElementById("back-link").addEventListener("click", (event) => {
+        if (!draftId) return;
+        event.preventDefault();
+        requestExport();
+      });
     })();
   </script>
 </body>
 </html>
+
