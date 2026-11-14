@@ -72,9 +72,9 @@ def test_database_migrations_are_repeatable(tmp_path):
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
-        assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens", "library_items", "collections", "collection_items", "oidc_states", "groups", "group_members", "events", "event_rsvps"} <= tables
+        assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens", "library_items", "collections", "collection_items", "oidc_states", "groups", "group_members", "events", "event_rsvps", "entity_leads"} <= tables
         applied = conn.execute("SELECT COUNT(*) FROM chorus_schema_migrations").fetchone()[0]
-        assert applied == 6
+        assert applied == 7
 
 
 def test_api_health_and_authentication_fail_closed(tmp_path):
@@ -222,4 +222,5 @@ def test_onboarding_is_required_before_creating_drafts(tmp_path, monkeypatch):
 
         allowed = client.post("/api/v1/drafts", headers=headers, json={"title": "Ave verum"})
         assert allowed.status_code == 201
+
 

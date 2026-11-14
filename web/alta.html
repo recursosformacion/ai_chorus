@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#243b35">
+  <title>Solicitar alta de coral · Chorus</title>
+  <link rel="stylesheet" href="/styles.css?v=0.4.2">
+  <link rel="stylesheet" href="/alta.css?v=0.5.0">
+</head>
+<body class="alta-page">
+  <header class="alta-topbar">
+    <a class="brand" href="/"><span class="brand-mark">C</span><span>chorus</span></a>
+    <a class="text-link" href="/">Volver a Chorus</a>
+  </header>
+
+  <main class="alta-shell">
+    <section class="alta-intro">
+      <p class="eyebrow">PARA CORALES, BANDAS Y GRUPOS</p>
+      <h1>Tu grupo, en Chorus.</h1>
+      <p class="lead">Agenda, repertorio, comunicados y biblioteca para todos tus afiliados. Cuéntanos quién eres y te preparamos el alta.</p>
+      <ul class="alta-points">
+        <li><strong>30 €/mes por entidad</strong> · todos tus afiliados incluidos.</li>
+        <li>WhatsApp y SMS opcionales, aparte y solo si los usas.</li>
+        <li>Sin permanencia. 30 días para probarlo con tu grupo.</li>
+      </ul>
+    </section>
+
+    <section class="alta-form-card">
+      <form id="alta-form">
+        <fieldset>
+          <legend>Sobre tu entidad</legend>
+          <label>Nombre de la entidad
+            <input name="entity_name" required maxlength="160" placeholder="Coral Aurora">
+          </label>
+          <div class="alta-grid">
+            <label>Tipo
+              <select name="entity_kind" required>
+                <option value="coral">Coral</option>
+                <option value="orquesta">Orquesta</option>
+                <option value="grupo">Grupo</option>
+                <option value="banda">Banda</option>
+                <option value="ensemble">Ensemble</option>
+                <option value="escuela">Escuela</option>
+                <option value="iglesia">Iglesia</option>
+              </select>
+            </label>
+            <label>Ciudad
+              <input name="city" maxlength="120" placeholder="Madrid">
+            </label>
+            <label>Número aproximado de afiliados
+              <input name="members" type="number" min="0" max="100000" placeholder="35">
+            </label>
+            <label>Web o redes (opcional)
+              <input name="website" maxlength="300" placeholder="https://…">
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Contacto</legend>
+          <div class="alta-grid">
+            <label>Nombre y apellidos
+              <input name="contact_name" required maxlength="160" autocomplete="name">
+            </label>
+            <label>Correo electrónico
+              <input name="contact_email" type="email" required maxlength="254" autocomplete="email">
+            </label>
+            <label>Teléfono / WhatsApp (opcional)
+              <input name="contact_phone" maxlength="40" autocomplete="tel" placeholder="+34 …">
+            </label>
+          </div>
+          <label>¿Algo que debamos saber?
+            <textarea name="message" rows="4" maxlength="4000" placeholder="Repertorio, número de voces, necesidades…"></textarea>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Qué os interesa</legend>
+          <label class="alta-check">
+            <input type="checkbox" name="subscription" checked>
+            <span><strong>Plan Coral · 30 €/mes</strong><small>Todos los afiliados incluidos, sin coste por miembro.</small></span>
+          </label>
+          <label class="alta-check">
+            <input type="checkbox" name="whatsapp">
+            <span><strong>WhatsApp</strong><small>Avisos y recordatorios; consumo aparte.</small></span>
+          </label>
+          <label class="alta-check">
+            <input type="checkbox" name="sms">
+            <span><strong>SMS urgente</strong><small>Solo para cancelaciones y cambios de última hora; consumo aparte.</small></span>
+          </label>
+        </fieldset>
+
+        <label class="alta-consent">
+          <input type="checkbox" name="consent" required>
+          <span>Acepto que Chorus use estos datos para contactarme sobre el alta. No se ceden a terceros.</span>
+        </label>
+        <input class="alta-honeypot" type="text" name="company_website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <button class="button button-primary button-wide" type="submit" id="alta-submit">Solicitar alta</button>
+        <p class="message" id="alta-message" role="status"></p>
+      </form>
+      <div class="alta-success hidden" id="alta-success">
+        <h2>Gracias. Te escribimos en breve.</h2>
+        <p class="muted">Hemos recibido la solicitud de <strong id="alta-success-name"></strong>. Te contactaremos por correo para preparar el alta y resolver dudas.</p>
+        <a class="button button-outline" href="/">Volver a Chorus</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="alta-footer">
+    <span>CHORUS · OpenMusicRepository</span>
+    <span>Datos tratados solo para gestionar tu solicitud de alta.</span>
+  </footer>
+
+  <script src="/alta.js?v=0.5.0"></script>
+</body>
+</html>
+

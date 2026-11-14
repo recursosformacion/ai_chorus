@@ -1,0 +1,160 @@
+.alta-page {
+  background:
+    radial-gradient(1000px 500px at 90% -10%, #e8eee7 0%, transparent 60%),
+    radial-gradient(800px 400px at 0% 40%, #f7f3e9 0%, transparent 55%),
+    var(--f4, #f4f5f1);
+  min-height: 100vh;
+}
+.alta-topbar {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.alta-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 36px;
+  align-items: start;
+}
+.alta-topbar .text-link { color: var(--green); text-decoration: none; font-size: 13px; font-weight: 600; }
+.alta-intro { padding-top: 12px; }
+.alta-intro h1 {
+  margin: 10px 0 14px;
+  font-size: clamp(38px, 5vw, 58px);
+  line-height: 1.02;
+  letter-spacing: -2px;
+}
+.alta-intro .lead { max-width: 480px; font-size: 16px; }
+.alta-points {
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+.alta-points li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.alta-points li::before {
+  content: "♪";
+  position: absolute;
+  left: 0;
+  color: #5f7f6d;
+}
+.alta-points strong { color: var(--ink); }
+.alta-form-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 26px;
+  box-shadow: 0 16px 44px rgba(36, 59, 53, .07);
+}
+.alta-form-card fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 22px;
+}
+.alta-form-card legend {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: #8b9a8e;
+  margin-bottom: 12px;
+}
+.alta-form-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5d6b62;
+}
+.alta-form-card input,
+.alta-form-card select,
+.alta-form-card textarea {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  font: 13px "DM Sans", sans-serif;
+  color: var(--ink);
+}
+.alta-form-card textarea { height: auto; padding: 10px; resize: vertical; }
+.alta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+.alta-check {
+  display: grid !important;
+  grid-template-columns: 18px 1fr;
+  align-items: flex-start;
+  gap: 10px !important;
+  padding: 10px;
+  border: 1px solid #e7ece6;
+  border-radius: 11px;
+  background: #fbfcfa;
+  margin-bottom: 8px !important;
+}
+.alta-check input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--green); }
+.alta-check span { display: flex; flex-direction: column; gap: 2px; font-weight: 400; }
+.alta-check strong { font-size: 12.5px; }
+.alta-check small { font-size: 11px; color: var(--muted); }
+.alta-consent {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 8px !important;
+  font-weight: 400 !important;
+  color: var(--muted) !important;
+  font-size: 11px !important;
+  line-height: 1.5;
+}
+.alta-consent input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--green); flex: 0 0 auto; }
+.alta-honeypot { position: absolute; left: -9999px; opacity: 0; height: 0; }
+.alta-form-card .button { margin-top: 6px; }
+.alta-form-card .message { min-height: 0; margin: 10px 0 0; }
+.alta-success { padding: 18px 6px; }
+.alta-success h2 { margin: 0 0 8px; font-size: 24px; letter-spacing: -.7px; }
+.alta-success p { line-height: 1.6; }
+.alta-success .button { margin-top: 12px; }
+.alta-footer {
+  max-width: 1180px;
+  margin: 0 auto;
+  border-top: 1px solid var(--line);
+  padding: 18px 24px 26px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #91a096;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.alta-footer span:last-child { letter-spacing: 0; font-size: 11px; }
+
+@media (max-width: 900px) {
+  .alta-shell { grid-template-columns: 1fr; gap: 24px; padding: 20px 18px 34px; }
+  .alta-intro { padding-top: 0; }
+  .alta-intro h1 { font-size: clamp(34px, 8vw, 46px); }
+}
+@media (max-width: 560px) {
+  .alta-topbar { padding: 14px; }
+  .alta-grid { grid-template-columns: 1fr; }
+  .alta-form-card { padding: 18px; }
+  .alta-footer { padding: 16px 14px 22px; flex-wrap: wrap; }
+}
+

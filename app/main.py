@@ -87,6 +87,25 @@ class JoinGroupBody(BaseModel):
     code: str = Field(min_length=4, max_length=12)
 
 
+class EntityLeadBody(BaseModel):
+    entity_name: str = Field(min_length=2, max_length=160)
+    entity_kind: str = Field(
+        pattern="^(coral|orquesta|grupo|banda|ensemble|escuela|iglesia)$"
+    )
+    city: str | None = Field(default=None, max_length=120)
+    members: int | None = Field(default=None, ge=0, le=100_000)
+    contact_name: str = Field(min_length=2, max_length=160)
+    contact_email: str = Field(min_length=5, max_length=254)
+    contact_phone: str | None = Field(default=None, max_length=40)
+    website: str | None = Field(default=None, max_length=300)
+    interests: list[Literal["subscription", "whatsapp", "sms"]] = Field(
+        default_factory=list
+    )
+    message: str | None = Field(default=None, max_length=4000)
+    consent: bool
+    company_website: str = ""
+
+
 class EventBody(BaseModel):
     group_id: str = Field(min_length=1, max_length=64)
     kind: Literal["rehearsal", "concert", "note"]
@@ -201,6 +220,7 @@ def initialise_database(settings: Settings) -> None:
             "004_oidc_states.sql",
             "005_local_draft_source.sql",
             "006_groups_events.sql",
+            "007_entity_leads.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -869,6 +889,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 (collection_id, item_id),
             )
         return Response(status_code=204)
+
+    @app.post("/api/v1/entity-leads", status_code=201)
+    def create_entity_lead(body: EntityLeadBody) -> dict[str, str]:
+        """Solicitud pública de alta de una entidad (sin autenticación)."""
+        if body.company_website.strip():
+            return {"id": "", "status": "received"}
+        if not body.consent:
+            raise HTTPException(status_code=400, detail="Consent is required")
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", body.contact_email):
+            raise HTTPException(status_code=400, detail="Invalid contact email")
+        lead_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            conn.execute(
+                "INSERT INTO entity_leads "
+                "(id,entity_name,entity_kind,city,members,contact_name,contact_email,"
+                "contact_phone,website,interests,message,consent,status,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'new', ?)",
+                (
+                    lead_id,
+                    body.entity_name.strip(),
+                    body.entity_kind,
+                    body.city,
+                    body.members,
+                    body.contact_name.strip(),
+                    body.contact_email.strip().lower(),
+                    body.contact_phone,
+                    body.website,
+                    json.dumps(body.interests),
+                    body.message,
+                    1,
+                    utcnow(),
+                ),
+            )
+        return {"id": lead_id, "status": "received"}
+
+    @app.get("/api/v1/admin/entity-leads")
+    def list_entity_leads(
+        user: Principal = Depends(current_user),
+    ) -> list[dict[str, Any]]:
+        """Solicitudes de alta para el admin de OSAP."""
+        if "admin" not in user.roles:
+            raise HTTPException(status_code=403, detail="Admin role required")
+        with _connect(cfg) as conn:
+            rows = conn.execute(
+                "SELECT * FROM entity_leads ORDER BY created_at DESC LIMIT 200"
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "entity_name": row["entity_name"],
+                "entity_kind": row["entity_kind"],
+                "city": row["city"],
+                "members": row["members"],
+                "contact_name": row["contact_name"],
+                "contact_email": row["contact_email"],
+                "contact_phone": row["contact_phone"],
+                "website": row["website"],
+                "interests": json.loads(row["interests"] or "[]"),
+                "message": row["message"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     @app.get("/api/v1/agenda")
     def get_agenda(profile: dict[str, Any] = Depends(current_profile)) -> dict[str, Any]:
@@ -1549,5 +1633,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
 
 
