@@ -268,6 +268,43 @@ Fases:
 Criterio de salida: el admin crea una entidad, asigna a dos gestores; uno de ellos edita
 el correo, añade un tercer gestor y crea un grupo; un miembro no gestor no puede editar.
 
+### 4.13 Google Drive como origen y destino
+
+Es viable y encaja bien, sin pedir acceso total al Drive:
+
+- **Permiso mínimo**: `https://www.googleapis.com/auth/drive.file` (solo ficheros
+  seleccionados o creados por Chorus) + **Google Picker** para elegir el archivo.
+- **Origen**: botón “Importar de Drive” en la biblioteca/borrador. El usuario elige un
+  `.mxl`, `.musicxml`, `.pdf` o `.mid`; Chorus lo descarga y lo guarda como recurso.
+- **Destino**: “Guardar en Drive” en un borrador o exportación. Chorus crea una carpeta
+  “Chorus” en el Drive del usuario y sube el `.mxl`/PDF; guarda `drive_file_id` y enlace.
+- **Tokens**: OAuth incremental (no en el login normal), refresh token cifrado por usuario,
+  botón de desconectar/revocar, auditoría y borrado al eliminar la cuenta.
+- **No se listan** todos los archivos del usuario: solo los que pasan por el Picker o crea
+  Chorus. Es la opción más compatible con privacidad y verificación de Google.
+- **Requisitos**: cliente OAuth de Google Cloud, consent screen con el scope, secretos en
+  el servidor y pruebas con cuentas reales. El API de Drive no tiene coste directo.
+- **Fase**: después de entidades/grupos. Si se hace dentro de MuseEncore, que sea a través
+  del puente de Chorus, no con tokens propios del editor.
+
+### 4.14 MuseEncore: qué tocar y en qué orden
+
+Sí conviene tocarlo, pero de forma quirúrgica y compatible con el proyecto original:
+
+1. **Puente de guardado/cierre** (prioridad alta): `postMessage` para exportar el `.mxl`,
+   subirlo al borrador de Chorus y cerrar la ventana. Hoy obliga a exportar y subir a mano.
+2. **Modo visor** (`?mode=viewer`): ocultar herramientas de edición, mantener reproducción,
+   cursor y páginas; usarlo en OSAP y en previsualizaciones de Chorus. Evita abrir el
+   editor completo para solo escuchar.
+3. **Contrato estable** (`?url=`, `?mode=`, `?return=`, eventos `chorus:*`), detección de
+   tipo por extensión y errores claros; pruebas de integración.
+4. **Móvil/Android**: barra compacta, objetivos táctiles, reproducción estable; probar en
+   dispositivo real antes de prometerlo.
+5. **Drive**: mejor en Chorus (tokens y permisos centralizados); MuseEncore solo llama al
+   puente “importar/exportar” del padre cuando se acuerde.
+
+Evitar un fork profundo: cambios pequeños, con feature flags y sincronización con upstream.
+
 ## 5. Modelo de datos propuesto (SQLite, migraciones 006+)
 
 ```sql
@@ -332,6 +369,7 @@ proveedor de WhatsApp (recomendado: `wa.me` primero y Meta Cloud API después),
 proveedor/presupuesto de SMS (recomendado: solo urgentes y OVH SMS o Twilio) y si el primer
 corte de comunicaciones sale solo in-app/email antes de integrar WhatsApp y SMS. La creación
 de grupos queda cerrada: solo un gestor de entidad y el admin web.
+
 
 
 
