@@ -1,6 +1,71 @@
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
+  const MSG_LANG = (navigator.language || "es").slice(0, 2);
+  const MSG_TEXT = {
+    es: {
+      eyebrow: "COMUNICADOS", title: "Mensajes del grupo", unread: "{n} sin leer",
+      group: "Grupo", new: "Nuevo mensaje", to: "Para", people: "Personas",
+      subject: "Asunto", body: "Mensaje", send: "Enviar",
+      emptyTitle: "Sin grupo para comunicados",
+      emptyText: "Cuando formes parte de un grupo podrás escribir a su administración, a todo el coro o a personas concretas.",
+      scope_group: "Todo el grupo", scope_managers: "Administración del grupo",
+      scope_users: "Una o varias personas", noMessages: "Todavía no hay mensajes en este grupo.",
+      markRead: "Marcar como leído", sent: "Mensaje enviado.", choose: "Elige al menos una persona.",
+      adminShort: "admin.", sending: "Enviando…",
+    },
+    en: {
+      eyebrow: "MESSAGES", title: "Group messages", unread: "{n} unread",
+      group: "Group", new: "New message", to: "To", people: "People",
+      subject: "Subject", body: "Message", send: "Send",
+      emptyTitle: "No group for messages",
+      emptyText: "Once you belong to a group you can write to its managers, the whole choir or specific people.",
+      scope_group: "Whole group", scope_managers: "Group managers",
+      scope_users: "One or more people", noMessages: "There are no messages in this group yet.",
+      markRead: "Mark as read", sent: "Message sent.", choose: "Choose at least one person.",
+      adminShort: "manager", sending: "Sending…",
+    },
+    ca: {
+      eyebrow: "COMUNICATS", title: "Missatges del grup", unread: "{n} sense llegir",
+      group: "Grup", new: "Nou missatge", to: "Per a", people: "Persones",
+      subject: "Assumpte", body: "Missatge", send: "Enviar",
+      emptyTitle: "Sense grup per a comunicats",
+      emptyText: "Quan formis part d'un grup podràs escriure a la seva administració, a tot el cor o a persones concretes.",
+      scope_group: "Tot el grup", scope_managers: "Administració del grup",
+      scope_users: "Una o diverses persones", noMessages: "Encara no hi ha missatges en aquest grup.",
+      markRead: "Marcar com a llegit", sent: "Missatge enviat.", choose: "Tria almenys una persona.",
+      adminShort: "admin.", sending: "Enviant…",
+    },
+    fr: {
+      eyebrow: "MESSAGES", title: "Messages du groupe", unread: "{n} non lus",
+      group: "Groupe", new: "Nouveau message", to: "À", people: "Personnes",
+      subject: "Objet", body: "Message", send: "Envoyer",
+      emptyTitle: "Aucun groupe pour les messages",
+      emptyText: "Quand vous ferez partie d'un groupe, vous pourrez écrire à ses responsables, à tout le chœur ou à des personnes précises.",
+      scope_group: "Tout le groupe", scope_managers: "Responsables du groupe",
+      scope_users: "Une ou plusieurs personnes", noMessages: "Il n'y a pas encore de messages dans ce groupe.",
+      markRead: "Marquer comme lu", sent: "Message envoyé.", choose: "Choisissez au moins une personne.",
+      adminShort: "resp.", sending: "Envoi…",
+    },
+    de: {
+      eyebrow: "MITTEILUNGEN", title: "Gruppennachrichten", unread: "{n} ungelesen",
+      group: "Gruppe", new: "Neue Nachricht", to: "An", people: "Personen",
+      subject: "Betreff", body: "Nachricht", send: "Senden",
+      emptyTitle: "Keine Gruppe für Mitteilungen",
+      emptyText: "Sobald du zu einer Gruppe gehörst, kannst du deren Leitung, dem ganzen Chor oder einzelnen Personen schreiben.",
+      scope_group: "Ganze Gruppe", scope_managers: "Gruppenleitung",
+      scope_users: "Eine oder mehrere Personen", noMessages: "In dieser Gruppe gibt es noch keine Nachrichten.",
+      markRead: "Als gelesen markieren", sent: "Nachricht gesendet.", choose: "Wähle mindestens eine Person.",
+      adminShort: "Leitung", sending: "Senden…",
+    },
+  };
+  const msgT = (key) => (MSG_TEXT[MSG_LANG] || MSG_TEXT.es)[key] || MSG_TEXT.es[key] || key;
+  function applyMessageI18n() {
+    document.querySelectorAll("[data-msg]").forEach((el) => {
+      if (el.id === "msg-unread") return;
+      el.textContent = msgT(el.dataset.msg);
+    });
+  }
   let accessToken = null;
   let currentDraft = null;
   let lastResults = [];
@@ -99,7 +164,7 @@
   function formatEventDate(value) {
     try {
       return new Intl.DateTimeFormat("es-ES", {
-        weekday: "short", day: "numeric", month: "short",
+        day: "2-digit", month: "2-digit", year: "numeric",
         hour: "2-digit", minute: "2-digit",
       }).format(new Date(value));
     } catch (_) {
@@ -110,6 +175,7 @@
   async function loadAgenda() {
     agendaState = await request("/api/v1/agenda");
     renderAgenda();
+    await loadMessages();
   }
 
   function renderGroupCard() {
@@ -145,6 +211,63 @@
         code.append(strong);
         content.append(code);
       }
+      const menu = document.createElement("div");
+      menu.className = "dash-group-menu";
+      const menuTitle = document.createElement("p");
+      menuTitle.className = "muted";
+      menuTitle.textContent = "Mis grupos";
+      menu.append(menuTitle);
+      groups.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "dash-group-row";
+        const name = document.createElement("span");
+        name.textContent = item.name;
+        row.append(name);
+        if (item.can_manage) {
+          const badge = document.createElement("span");
+          badge.className = "badge badge-gold";
+          badge.textContent = item.role === "manager" ? "Administro" : "Gestiono";
+          row.append(badge);
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button button-outline button-small";
+        button.textContent = item.can_manage ? "Gestionar" : "Abrir";
+        button.addEventListener("click", () => {
+          messageState.groupId = item.id;
+          $("msg-group").value = item.id;
+          document.getElementById("dashboard-comunicados").scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+          void loadMessages();
+        });
+        row.append(button);
+        if (item.can_manage) {
+          const edit = document.createElement("button");
+          edit.type = "button";
+          edit.className = "button button-quiet button-small";
+          edit.textContent = "Editar";
+          edit.addEventListener("click", async () => {
+            const name = prompt("Nombre del grupo", item.name);
+            if (!name) return;
+            const timezone = prompt("Zona horaria", item.timezone || "Europe/Madrid");
+            if (!timezone) return;
+            try {
+              await request(`/api/v1/groups/${encodeURIComponent(item.id)}`, {
+                method: "PATCH",
+                body: JSON.stringify({ name, timezone }),
+              });
+              await loadAgenda();
+            } catch (error) {
+              showMessage("dash-group-message", error.message, "error");
+            }
+          });
+          row.append(edit);
+        }
+        menu.append(row);
+      });
+      content.append(menu);
       return;
     }
     content.classList.add("hidden");
@@ -230,6 +353,159 @@
     select.replaceChildren();
     manageable.forEach((group) => select.append(new Option(group.name, group.id)));
     renderGroupCard();
+  }
+
+  let messageState = { groupId: "", messages: [] };
+
+  function messageScopeLabel(scope) {
+    return msgT("scope_" + scope) || scope;
+  }
+
+  function renderMessageGroups() {
+    const groups = agendaState.groups || [];
+    const content = $("msg-content");
+    const empty = $("msg-empty");
+    content.classList.toggle("hidden", groups.length === 0);
+    empty.classList.toggle("hidden", groups.length > 0);
+    const select = $("msg-group");
+    const previous = messageState.groupId || select.value;
+    select.replaceChildren();
+    groups.forEach((group) => select.append(new Option(group.name, group.id)));
+    if (!groups.length) {
+      messageState = { groupId: "", messages: [] };
+      return;
+    }
+    const exists = groups.some((group) => group.id === previous);
+    select.value = exists ? previous : groups[0].id;
+    messageState.groupId = select.value;
+  }
+
+  async function loadMessages() {
+    renderMessageGroups();
+    if (!messageState.groupId) return;
+    try {
+      const rows = await request(
+        `/api/v1/groups/${encodeURIComponent(messageState.groupId)}/messages`,
+      );
+      messageState.messages = Array.isArray(rows) ? rows : [];
+      renderMessages();
+      await loadMessagePeople();
+    } catch (error) {
+      showMessage("msg-message", error.message, "error");
+    }
+  }
+
+  function renderMessages() {
+    const list = $("msg-list");
+    list.replaceChildren();
+    const rows = messageState.messages || [];
+    const unread = rows.filter((row) => !row.is_sender && !row.my_read_at).length;
+    const badge = $("msg-unread");
+    badge.textContent = msgT("unread").replace("{n}", String(unread));
+    badge.className = "badge " + (unread ? "badge-gold" : "badge-muted");
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = msgT("noMessages");
+      list.append(empty);
+      return;
+    }
+    rows.forEach((row) => {
+      const article = document.createElement("article");
+      article.className = "dash-message" + (row.my_read_at || row.is_sender ? "" : " unread");
+      const head = document.createElement("div");
+      head.className = "dash-message-head";
+      const title = document.createElement("h3");
+      title.textContent = row.subject;
+      const meta = document.createElement("span");
+      meta.className = "badge badge-muted";
+      meta.textContent = messageScopeLabel(row.scope);
+      head.append(title, meta);
+      const info = document.createElement("p");
+      info.className = "dash-event-meta";
+      info.textContent = `${row.sender_name} · ${formatEventDate(row.created_at)}`;
+      const body = document.createElement("p");
+      body.className = "dash-message-body";
+      body.textContent = row.body;
+      article.append(head, info, body);
+      if (!row.is_sender && !row.my_read_at) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "button button-quiet button-small";
+        button.textContent = msgT("markRead");
+        button.addEventListener("click", () => {
+          void markMessageRead(row.id, button);
+        });
+        article.append(button);
+      }
+      list.append(article);
+    });
+  }
+
+  async function loadMessagePeople() {
+    const select = $("msg-recipients");
+    select.replaceChildren();
+    if (!messageState.groupId) return;
+    try {
+      const rows = await request(
+        `/api/v1/groups/${encodeURIComponent(messageState.groupId)}/members`,
+      );
+      (rows || []).forEach((member) => {
+        const label = `${member.name}${member.role === "manager" ? " (" + msgT("adminShort") + ")" : ""}`;
+        select.append(new Option(label, member.user_sub));
+      });
+    } catch (_) {
+      /* el selector queda vacío; el envío a personas se rechazará con un error claro */
+    }
+  }
+
+  async function sendMessage(event) {
+    event.preventDefault();
+    if (!messageState.groupId) return;
+    const scope = $("msg-scope").value;
+    const recipients = Array.from($("msg-recipients").selectedOptions).map(
+      (option) => option.value,
+    );
+    if (scope === "users" && !recipients.length) {
+      showMessage("msg-message", msgT("choose"), "error");
+      return;
+    }
+    const button = event.submitter || $("msg-form").querySelector("button[type=submit]");
+    setBusy(button, true, msgT("sending"));
+    try {
+      await request(`/api/v1/groups/${encodeURIComponent(messageState.groupId)}/messages`, {
+        method: "POST",
+        body: JSON.stringify({
+          scope,
+          subject: $("msg-subject").value.trim(),
+          body: $("msg-body").value.trim(),
+          recipient_subs: recipients,
+        }),
+      });
+      $("msg-subject").value = "";
+      $("msg-body").value = "";
+      $("msg-form").classList.add("hidden");
+      showMessage("msg-message", msgT("sent"), "success");
+      await loadMessages();
+    } catch (error) {
+      showMessage("msg-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
+  async function markMessageRead(messageId, button) {
+    setBusy(button, true, "Guardando…");
+    try {
+      await request(`/api/v1/messages/${encodeURIComponent(messageId)}/read`, {
+        method: "POST",
+      });
+      await loadMessages();
+    } catch (error) {
+      showMessage("msg-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
   }
 
   async function setRsvp(eventId, status, button) {
@@ -878,6 +1154,23 @@
     } catch(error) { showMessage("dash-event-message",error.message,"error"); }
     finally { setBusy(button,false); }
   });
+  $("msg-new").addEventListener("click",()=>{
+    $("msg-form").classList.toggle("hidden");
+    $("msg-scope").value="group";
+    $("msg-people-wrap").classList.add("hidden");
+    $("msg-subject").focus();
+  });
+  $("msg-group").addEventListener("change",()=>{
+    messageState.groupId=$("msg-group").value;
+    $("msg-form").classList.add("hidden");
+    void loadMessages();
+  });
+  $("msg-scope").addEventListener("change",()=>{
+    $("msg-people-wrap").classList.toggle("hidden",$("msg-scope").value!=="users");
+  });
+  $("msg-form").addEventListener("submit",(event)=>{void sendMessage(event);});
+  applyMessageI18n();
+
   $("new-draft-button").addEventListener("click",async()=>{
     const button=$("new-draft-button");setBusy(button,true,"Creando borrador…");
     try {currentDraft=await createDraft($("new-title").value.trim() || null);showDraft($("new-title").value.trim() || "Nueva partitura","Borrador privado · partitura creada desde cero");showMessage("draft-message","Borrador creado. Abre MuseEncore para escribir y exporta el resultado como .mxl.");$("draft-section").scrollIntoView({behavior:"smooth",block:"center"});}
@@ -925,8 +1218,5 @@
     });
   }
 })();
-
-
-
 
 

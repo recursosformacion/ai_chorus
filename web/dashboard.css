@@ -164,3 +164,17 @@
   .chorus-dashboard .hero-copy h1 { font-size: 36px; }
 }
 
+
+.msg-toolbar{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:12px}
+.msg-toolbar label{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.msg-toolbar select{min-width:180px}
+.dash-message{border:1px solid var(--line,#e5e5e5);border-radius:10px;padding:12px;margin:10px 0;background:#fffdf8}
+.dash-message.unread{border-left:4px solid #b08d3f;background:#fff8e8}
+.dash-message-head{display:flex;justify-content:space-between;gap:8px;align-items:start}
+.dash-message-head h3{margin:0;font-size:16px}
+.dash-message-body{white-space:pre-wrap;margin:8px 0;color:#333}
+#msg-recipients{min-width:220px;max-width:100%}
+
+.dash-group-menu{margin-top:14px;border-top:1px solid var(--line,#e5e5e5);padding-top:10px}
+.dash-group-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;flex-wrap:wrap}
+.dash-group-row span:first-child{font-weight:600}

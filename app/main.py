@@ -83,6 +83,11 @@ class GroupBody(BaseModel):
     timezone: str = Field(default="Europe/Madrid", max_length=80)
 
 
+class GroupUpdateBody(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    timezone: str | None = Field(default=None, max_length=80)
+
+
 class JoinGroupBody(BaseModel):
     code: str = Field(min_length=4, max_length=12)
 
@@ -127,6 +132,13 @@ class EventBody(BaseModel):
 class RsvpBody(BaseModel):
     status: Literal["yes", "no"]
     comment: str | None = Field(default=None, max_length=1000)
+
+
+class MessageBody(BaseModel):
+    scope: Literal["group", "managers", "users"]
+    subject: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=8000)
+    recipient_subs: list[str] = Field(default_factory=list, max_length=200)
 
 
 def utcnow() -> str:
@@ -230,6 +242,7 @@ def initialise_database(settings: Settings) -> None:
             "006_groups_events.sql",
             "007_entity_leads.sql",
             "008_entity_lead_manager.sql",
+            "009_messages.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -506,6 +519,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         profile_status, profile = auth_call("GET", "/auth/me", token=body.access_token)
         if profile_status != 200 or not isinstance(profile, dict):
             raise HTTPException(status_code=401, detail="Invalid handoff token")
+        response.set_cookie(
+            "chorus_access", body.access_token, httponly=True,
+            secure=cfg.secure_cookies, samesite="lax", path="/api/v1",
+            max_age=15 * 60,
+        )
         if body.refresh_token:
             response.set_cookie(
                 "chorus_refresh", body.refresh_token, httponly=True,
@@ -689,9 +707,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"#access_token={quote(access_token)}",
             status_code=302,
         )
+        response.set_cookie(
+            "chorus_access", str(doc["access_token"]), httponly=True,
+            secure=cfg.secure_cookies, samesite="lax", path="/api/v1", max_age=15 * 60,
+        )
         if refresh_token:
             response.set_cookie(
-                "chorus_refresh", refresh_token, httponly=True, secure=cfg.secure_cookies,
+                "chorus_refresh", str(doc["refresh_token"]), httponly=True, secure=cfg.secure_cookies,
                 samesite="lax", path="/api/v1/auth", max_age=30 * 24 * 60 * 60,
             )
         return response
@@ -995,8 +1017,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for row in rows
         ]
 
+    def _sync_osap_groups(conn, user_id: str, token: str | None) -> None:
+        """Trae a Chorus los grupos de «Los amigos» del usuario autenticado."""
+        if not token or not cfg.osap_api_base_url:
+            return
+        data, response = osap_call("GET", "/api/v1/amigos/my/groups", token=token)
+        if response.status_code != 200 or not isinstance(data, list):
+            return
+        now = utcnow()
+        for item in data:
+            if not isinstance(item, dict) or not isinstance(item.get("group"), dict):
+                continue
+            group = item["group"]
+            gid = str(group.get("id") or "")
+            if not gid:
+                continue
+            role = "manager" if str(item.get("role")) == "admin" else "member"
+            conn.execute(
+                "INSERT OR IGNORE INTO groups "
+                "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    gid,
+                    gid,
+                    str(group.get("name") or "Grupo"),
+                    "Europe/Madrid",
+                    user_id,
+                    _join_code(),
+                    now,
+                    now,
+                ),
+            )
+            member = conn.execute(
+                "SELECT id FROM group_members WHERE group_id = ? AND user_sub = ?",
+                (gid, user_id),
+            ).fetchone()
+            if member is None:
+                conn.execute(
+                    "INSERT INTO group_members "
+                    "(id,group_id,user_sub,role,status,display_name,joined_at,updated_at) "
+                    "VALUES (?,?,?,?,'active',?,?,?)",
+                    (uuid.uuid4().hex, gid, user_id, role, "", now, now),
+                )
+            else:
+                conn.execute(
+                    "UPDATE group_members SET role = ?, status = 'active', updated_at = ? "
+                    "WHERE id = ?",
+                    (role, now, member["id"]),
+                )
+
     @app.get("/api/v1/agenda")
-    def get_agenda(profile: dict[str, Any] = Depends(current_profile)) -> dict[str, Any]:
+    def get_agenda(
+        request: Request, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
         user_id = str(profile["user_id"])
         admin = _is_admin(profile)
         memberships = _approved_memberships(profile)
@@ -1006,6 +1079,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if membership.get("entity_id")
         }
         with _connect(cfg) as conn:
+            _sync_osap_groups(conn, user_id, request.cookies.get("chorus_access"))
             group_rows = conn.execute(
                 "SELECT g.*, gm.role FROM group_members gm "
                 "JOIN groups g ON g.id = gm.group_id "
@@ -1112,13 +1186,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             conn.execute(
                 "INSERT INTO group_members "
-                "(id,group_id,user_sub,role,status,joined_at,updated_at) "
-                "VALUES (?,?,?,'manager','active',?,?)",
-                (uuid.uuid4().hex, group_id, user_id, now, now),
+                "(id,group_id,user_sub,role,status,display_name,joined_at,updated_at) "
+                "VALUES (?,?,?,'manager','active',?,?,?)",
+                (uuid.uuid4().hex, group_id, user_id, str(profile.get("name") or profile.get("nickname") or ""), now, now),
             )
             row = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
         return _group_dto(row, "manager", True)
 
+    @app.patch("/api/v1/groups/{group_id}")
+    def update_group(
+        group_id: str,
+        body: GroupUpdateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = conn.execute(
+                "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                "AND status = 'active'",
+                (group_id, user_id),
+            ).fetchone()
+            if not admin and (member is None or member["role"] != "manager"):
+                raise HTTPException(status_code=403, detail="Only group managers can edit")
+            name = (body.name or group["name"]).strip()
+            timezone = (body.timezone or group["timezone"]).strip()
+            if not name or not timezone:
+                raise HTTPException(status_code=400, detail="Name and timezone are required")
+            conn.execute(
+                "UPDATE groups SET name = ?, timezone = ?, updated_at = ? WHERE id = ?",
+                (name, timezone, utcnow(), group_id),
+            )
+            row = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+        return _group_dto(row, "manager", True)
     @app.post("/api/v1/groups/join")
     def join_group(
         body: JoinGroupBody, profile: dict[str, Any] = Depends(current_profile)
@@ -1139,19 +1242,222 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if membership is None:
                 conn.execute(
                     "INSERT INTO group_members "
-                    "(id,group_id,user_sub,role,status,joined_at,updated_at) "
-                    "VALUES (?,?,?,'member','active',?,?)",
-                    (uuid.uuid4().hex, group["id"], user_id, now, now),
+                    "(id,group_id,user_sub,role,status,display_name,joined_at,updated_at) "
+                    "VALUES (?,?,?,'member','active',?,?,?)",
+                    (
+                        uuid.uuid4().hex,
+                        group["id"],
+                        user_id,
+                        str(profile.get("name") or profile.get("nickname") or ""),
+                        now,
+                        now,
+                    ),
                 )
                 role = "member"
             else:
                 conn.execute(
-                    "UPDATE group_members SET status = 'active', updated_at = ? "
-                    "WHERE id = ?",
-                    (now, membership["id"]),
+                    "UPDATE group_members SET status = 'active', display_name = ?, "
+                    "updated_at = ? WHERE id = ?",
+                    (str(profile.get("name") or profile.get("nickname") or ""), now, membership["id"]),
                 )
                 role = membership["role"]
         return _group_dto(group, role, role == "manager")
+
+    @app.get("/api/v1/groups/{group_id}/members")
+    def group_members(
+        group_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> list[dict[str, Any]]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = conn.execute(
+                "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                "AND status = 'active'",
+                (group_id, user_id),
+            ).fetchone()
+            if not admin and member is None:
+                raise HTTPException(status_code=403, detail="Not a member of this group")
+            rows = conn.execute(
+                "SELECT user_sub, role, display_name, voice_label, section "
+                "FROM group_members WHERE group_id = ? AND status = 'active' "
+                "ORDER BY role DESC, display_name, user_sub",
+                (group_id,),
+            ).fetchall()
+        return [
+            {
+                "user_sub": row["user_sub"],
+                "role": row["role"],
+                "name": row["display_name"] or row["user_sub"][:8],
+                "voice_label": row["voice_label"],
+                "section": row["section"],
+            }
+            for row in rows
+        ]
+
+    @app.get("/api/v1/groups/{group_id}/messages")
+    def group_messages(
+        group_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> list[dict[str, Any]]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = conn.execute(
+                "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                "AND status = 'active'",
+                (group_id, user_id),
+            ).fetchone()
+            role = "manager" if admin else (str(member["role"]) if member is not None else "")
+            rows = conn.execute(
+                "SELECT m.*, gm.display_name AS sender_name, "
+                "(SELECT read_at FROM message_recipients r "
+                " WHERE r.message_id = m.id AND r.user_sub = ?) AS my_read_at, "
+                "(SELECT COUNT(*) FROM message_recipients r "
+                " WHERE r.message_id = m.id) AS recipient_count "
+                "FROM messages m "
+                "LEFT JOIN group_members gm ON gm.group_id = m.group_id "
+                "AND gm.user_sub = m.sender_sub "
+                "WHERE m.group_id = ? AND ("
+                "m.sender_sub = ? OR EXISTS (SELECT 1 FROM message_recipients r "
+                "WHERE r.message_id = m.id AND r.user_sub = ?) "
+                "OR (? <> '' AND m.scope = 'group') "
+                "OR (? = 'manager' AND m.scope = 'managers')) "
+                "ORDER BY m.created_at DESC LIMIT 100",
+                (user_id, group_id, user_id, user_id, role, role),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "group_id": row["group_id"],
+                "sender_sub": row["sender_sub"],
+                "sender_name": row["sender_name"] or row["sender_sub"][:8],
+                "scope": row["scope"],
+                "subject": row["subject"],
+                "body": row["body"],
+                "created_at": row["created_at"],
+                "my_read_at": row["my_read_at"],
+                "recipient_count": row["recipient_count"],
+                "is_sender": row["sender_sub"] == user_id,
+            }
+            for row in rows
+        ]
+
+    @app.post("/api/v1/groups/{group_id}/messages", status_code=201)
+    def create_message(
+        group_id: str,
+        body: MessageBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        subject = body.subject.strip()
+        text = body.body.strip()
+        if not subject or not text:
+            raise HTTPException(status_code=400, detail="Subject and body are required")
+        now = utcnow()
+        message_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = conn.execute(
+                "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                "AND status = 'active'",
+                (group_id, user_id),
+            ).fetchone()
+            if body.scope != "managers" and not admin and member is None:
+                raise HTTPException(status_code=403, detail="Not a member of this group")
+
+            if body.scope == "users":
+                wanted = {sub for sub in body.recipient_subs if sub}
+                if not wanted:
+                    raise HTTPException(status_code=400, detail="Choose at least one recipient")
+                rows = conn.execute(
+                    "SELECT user_sub FROM group_members WHERE group_id = ? "
+                    "AND status = 'active' AND user_sub IN ("
+                    + ",".join("?" for _ in wanted) + ")",
+                    (group_id, *sorted(wanted)),
+                ).fetchall()
+                recipients = {str(row["user_sub"]) for row in rows}
+                if not recipients:
+                    raise HTTPException(status_code=400, detail="Recipients are not group members")
+            elif body.scope == "managers":
+                rows = conn.execute(
+                    "SELECT user_sub FROM group_members WHERE group_id = ? "
+                    "AND status = 'active' AND role = 'manager'",
+                    (group_id,),
+                ).fetchall()
+                recipients = {str(row["user_sub"]) for row in rows}
+            else:
+                rows = conn.execute(
+                    "SELECT user_sub FROM group_members WHERE group_id = ? "
+                    "AND status = 'active'",
+                    (group_id,),
+                ).fetchall()
+                recipients = {str(row["user_sub"]) for row in rows}
+
+            conn.execute(
+                "INSERT INTO messages "
+                "(id,group_id,sender_sub,scope,subject,body,created_at) VALUES (?,?,?,?,?,?,?)",
+                (message_id, group_id, user_id, body.scope, subject, text, now),
+            )
+            for recipient in sorted(recipients):
+                conn.execute(
+                    "INSERT OR IGNORE INTO message_recipients "
+                    "(message_id,user_sub,read_at) VALUES (?,?,NULL)",
+                    (message_id, recipient),
+                )
+            row = conn.execute(
+                "SELECT m.*, gm.display_name AS sender_name, "
+                "(SELECT COUNT(*) FROM message_recipients r "
+                " WHERE r.message_id = m.id) AS recipient_count "
+                "FROM messages m LEFT JOIN group_members gm ON gm.group_id = m.group_id "
+                "AND gm.user_sub = m.sender_sub WHERE m.id = ?",
+                (message_id,),
+            ).fetchone()
+        return {
+            "id": row["id"],
+            "group_id": row["group_id"],
+            "sender_sub": row["sender_sub"],
+            "sender_name": row["sender_name"] or row["sender_sub"][:8],
+            "scope": row["scope"],
+            "subject": row["subject"],
+            "body": row["body"],
+            "created_at": row["created_at"],
+            "my_read_at": None,
+            "recipient_count": row["recipient_count"],
+            "is_sender": True,
+        }
+
+    @app.post("/api/v1/messages/{message_id}/read")
+    def mark_message_read(
+        message_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, bool]:
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            message = conn.execute(
+                "SELECT 1 FROM messages WHERE id = ?", (message_id,)
+            ).fetchone()
+            if message is None:
+                raise HTTPException(status_code=404, detail="Message not found")
+            updated = conn.execute(
+                "UPDATE message_recipients SET read_at = ? "
+                "WHERE message_id = ? AND user_sub = ? AND read_at IS NULL",
+                (utcnow(), message_id, user_id),
+            ).rowcount
+            if not updated:
+                exists = conn.execute(
+                    "SELECT 1 FROM message_recipients WHERE message_id = ? AND user_sub = ?",
+                    (message_id, user_id),
+                ).fetchone()
+                if exists is None:
+                    raise HTTPException(status_code=404, detail="Message not found")
+        return {"ok": True}
 
     @app.post("/api/v1/events", status_code=201)
     def create_event(
@@ -1674,9 +1980,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-
-
-
-
 
 

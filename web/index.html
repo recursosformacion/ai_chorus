@@ -4,6 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#243b35">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <meta property="og:title" content="Chorus · Tu espacio musical">
+  <meta property="og:description" content="Trabaja con partituras, grupos y comunicados en Chorus, el área de trabajo de OSAP.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/favicon.svg">
+  <meta name="twitter:card" content="summary">
   <meta name="description" content="Chorus — tu espacio personal para trabajar con partituras y música.">
   <title>Chorus · Tu espacio musical</title>
   <link rel="stylesheet" href="/styles.css?v=0.6.0">
@@ -134,12 +140,30 @@
           </article>
 
           <article class="card announcements-card" id="dashboard-comunicados">
-            <div class="card-head"><div><p class="eyebrow">COMUNICADOS</p><h2>Lo último del grupo</h2></div></div>
-            <div class="empty-state">
+            <div class="card-head"><div><p class="eyebrow" data-msg="eyebrow">COMUNICADOS</p><h2 data-msg="title">Mensajes del grupo</h2></div><span id="msg-unread" data-msg="unread" class="badge badge-muted">0 sin leer</span></div>
+            <div id="msg-content" class="hidden">
+              <div class="msg-toolbar">
+                <label><span data-msg="group">Grupo</span><select id="msg-group"></select></label>
+                <button id="msg-new" data-msg="new" class="button button-outline button-small" type="button">Nuevo mensaje</button>
+              </div>
+              <form id="msg-form" class="mini-form hidden">
+                <label><span data-msg="to">Para</span><select id="msg-scope">
+                  <option value="group" data-msg="scope_group">Todo el grupo</option>
+                  <option value="managers" data-msg="scope_managers">Administración del grupo</option>
+                  <option value="users" data-msg="scope_users">Una o varias personas</option>
+                </select></label>
+                <label id="msg-people-wrap" class="hidden"><span data-msg="people">Personas</span><select id="msg-recipients" multiple size="4"></select></label>
+                <label><span data-msg="subject">Asunto</span><input id="msg-subject" type="text" maxlength="160" required></label>
+                <label><span data-msg="body">Mensaje</span><textarea id="msg-body" rows="4" maxlength="8000" required></textarea></label>
+                <button class="button button-primary button-small" data-msg="send" type="submit">Enviar</button>
+              </form>
+              <div id="msg-list"></div>
+              <p id="msg-message" class="message" role="status"></p>
+            </div>
+            <div id="msg-empty" class="empty-state">
               <span class="empty-icon" aria-hidden="true">✉</span>
-              <h2>No hay comunicados</h2>
-              <p class="muted">El tablón del grupo llegará con Chorus 0.3. Mientras tanto, tu biblioteca y tus borradores siguen funcionando.</p>
-              <span class="badge badge-gold">Tablón · próximamente</span>
+              <h2 data-msg="emptyTitle">Sin grupo para comunicados</h2>
+              <p class="muted" data-msg="emptyText">Cuando formes parte de un grupo podrás escribir a su administración, a todo el coro o a personas concretas.</p>
             </div>
           </article>
 
@@ -296,14 +320,4 @@
     </div>
   </div></body>
 </html>
-
-
-
-
-
-
-
-
-
-
 
