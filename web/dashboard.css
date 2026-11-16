@@ -178,3 +178,11 @@
 .dash-group-menu{margin-top:14px;border-top:1px solid var(--line,#e5e5e5);padding-top:10px}
 .dash-group-row{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 0;flex-wrap:wrap}
 .dash-group-row span:first-child{font-weight:600}
+
+.inbox-modal{position:fixed;inset:0;background:rgba(20,30,28,.45);display:flex;align-items:flex-start;justify-content:center;padding:70px 16px;z-index:80}.inbox-panel{width:min(680px,100%);max-height:80vh;overflow:auto;background:#fffdf8;border-radius:14px;border:1px solid #d9d2c3;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.25)}.inbox-modal.hidden{display:none}.inbox-body{white-space:pre-wrap;background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:12px}.inbox-item{display:flex;justify-content:space-between;gap:8px;padding:10px;border-bottom:1px solid #eee;cursor:pointer}.inbox-item.unread{background:#fff8e8}.inbox-item:hover{background:#f6f1e3}#inbox-reply textarea{width:100%;margin:8px 0}
+
+.group-admin-panel{width:min(820px,100%)}.ga-subtitle{margin:16px 0 8px;font-size:15px}.ga-member{display:grid;grid-template-columns:1.2fr repeat(4,1fr) auto;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid #eee}.ga-member strong{font-size:13px}.ga-member select{min-width:0;font-size:12px}.ga-member .button{font-size:12px;padding:4px 6px}@media(max-width:760px){.ga-member{grid-template-columns:1fr 1fr}}
+
+.inbox-directory{margin-top:16px;border-top:1px solid #e5e5e5;padding-top:10px}.inbox-directory h3{font-size:14px;margin:0 0 6px}.inbox-directory-row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
+
+#msg-filters{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}#msg-filters input,#msg-filters select{font-size:12px;padding:4px 6px;border:1px solid #d9d2c3;border-radius:6px;background:#fffdf8}

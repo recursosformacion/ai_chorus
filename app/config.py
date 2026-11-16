@@ -16,6 +16,7 @@ class Settings:
     editor_origin: str = ""
     public_base_url: str = ""
     database_path: str = "var/chorus.sqlite3"
+    database_url: str = ""
     storage_root: str = "var/private"
     cors_origins: tuple[str, ...] = ()
     max_upload_bytes: int = 50 * 1024 * 1024
@@ -76,6 +77,7 @@ class Settings:
             oidc_redirect_uri=oidc_redirect,
             oidc_scope=value("CHORUS_OIDC_SCOPE", auth, "oidc_scope", "openid profile email"),
             database_path=value("CHORUS_DATABASE_PATH", storage, "database_path", "var/chorus.sqlite3"),
+            database_url=value("CHORUS_DATABASE_URL", storage, "database_url"),
             storage_root=value("CHORUS_STORAGE_ROOT", storage, "root", "var/private"),
             cors_origins=cors,
             max_upload_bytes=int(value("CHORUS_MAX_UPLOAD_BYTES", storage, "max_upload_bytes", str(50 * 1024 * 1024))),
@@ -92,3 +94,4 @@ class Settings:
         missing = [name for name, val in (("auth.base_url", self.auth_base_url),) if not val]
         if missing:
             raise RuntimeError("Chorus authentication is not configured: " + ", ".join(missing))
+

@@ -134,6 +134,8 @@
     $("workspace-view").classList.remove("hidden");
     $("logout-button").classList.remove("hidden");
     $("app-nav").classList.remove("hidden");
+    $("inbox-button").classList.remove("hidden");
+    void refreshUnread();
     $("account-label").textContent = profileLabel || "Sesión iniciada";
     const rawName = String(profileLabel || "").split("@")[0].replace(/[._-]+/g, " ").trim();
     const displayName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : "músico";
@@ -234,6 +236,10 @@
         button.className = "button button-outline button-small";
         button.textContent = item.can_manage ? "Gestionar" : "Abrir";
         button.addEventListener("click", () => {
+          if (item.can_manage) {
+            void openGroupAdmin(item);
+            return;
+          }
           messageState.groupId = item.id;
           $("msg-group").value = item.id;
           document.getElementById("dashboard-comunicados").scrollIntoView({
@@ -243,28 +249,18 @@
           void loadMessages();
         });
         row.append(button);
-        if (item.can_manage) {
-          const edit = document.createElement("button");
-          edit.type = "button";
-          edit.className = "button button-quiet button-small";
-          edit.textContent = "Editar";
-          edit.addEventListener("click", async () => {
-            const name = prompt("Nombre del grupo", item.name);
-            if (!name) return;
-            const timezone = prompt("Zona horaria", item.timezone || "Europe/Madrid");
-            if (!timezone) return;
-            try {
-              await request(`/api/v1/groups/${encodeURIComponent(item.id)}`, {
-                method: "PATCH",
-                body: JSON.stringify({ name, timezone }),
-              });
-              await loadAgenda();
-            } catch (error) {
-              showMessage("dash-group-message", error.message, "error");
-            }
-          });
-          row.append(edit);
-        }
+        const messages = document.createElement("button");
+        messages.type = "button";
+        messages.className = "button button-outline button-small";
+        messages.textContent = "Mensajes";
+        messages.addEventListener("click", () => {
+          messageState.groupId = item.id;
+          $("msg-group").value = item.id;
+          $("msg-form").classList.remove("hidden");
+          document.getElementById("dashboard-comunicados").scrollIntoView({ behavior: "smooth" });
+          void loadMessages();
+        });
+        row.append(messages);
         menu.append(row);
       });
       content.append(menu);
@@ -355,7 +351,7 @@
     renderGroupCard();
   }
 
-  let messageState = { groupId: "", messages: [] };
+  let messageState = { groupId: "", messages: [], people: [], catalog: { admin: [], musical: [], section: [] } };
 
   function messageScopeLabel(scope) {
     return msgT("scope_" + scope) || scope;
@@ -389,7 +385,7 @@
       );
       messageState.messages = Array.isArray(rows) ? rows : [];
       renderMessages();
-      await loadMessagePeople();
+      await Promise.all([loadMessagePeople(), loadMessageCatalog()]);
     } catch (error) {
       showMessage("msg-message", error.message, "error");
     }
@@ -442,20 +438,58 @@
     });
   }
 
-  async function loadMessagePeople() {
+  function renderRecipients() {
     const select = $("msg-recipients");
     select.replaceChildren();
+    const term = ($("msg-people-search").value || "").toLowerCase();
+    const admin = $("msg-filter-admin").value;
+    const musical = $("msg-filter-musical").value;
+    const section = $("msg-filter-section").value;
+    messageState.people
+      .filter((member) => !term || String(member.name || "").toLowerCase().includes(term))
+      .filter((member) => !admin || member.admin_role_id === admin)
+      .filter((member) => !musical || member.musical_role_id === musical)
+      .filter((member) => !section || member.section_id === section)
+      .forEach((member) => {
+        const label = `${member.name}${member.role === "manager" ? " (" + msgT("adminShort") + ")" : ""}`;
+        select.append(new Option(label, member.user_sub));
+      });
+  }
+
+  async function loadMessagePeople() {
     if (!messageState.groupId) return;
     try {
       const rows = await request(
         `/api/v1/groups/${encodeURIComponent(messageState.groupId)}/members`,
       );
-      (rows || []).forEach((member) => {
-        const label = `${member.name}${member.role === "manager" ? " (" + msgT("adminShort") + ")" : ""}`;
-        select.append(new Option(label, member.user_sub));
-      });
+      messageState.people = Array.isArray(rows) ? rows : [];
+      renderRecipients();
     } catch (_) {
-      /* el selector queda vacío; el envío a personas se rechazará con un error claro */
+      messageState.people = [];
+    }
+  }
+
+  async function loadMessageCatalog() {
+    if (!messageState.groupId) return;
+    try {
+      const data = await request(
+        `/api/v1/groups/${encodeURIComponent(messageState.groupId)}/catalog`,
+      );
+      messageState.catalog = data || { admin: [], musical: [], section: [] };
+      const filters = [
+        ["admin", "msg-filter-admin", "Cargo"],
+        ["musical", "msg-filter-musical", "Rol musical"],
+        ["section", "msg-filter-section", "Sección"],
+      ];
+      for (const [scope, id, empty] of filters) {
+        const select = $(id);
+        select.replaceChildren(new Option(empty, ""));
+        (messageState.catalog[scope] || []).forEach((item) => {
+          select.append(new Option(item.name, item.id || ""));
+        });
+      }
+    } catch (_) {
+      /* sin catálogo */
     }
   }
 
@@ -508,6 +542,199 @@
     }
   }
 
+  let inboxCurrent = null;
+
+  async function refreshUnread() {
+    try {
+      const data = await request("/api/v1/messages/unread-count");
+      const count = Number(data.count || 0);
+      $("inbox-count").textContent = String(count);
+      $("inbox-button").classList.toggle("badge-gold", count > 0);
+    } catch (_) {
+      /* silencioso */
+    }
+  }
+
+  async function openInbox() {
+    $("inbox-modal").classList.remove("hidden");
+    $("inbox-detail").classList.add("hidden");
+    $("inbox-list").classList.remove("hidden");
+    try {
+      const rows = await request("/api/v1/messages/inbox");
+      const list = $("inbox-list");
+      list.replaceChildren();
+      if (!rows.length) {
+        const p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = "No tienes mensajes.";
+        list.append(p);
+        return;
+      }
+      rows.forEach((row) => {
+        const item = document.createElement("div");
+        item.className = "inbox-item" + (row.my_read_at || row.is_sender ? "" : " unread");
+        const left = document.createElement("div");
+        const subject = document.createElement("strong");
+        subject.textContent = `${row.subject} · ${row.group_name}`;
+        const meta = document.createElement("p");
+        meta.className = "muted";
+        meta.textContent = row.created_at;
+        left.append(subject, meta);
+        item.append(left);
+        item.addEventListener("click", () => void openInboxMessage(row.id));
+        list.append(item);
+      });
+    } catch (error) {
+      showMessage("inbox-message", error.message, "error");
+    }
+  }
+
+  async function openInboxMessage(messageId) {
+    try {
+      const row = await request(`/api/v1/messages/${encodeURIComponent(messageId)}`);
+      inboxCurrent = row;
+      $("inbox-list").classList.add("hidden");
+      $("inbox-detail").classList.remove("hidden");
+      $("inbox-subject").textContent = `${row.subject} · ${row.group_name}`;
+      $("inbox-meta").textContent = `${row.sender_sub} · ${row.created_at}`;
+      $("inbox-body").textContent = row.body;
+      $("inbox-reply-body").value = "";
+      await request(`/api/v1/messages/${encodeURIComponent(messageId)}/read`, { method: "POST" });
+      await refreshUnread();
+    } catch (error) {
+      showMessage("inbox-message", error.message, "error");
+    }
+  }
+
+  async function sendInboxReply(event) {
+    event.preventDefault();
+    if (!inboxCurrent) return;
+    const text = $("inbox-reply-body").value.trim();
+    if (!text) return;
+    try {
+      await request(`/api/v1/messages/${encodeURIComponent(inboxCurrent.id)}/reply`, {
+        method: "POST",
+        body: JSON.stringify({ body: text }),
+      });
+      $("inbox-reply-body").value = "";
+      showMessage("inbox-message", "Respuesta enviada.", "success");
+      await openInbox();
+    } catch (error) {
+      showMessage("inbox-message", error.message, "error");
+    }
+  }
+  let groupAdminState = { group: null, catalog: { admin: [], musical: [], section: [] }, members: [] };
+
+  function _options(items, selected, empty) {
+    const fragment = document.createDocumentFragment();
+    fragment.append(new Option(empty, ""));
+    (items || []).forEach((item) => {
+      fragment.append(new Option(item.name, item.id || "", false, item.id === selected));
+    });
+    return fragment;
+  }
+
+  async function openGroupAdmin(item) {
+    groupAdminState.group = item;
+    $("group-admin-modal").classList.remove("hidden");
+    $("ga-title").textContent = item.name;
+    $("ga-name").value = item.name;
+    $("ga-timezone").value = item.timezone || "Europe/Madrid";
+    try {
+      const [catalog, members] = await Promise.all([
+        request(`/api/v1/groups/${encodeURIComponent(item.id)}/catalog`).catch(() => ({
+          admin: [], musical: [], section: [],
+        })),
+        request(`/api/v1/groups/${encodeURIComponent(item.id)}/members`),
+      ]);
+      groupAdminState.catalog = catalog || { admin: [], musical: [], section: [] };
+      groupAdminState.members = Array.isArray(members) ? members : [];
+      renderGroupMembers();
+    } catch (error) {
+      showMessage("ga-message", error.message, "error");
+    }
+  }
+
+  function renderGroupMembers() {
+    const container = $("ga-members");
+    container.replaceChildren();
+    const catalog = groupAdminState.catalog;
+    groupAdminState.members.forEach((member) => {
+      const row = document.createElement("div");
+      row.className = "ga-member";
+      const name = document.createElement("strong");
+      name.textContent = member.name || member.user_sub;
+      const role = document.createElement("select");
+      role.append(new Option("Miembro", "member", false, member.role === "member"));
+      role.append(new Option("Gestor", "manager", false, member.role === "manager"));
+      const admin = document.createElement("select");
+      admin.append(_options(catalog.admin, member.admin_role_id, "Cargo"));
+      const musical = document.createElement("select");
+      musical.append(_options(catalog.musical, member.musical_role_id, "Rol musical"));
+      const section = document.createElement("select");
+      section.append(_options(catalog.section, member.section_id, "Sección"));
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "button button-primary button-small";
+      save.textContent = "Guardar";
+      save.addEventListener("click", async () => {
+        try {
+          await request(
+            `/api/v1/groups/${encodeURIComponent(groupAdminState.group.id)}/members/${encodeURIComponent(member.user_sub)}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                role: role.value,
+                admin_role_id: admin.value || null,
+                musical_role_id: musical.value || null,
+                section_id: section.value || null,
+              }),
+            },
+          );
+          showMessage("ga-message", "Miembro actualizado.", "success");
+          await openGroupAdmin(groupAdminState.group);
+        } catch (error) {
+          showMessage("ga-message", error.message, "error");
+        }
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button button-quiet button-small";
+      remove.textContent = "Quitar";
+      remove.addEventListener("click", async () => {
+        if (!confirm(`¿Dar de baja a ${member.name || member.user_sub}?`)) return;
+        try {
+          await request(
+            `/api/v1/groups/${encodeURIComponent(groupAdminState.group.id)}/members/${encodeURIComponent(member.user_sub)}`,
+            { method: "DELETE" },
+          );
+          await openGroupAdmin(groupAdminState.group);
+        } catch (error) {
+          showMessage("ga-message", error.message, "error");
+        }
+      });
+      row.append(name, role, admin, musical, section, save, remove);
+      container.append(row);
+    });
+  }
+
+  async function saveGroupData(event) {
+    event.preventDefault();
+    if (!groupAdminState.group) return;
+    try {
+      await request(`/api/v1/groups/${encodeURIComponent(groupAdminState.group.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: $("ga-name").value.trim(),
+          timezone: $("ga-timezone").value.trim(),
+        }),
+      });
+      showMessage("ga-message", "Datos del grupo guardados.", "success");
+      await loadAgenda();
+    } catch (error) {
+      showMessage("ga-message", error.message, "error");
+    }
+  }
   async function setRsvp(eventId, status, button) {
     setBusy(button, true, "Guardando…");
     try {
@@ -1154,6 +1381,12 @@
     } catch(error) { showMessage("dash-event-message",error.message,"error"); }
     finally { setBusy(button,false); }
   });
+  $("inbox-button").addEventListener("click",()=>{void openInbox();});
+  $("inbox-close").addEventListener("click",()=>{$("inbox-modal").classList.add("hidden");});
+  $("inbox-reply").addEventListener("submit",(event)=>{void sendInboxReply(event);});
+  $("ga-close").addEventListener("click",()=>{$("group-admin-modal").classList.add("hidden");});
+  $("ga-edit-form").addEventListener("submit",(event)=>{void saveGroupData(event);});
+
   $("msg-new").addEventListener("click",()=>{
     $("msg-form").classList.toggle("hidden");
     $("msg-scope").value="group";
@@ -1166,7 +1399,13 @@
     void loadMessages();
   });
   $("msg-scope").addEventListener("change",()=>{
-    $("msg-people-wrap").classList.toggle("hidden",$("msg-scope").value!=="users");
+    const people = $("msg-scope").value === "users";
+    $("msg-people-wrap").classList.toggle("hidden", !people);
+    $("msg-filters").classList.toggle("hidden", !people);
+  });
+  ["msg-people-search", "msg-filter-admin", "msg-filter-musical", "msg-filter-section"].forEach((id) => {
+    $(id).addEventListener("input", renderRecipients);
+    $(id).addEventListener("change", renderRecipients);
   });
   $("msg-form").addEventListener("submit",(event)=>{void sendMessage(event);});
   applyMessageI18n();
@@ -1218,5 +1457,13 @@
     });
   }
 })();
+
+
+
+
+
+
+
+
 
 

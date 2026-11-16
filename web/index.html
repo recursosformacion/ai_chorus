@@ -26,10 +26,39 @@
       <a href="#dashboard-repertorio">Repertorio</a>
       <a href="#dashboard-comunicados">Comunicados</a>
       <a href="#library-section">Biblioteca</a>
+      <a href="/alta.html">Solicitar alta</a>
     </nav>
-    <div class="topbar-right"><span id="account-label" class="account-label"></span><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
+    <div class="topbar-right"><button id="inbox-button" class="button button-quiet hidden" type="button" aria-label="Mensajes">✉ <span id="inbox-count">0</span></button><span id="account-label" class="account-label"></span><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
   </header>
 
+  <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
+    <div class="inbox-panel">
+      <div class="card-head"><h2>Mensajes</h2><button id="inbox-close" class="button button-quiet" type="button">Cerrar</button></div>
+      <div id="inbox-list"></div>
+      <div id="inbox-directory" class="inbox-directory"></div>
+      <div id="inbox-detail" class="hidden">
+        <p id="inbox-subject" class="eyebrow"></p>
+        <p id="inbox-meta" class="muted"></p>
+        <p id="inbox-body" class="inbox-body"></p>
+        <form id="inbox-reply"><textarea id="inbox-reply-body" rows="4" required placeholder="Escribe una respuesta…"></textarea><button class="button button-primary button-small" type="submit">Responder</button></form>
+        <p id="inbox-message" class="message" role="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="group-admin-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
+    <div class="inbox-panel group-admin-panel">
+      <div class="card-head"><h2 id="ga-title">Grupo</h2><button id="ga-close" class="button button-quiet" type="button">Cerrar</button></div>
+      <form id="ga-edit-form" class="mini-form">
+        <label>Nombre<input id="ga-name" maxlength="120" required></label>
+        <label>Zona horaria<input id="ga-timezone" maxlength="80" required></label>
+        <button class="button button-primary button-small" type="submit">Guardar datos</button>
+      </form>
+      <h3 class="ga-subtitle">Miembros</h3>
+      <div id="ga-members"></div>
+      <p id="ga-message" class="message" role="status"></p>
+    </div>
+  </div>
   <main class="shell">
     <section id="login-view" class="login-layout">
       <div class="intro">
@@ -152,6 +181,12 @@
                   <option value="managers" data-msg="scope_managers">Administración del grupo</option>
                   <option value="users" data-msg="scope_users">Una o varias personas</option>
                 </select></label>
+                <div id="msg-filters" class="hidden">
+                  <input id="msg-people-search" type="search" placeholder="Buscar por nombre">
+                  <select id="msg-filter-admin"><option value="">Cargo</option></select>
+                  <select id="msg-filter-musical"><option value="">Rol musical</option></select>
+                  <select id="msg-filter-section"><option value="">Sección</option></select>
+                </div>
                 <label id="msg-people-wrap" class="hidden"><span data-msg="people">Personas</span><select id="msg-recipients" multiple size="4"></select></label>
                 <label><span data-msg="subject">Asunto</span><input id="msg-subject" type="text" maxlength="160" required></label>
                 <label><span data-msg="body">Mensaje</span><textarea id="msg-body" rows="4" maxlength="8000" required></textarea></label>
@@ -320,4 +355,9 @@
     </div>
   </div></body>
 </html>
+
+
+
+
+
 
