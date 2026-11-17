@@ -24,60 +24,63 @@
       <a href="#dashboard">Inicio</a>
       <a href="#dashboard-agenda">Agenda</a>
       <a href="#dashboard-repertorio">Repertorio</a>
-      <a href="#dashboard-comunicados">Comunicados</a>
       <a href="#library-section">Biblioteca</a>
       <a href="/alta.html">Solicitar alta</a>
     </nav>
     <div class="topbar-right"><button id="inbox-button" class="button button-quiet hidden" type="button" aria-label="Mensajes">✉ <span id="inbox-count">0</span></button><span id="account-label" class="account-label"></span><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
   </header>
 
-  <div id="agenda-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
-    <div class="inbox-panel agenda-panel">
-      <div class="card-head">
-        <h2>Agenda: Calendario Musical y Citas</h2>
-        <button id="agenda-close" class="button button-quiet" type="button">Cerrar</button>
+  <div id="agenda-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="agenda-title">
+    <div class="inbox-panel agenda-panel agenda-overview-panel">
+      <div class="card-head messages-head agenda-head">
+        <h2 id="agenda-title">AGENDA</h2>
+        <div class="agenda-head-right">
+          <span id="agenda-week-badge" class="agenda-week-badge">Próxima Semana: 0 eventos</span>
+          <button id="agenda-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
+        </div>
       </div>
-      <div class="agenda-toolbar">
-        <button id="agenda-prev" class="button button-outline button-small" type="button">←</button>
-        <strong id="agenda-month">Noviembre 2026</strong>
-        <button id="agenda-next" class="button button-outline button-small" type="button">→</button>
-        <button id="agenda-new" class="button button-primary button-small" type="button">+ Nueva cita / Evento</button>
-      </div>
-      <div id="agenda-filters" class="agenda-filters"></div>
-      <div class="agenda-body">
-        <div id="agenda-calendar" class="agenda-calendar"></div>
-        <section class="agenda-day">
-          <h3 id="agenda-day-title">Eventos del día</h3>
-          <div id="agenda-day-events"></div>
-        </section>
+      <div id="agenda-upcoming" class="agenda-upcoming"></div>
+      <div class="agenda-footer">
+        <button id="agenda-new" class="button button-outline" type="button">Añadir evento</button>
       </div>
     </div>
   </div>
-  <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
+  <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="inbox-title">
     <div class="inbox-panel messages-workspace">
       <div class="card-head messages-head">
-        <div><p class="eyebrow">CHORUS</p><h2>Mensajes</h2></div>
-        <div><button id="inbox-expand" class="button button-quiet" type="button">Ampliar</button><button id="inbox-close" class="button button-quiet" type="button">Cerrar</button></div>
+        <h2 id="inbox-title">Gestor de Comunicaciones Internas</h2>
+        <button id="inbox-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
       </div>
       <div class="messages-grid">
         <aside class="messages-nav">
-          <button class="mailbox-tab active" data-mailbox="inbox" type="button">Bandeja de entrada</button>
-          <button class="mailbox-tab" data-mailbox="sent" type="button">Enviados</button>
-          <button id="messages-new" class="button button-primary button-small" type="button">Nuevo mensaje</button>
-          <p class="eyebrow messages-nav-title">Mis grupos</p>
-          <div id="messages-groups"></div>
+          <button id="messages-new" class="messages-new" type="button"><span aria-hidden="true">✎</span> Nuevo mensaje</button>
+          <nav class="mailbox-tabs" aria-label="Carpetas">
+            <button class="mailbox-tab active" data-mailbox="inbox" type="button"><span class="mailbox-icon" aria-hidden="true">▤</span><span>Bandeja de Entrada</span><span id="mailbox-unread" class="mailbox-count"></span></button>
+            <button class="mailbox-tab" data-mailbox="sent" type="button"><span class="mailbox-icon" aria-hidden="true">➤</span><span>Enviados</span></button>
+            <button class="mailbox-tab" data-mailbox="support" type="button"><span class="mailbox-icon" aria-hidden="true">◎</span><span>Soporte / Admin de Chorus</span></button>
+          </nav>
+          <div class="messages-groups-head"><span class="eyebrow messages-nav-title">Mis Grupos</span><span class="messages-groups-chevron" aria-hidden="true">⌄</span></div>
+          <div id="messages-groups" class="messages-groups"></div>
         </aside>
-        <section class="messages-list-column">
-          <div id="inbox-list"></div>
-          <div id="inbox-directory" class="inbox-directory"></div>
-        </section>
         <section class="messages-main-column">
-          <div id="inbox-compose"></div>
+          <div id="inbox-list" class="inbox-list"></div>
+          <div id="inbox-directory" class="inbox-directory hidden"></div>
+          <div id="inbox-compose" class="inbox-compose hidden"></div>
           <div id="inbox-detail" class="hidden">
-            <p id="inbox-subject" class="eyebrow"></p>
-            <p id="inbox-meta" class="muted"></p>
-            <p id="inbox-body" class="inbox-body"></p>
-            <form id="inbox-reply"><textarea id="inbox-reply-body" rows="4" required placeholder="Escribe una respuesta…"></textarea><button class="button button-primary button-small" type="submit">Responder</button></form>
+            <section class="message-summary">
+              <button id="inbox-back" class="inbox-back" type="button">← Volver a la bandeja</button>
+              <p><span>Asunto:</span> <strong id="inbox-subject"></strong></p>
+              <p><span>Participantes:</span> <span id="inbox-participants"></span></p>
+            </section>
+            <div id="inbox-thread" class="inbox-thread"></div>
+            <form id="inbox-reply" class="inbox-composer">
+              <div class="composer-to"><span class="composer-label">Para:</span><div id="inbox-recipients" class="composer-chips"></div></div>
+              <textarea id="inbox-reply-body" rows="4" required placeholder="Escribe tu respuesta aquí…"></textarea>
+              <div class="composer-actions">
+                <button id="inbox-reply-sender" class="button button-outline" type="button">Responder solo al remitente</button>
+                <button class="button button-primary" type="submit">Responder a todos</button>
+              </div>
+            </form>
             <p id="inbox-message" class="message" role="status"></p>
           </div>
         </section>
@@ -124,7 +127,7 @@
         <div class="cover-hero">
           <div class="hero-copy">
             <p class="eyebrow">TU ESPACIO EN CHORUS</p>
-            <h1>Hola, <span id="dash-name">músico</span>.<br><em>Todo tu grupo, en orden.</em></h1>
+            <h1><span id="dash-avatar" class="hero-avatar">M</span> Hola, <span id="dash-name">músico</span>.<br><em>Todo tu grupo, en orden.</em></h1>
             <p class="lead">Agenda, repertorio y avisos en un mismo sitio. Tu biblioteca sigue aquí abajo, cuando la necesites.</p>
             <div class="hero-meta">
               <span class="meta-pill"><strong id="dash-library-count">0</strong> en biblioteca</span>
@@ -206,6 +209,7 @@
           <article class="card repertoire-card" id="dashboard-repertorio">
             <div class="card-head">
               <div><p class="eyebrow">REPERTORIO</p><h2>Lo que estamos preparando</h2></div>
+              <button id="repertoire-add" class="button button-primary button-small" type="button">Añadir obra</button>
               <a class="text-link" href="#library-section">Abrir biblioteca <span aria-hidden="true">→</span></a>
             </div>
             <div class="empty-state">
@@ -251,6 +255,19 @@
 
           <article class="card profile-card" id="perfil">
             <div class="card-head"><div><p class="eyebrow">MI FICHA</p><h2>Cómo participas y cómo te avisamos</h2></div></div>
+            <div class="avatar-editor">
+              <span class="avatar-editor-preview" id="profile-avatar-preview">M</span>
+              <div class="avatar-editor-copy">
+                <strong>Foto de perfil</strong>
+                <small>JPG, PNG o WebP. Se recorta a un cuadrado de 256 px.</small>
+                <div class="avatar-editor-actions">
+                  <label class="button button-outline button-small" for="avatar-file">Subir foto</label>
+                  <input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+                  <button class="button button-quiet button-small" type="button" id="avatar-remove">Quitar</button>
+                </div>
+                <p id="avatar-message" class="message" role="status"></p>
+              </div>
+            </div>
             <div class="voice-row">
               <div><span class="fact-label">Voz / instrumento</span><strong>Sin asignar</strong></div>
               <div><span class="fact-label">Sección</span><strong>Sin asignar</strong></div>
@@ -426,18 +443,3 @@
     </div>
   </div></body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

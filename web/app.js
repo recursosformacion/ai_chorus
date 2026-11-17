@@ -69,6 +69,8 @@
   let accessToken = null;
   let currentDraft = null;
   let lastResults = [];
+  let profileAvatarUrl = null;
+  let profileAvatarInitials = "M";
 
   function showMessage(id, message, kind = "") {
     const el = $(id);
@@ -129,7 +131,13 @@
       return false;
     }
   }
-  function showWorkspace(profileLabel) {
+  function paintAvatar(el, initials, url) {
+    if (!el) return;
+    el.classList.toggle("has-image", Boolean(url));
+    el.textContent = url ? "" : initials;
+    el.style.backgroundImage = url ? `url("${url}")` : "";
+  }
+  function showWorkspace(profileLabel, profile) {
     $("login-view").classList.add("hidden");
     $("workspace-view").classList.remove("hidden");
     $("logout-button").classList.remove("hidden");
@@ -138,10 +146,21 @@
     void refreshUnread();
     void loadMaterialTree();
     void loadMaterialGroups();
-    $("account-label").textContent = profileLabel || "Sesión iniciada";
     const rawName = String(profileLabel || "").split("@")[0].replace(/[._-]+/g, " ").trim();
     const displayName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : "músico";
+    const parts = rawName.split(/\s+/).filter(Boolean);
+    const initials = parts.length > 1
+      ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      : (parts[0] || "M").slice(0, 2).toUpperCase();
+    profileAvatarUrl = profile && profile.avatar_url ? profile.avatar_url : null;
+    profileAvatarInitials = initials;
+    const avatar = document.createElement("span");
+    avatar.className = "account-avatar";
+    paintAvatar(avatar, initials, profileAvatarUrl);
+    $("account-label").replaceChildren(avatar, document.createTextNode(displayName));
     if ($("dash-name")) $("dash-name").textContent = displayName;
+    if ($("dash-avatar")) paintAvatar($("dash-avatar"), initials, profileAvatarUrl);
+    if ($("profile-avatar-preview")) paintAvatar($("profile-avatar-preview"), initials, profileAvatarUrl);
     refreshLibrary().catch(()=>{});
     loadAgenda().catch(()=>{});
   }
@@ -573,6 +592,10 @@
   }
 
   let inboxCurrent = null;
+  let mailboxMode = "inbox";
+  let mailboxGroupId = "";
+  let inboxRows = [];
+  const inboxMemberNames = new Map();
 
   async function refreshUnread() {
     try {
@@ -585,8 +608,66 @@
     }
   }
 
-  let mailboxMode = "inbox";
-  let inboxRows = [];
+  function inboxInitials(name) {
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "A";
+    if (parts.length === 1) return parts[0].slice(0, 2);
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`;
+  }
+
+  function memberName(groupId, sub) {
+    const map = inboxMemberNames.get(String(groupId || ""));
+    return (map && map.get(String(sub || ""))) || "";
+  }
+
+  function senderLabel(row) {
+    if (row.is_sender) return "Tú";
+    return memberName(row.group_id, row.sender_sub) || "Administración del grupo";
+  }
+
+  function formatMessageTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const now = new Date();
+    if (date.toDateString() === now.toDateString()) {
+      return date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    }
+    return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }).format(date);
+  }
+
+  async function loadInboxMemberNames(rows) {
+    const groupIds = [...new Set(rows.map((row) => String(row.group_id || "")).filter(Boolean))];
+    await Promise.all(groupIds.map(async (groupId) => {
+      if (inboxMemberNames.has(groupId)) return;
+      try {
+        const members = await request(`/api/v1/groups/${encodeURIComponent(groupId)}/members`);
+        const map = new Map();
+        (Array.isArray(members) ? members : []).forEach((member) => {
+          map.set(String(member.user_sub), member.name || String(member.user_sub).slice(0, 8));
+        });
+        inboxMemberNames.set(groupId, map);
+      } catch (_) {
+        inboxMemberNames.set(groupId, new Map());
+      }
+    }));
+  }
+
+  async function loadInboxRows() {
+    const rows = await request("/api/v1/messages/inbox");
+    const seen = new Set();
+    inboxRows = (Array.isArray(rows) ? rows : []).filter((row) => {
+      if (!row || seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    });
+    await loadInboxMemberNames(inboxRows);
+  }
+
+  function setMailboxTab(mode) {
+    document.querySelectorAll(".mailbox-tab").forEach((tab) => {
+      tab.classList.toggle("active", tab.dataset.mailbox === mode);
+    });
+  }
 
   function renderMailboxGroups() {
     const container = $("messages-groups");
@@ -594,40 +675,137 @@
     (agendaState.groups || []).forEach((group) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "messages-group-button";
-      button.textContent = group.name;
+      button.className = "messages-group-card" + (
+        mailboxMode === "group" && String(mailboxGroupId) === String(group.id) ? " active" : ""
+      );
+      const avatar = document.createElement("span");
+      avatar.className = "messages-group-avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = inboxInitials(group.name);
+      const copy = document.createElement("span");
+      copy.className = "messages-group-copy";
+      const name = document.createElement("strong");
+      name.textContent = group.name;
+      const subtitle = document.createElement("small");
+      subtitle.textContent = group.role === "manager" ? "Gestión del grupo" : "Mensajes del grupo";
+      copy.append(name, subtitle);
+      const badge = document.createElement("span");
+      badge.className = "messages-group-active";
+      badge.textContent = "active";
+      button.append(avatar, copy, badge);
       button.addEventListener("click", () => {
+        mailboxMode = "group";
+        mailboxGroupId = group.id;
         messageState.groupId = group.id;
-        void openInbox(true);
+        setMailboxTab("");
+        void openInbox(false);
       });
       container.append(button);
     });
   }
 
+  function renderSupportPanel(list) {
+    const panel = document.createElement("div");
+    panel.className = "support-panel";
+    const title = document.createElement("h3");
+    title.textContent = "Soporte / Admin de Chorus";
+    const text = document.createElement("p");
+    text.textContent = "Escribe directamente a la administración de tus grupos. Te responderán en la bandeja de entrada.";
+    panel.append(title, text);
+    const groups = agendaState.groups || [];
+    if (!groups.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "Todavía no perteneces a ningún grupo.";
+      panel.append(empty);
+    }
+    groups.forEach((group) => {
+      const card = document.createElement("div");
+      card.className = "support-group";
+      const copy = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = group.name;
+      const subtitle = document.createElement("small");
+      subtitle.textContent = "Administración y gestores del grupo";
+      copy.append(name, subtitle);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button button-outline button-small";
+      button.textContent = "Escribir a los gestores";
+      button.addEventListener("click", () => {
+        messageState.groupId = group.id;
+        mailboxMode = "inbox";
+        setMailboxTab("inbox");
+        void openInbox(true);
+        $("msg-scope").value = "managers";
+        $("msg-people-wrap").classList.add("hidden");
+        $("msg-filters").classList.add("hidden");
+      });
+      card.append(copy, button);
+      panel.append(card);
+    });
+    list.append(panel);
+  }
+
   function renderInboxRows() {
     const list = $("inbox-list");
     list.replaceChildren();
-    const rows = inboxRows.filter((row) =>
-      mailboxMode === "sent" ? row.is_sender : !row.is_sender,
-    );
+    const unread = inboxRows.filter((row) => !row.is_sender && !row.my_read_at).length;
+    const count = $("mailbox-unread");
+    if (count) {
+      count.textContent = unread ? `(${unread} no ${unread === 1 ? "leído" : "leídos"})` : "";
+    }
+    if (mailboxMode === "support") {
+      renderSupportPanel(list);
+      return;
+    }
+    let rows = inboxRows.slice();
+    if (mailboxMode === "sent") rows = rows.filter((row) => row.is_sender);
+    else if (mailboxMode === "group") rows = rows.filter((row) => String(row.group_id) === String(mailboxGroupId));
+    else rows = rows.filter((row) => !row.is_sender);
     if (!rows.length) {
-      const p = document.createElement("p");
-      p.className = "muted";
-      p.textContent = mailboxMode === "sent" ? "No has enviado mensajes." : "No tienes mensajes.";
-      list.append(p);
+      const empty = document.createElement("p");
+      empty.className = "inbox-empty";
+      empty.textContent = mailboxMode === "sent"
+        ? "No has enviado mensajes."
+        : mailboxMode === "group"
+          ? "No hay mensajes en este grupo."
+          : "No tienes mensajes.";
+      list.append(empty);
       return;
     }
     rows.forEach((row) => {
-      const item = document.createElement("div");
-      item.className = "inbox-item" + (row.my_read_at || row.is_sender ? "" : " unread");
-      const left = document.createElement("div");
-      const subject = document.createElement("strong");
-      subject.textContent = `${row.subject} · ${row.group_name}`;
-      const meta = document.createElement("p");
-      meta.className = "muted";
-      meta.textContent = formatEventDate(row.created_at);
-      left.append(subject, meta);
-      item.append(left);
+      const unreadRow = !row.my_read_at && !row.is_sender;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "inbox-item" + (unreadRow ? " unread" : "");
+      const avatar = document.createElement("span");
+      avatar.className = "inbox-avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = inboxInitials(senderLabel(row));
+      const main = document.createElement("span");
+      main.className = "inbox-item-main";
+      const top = document.createElement("span");
+      top.className = "inbox-item-top";
+      const from = document.createElement("strong");
+      from.textContent = senderLabel(row);
+      const time = document.createElement("span");
+      time.className = "inbox-time";
+      time.textContent = formatMessageTime(row.created_at);
+      top.append(from, time);
+      const subject = document.createElement("span");
+      subject.className = "inbox-subject";
+      subject.textContent = row.subject;
+      const snippet = document.createElement("span");
+      snippet.className = "inbox-snippet";
+      snippet.textContent = `${row.group_name ? row.group_name + " · " : ""}${row.body || ""}`;
+      main.append(top, subject, snippet);
+      item.append(avatar, main);
+      if (unreadRow) {
+        const dot = document.createElement("span");
+        dot.className = "inbox-unread-dot";
+        dot.setAttribute("aria-hidden", "true");
+        item.append(dot);
+      }
       item.addEventListener("click", () => void openInboxMessage(row.id));
       list.append(item);
     });
@@ -636,60 +814,152 @@
   async function openInbox(showCompose = false) {
     $("inbox-modal").classList.remove("hidden");
     $("inbox-detail").classList.add("hidden");
-    renderMailboxGroups();
-    $("inbox-list").classList.toggle("hidden", showCompose);
-    $("inbox-directory").classList.toggle("hidden", showCompose);
-    $("msg-content").classList.toggle("hidden", !showCompose);
+    $("inbox-compose").classList.add("hidden");
     if (showCompose) {
       if (!messageState.groupId) {
         const first = (agendaState.groups || [])[0];
         if (first) messageState.groupId = first.id;
       }
+      $("inbox-list").classList.add("hidden");
+      $("inbox-compose").classList.remove("hidden");
+      $("msg-content").classList.remove("hidden");
       $("msg-form").classList.remove("hidden");
+      renderMailboxGroups();
       void loadMessages();
       $("msg-subject").focus();
       return;
     }
+    $("inbox-list").classList.remove("hidden");
     try {
-      inboxRows = await request("/api/v1/messages/inbox");
+      await loadInboxRows();
       renderInboxRows();
-      void loadInboxDirectory();
+      renderMailboxGroups();
     } catch (error) {
-      showMessage("inbox-message", error.message, "error");
+      const list = $("inbox-list");
+      list.replaceChildren();
+      const empty = document.createElement("p");
+      empty.className = "inbox-empty";
+      empty.textContent = error.message;
+      list.append(empty);
     }
   }
+
+  function normalizeMessageSubject(value) {
+    return String(value || "").replace(/^(re|fw|fwd)\s*:\s*/gi, "").trim().toLowerCase();
+  }
+
+  function threadRowsFor(row) {
+    const base = normalizeMessageSubject(row.subject);
+    const rows = inboxRows.filter(
+      (item) => String(item.group_id) === String(row.group_id)
+        && normalizeMessageSubject(item.subject) === base,
+    );
+    if (!rows.some((item) => item.id === row.id)) rows.push(row);
+    return rows.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  }
+
+  function renderReplyTargets(row) {
+    const chips = $("inbox-recipients");
+    chips.replaceChildren();
+    const add = (text) => {
+      const chip = document.createElement("span");
+      chip.className = "composer-chip";
+      chip.textContent = text;
+      chips.append(chip);
+    };
+    if (!row.is_sender) add(senderLabel(row));
+    if (row.scope === "group") add(`Grupo: ${row.group_name} (Todos)`);
+    else if (row.scope === "managers") add(`Gestores: ${row.group_name}`);
+    else {
+      const subs = Array.isArray(row.recipient_subs) ? row.recipient_subs : [];
+      const names = subs
+        .filter((sub) => sub !== row.sender_sub)
+        .map((sub) => memberName(row.group_id, sub) || String(sub).slice(0, 8));
+      if (names.length) names.forEach(add);
+      else add("Personas concretas");
+    }
+  }
+
+  function renderInboxThread(row) {
+    const container = $("inbox-thread");
+    container.replaceChildren();
+    threadRowsFor(row).forEach((item) => {
+      const article = document.createElement("article");
+      article.className = "inbox-thread-item";
+      const avatar = document.createElement("span");
+      avatar.className = "inbox-thread-avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = inboxInitials(senderLabel(item));
+      const main = document.createElement("div");
+      main.className = "inbox-thread-main";
+      const head = document.createElement("div");
+      head.className = "inbox-thread-head";
+      const from = document.createElement("strong");
+      from.textContent = senderLabel(item);
+      const time = document.createElement("time");
+      time.textContent = formatMessageTime(item.created_at);
+      head.append(from, time);
+      const body = document.createElement("p");
+      body.className = "inbox-thread-body";
+      body.textContent = item.body || "";
+      main.append(head, body);
+      article.append(avatar, main);
+      container.append(article);
+    });
+  }
+
+  function participantsLabel(row) {
+    const group = row.group_name || "tu grupo";
+    if (row.scope === "group") return `Todo el grupo «${group}»`;
+    if (row.scope === "managers") return `Gestores de «${group}»`;
+    return "Personas concretas del grupo";
+  }
+
   async function openInboxMessage(messageId) {
     try {
       const row = await request(`/api/v1/messages/${encodeURIComponent(messageId)}`);
       inboxCurrent = row;
+      await loadInboxMemberNames([...(inboxRows || []), row]);
       $("inbox-list").classList.add("hidden");
+      $("inbox-compose").classList.add("hidden");
       $("inbox-detail").classList.remove("hidden");
-      $("inbox-subject").textContent = `${row.subject} · ${row.group_name}`;
-      $("inbox-meta").textContent = `${row.sender_sub} · ${row.created_at}`;
-      $("inbox-body").textContent = row.body;
+      $("inbox-subject").textContent = row.subject;
+      $("inbox-participants").textContent = participantsLabel(row);
+      renderInboxThread(row);
+      renderReplyTargets(row);
+      $("inbox-reply").classList.toggle("hidden", Boolean(row.is_sender));
       $("inbox-reply-body").value = "";
-      await request(`/api/v1/messages/${encodeURIComponent(messageId)}/read`, { method: "POST" });
-      await refreshUnread();
+      if (!row.is_sender) {
+        await request(`/api/v1/messages/${encodeURIComponent(messageId)}/read`, { method: "POST" });
+        await refreshUnread();
+      }
     } catch (error) {
       showMessage("inbox-message", error.message, "error");
     }
   }
 
-  async function sendInboxReply(event) {
+  async function sendInboxReply(event, all = false) {
     event.preventDefault();
     if (!inboxCurrent) return;
     const text = $("inbox-reply-body").value.trim();
     if (!text) return;
+    const button = all
+      ? $("inbox-reply").querySelector("button[type=submit]")
+      : $("inbox-reply-sender");
+    setBusy(button, true, "Enviando…");
     try {
       await request(`/api/v1/messages/${encodeURIComponent(inboxCurrent.id)}/reply`, {
         method: "POST",
-        body: JSON.stringify({ body: text }),
+        body: JSON.stringify({ body: text, all }),
       });
       $("inbox-reply-body").value = "";
+      await loadInboxRows();
+      await openInboxMessage(inboxCurrent.id);
       showMessage("inbox-message", "Respuesta enviada.", "success");
-      await openInbox();
     } catch (error) {
       showMessage("inbox-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
     }
   }
   let groupAdminState = { group: null, catalog: { admin: [], musical: [], section: [] }, members: [] };
@@ -813,6 +1083,11 @@
       if (select && group.can_manage) select.append(new Option(group.name, group.id));
       if (view) view.append(new Option(group.name, group.id));
     });
+    if (select) {
+      select.closest("label")?.classList.add("hidden");
+      if (select.options.length > 1 && !select.value) select.value = select.options[1].value;
+      void loadMaterialSections();
+    }
   }
 
   async function loadMaterialSections() {
@@ -988,9 +1263,7 @@
       showMessage("material-message", error.message, "error");
     }
   }
-  let agendaCursor = new Date();
   let agendaSelected = new Date();
-  let agendaFilter = "all";
 
   function eventDate(event) {
     const value = event.starts_at || event.created_at;
@@ -998,110 +1271,70 @@
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  function eventMatchesFilter(event) {
-    if (agendaFilter === "all") return true;
-    if (agendaFilter === "personal") return event.scope === "personal" || !event.group_id;
-    return String(event.group_id || "") === agendaFilter;
+  function agendaKindIcon(kind) {
+    return { rehearsal: "♪", concert: "★", note: "✎" }[kind] || "♪";
   }
 
-  function renderAgendaFilters() {
-    const container = $("agenda-filters");
+  function renderAgendaOverview() {
+    const container = $("agenda-upcoming");
+    if (!container) return;
     container.replaceChildren();
-    const options = [["all", "Todos"], ["personal", "Personal"]];
-    (agendaState.groups || []).forEach((group) => options.push([group.id, group.name]));
-    options.forEach(([value, label]) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "agenda-filter" + (agendaFilter === value ? " active" : "");
-      button.textContent = label;
-      button.addEventListener("click", () => {
-        agendaFilter = value;
-        renderAgendaCalendar();
-      });
-      container.append(button);
-    });
-  }
-
-  function renderAgendaCalendar() {
-    const calendar = $("agenda-calendar");
-    const cursor = agendaCursor;
-    const year = cursor.getFullYear();
-    const month = cursor.getMonth();
-    $("agenda-month").textContent = new Intl.DateTimeFormat("es-ES", {
-      month: "long", year: "numeric",
-    }).format(cursor);
-    calendar.replaceChildren();
-    ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].forEach((day) => {
-      const cell = document.createElement("div");
-      cell.className = "dow";
-      cell.textContent = day;
-      calendar.append(cell);
-    });
-    const first = new Date(year, month, 1);
-    const offset = (first.getDay() + 6) % 7;
-    const start = new Date(year, month, 1 - offset);
-    const events = (agendaState.events || []).filter(eventMatchesFilter);
-    for (let index = 0; index < 42; index += 1) {
-      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
-      const cell = document.createElement("div");
-      cell.className = "day" + (date.getMonth() !== month ? " muted" : "");
-      if (date.toDateString() === agendaSelected.toDateString()) cell.classList.add("selected");
-      cell.textContent = String(date.getDate());
-      const count = events.filter((event) => {
-        const eventAt = eventDate(event);
-        return eventAt && eventAt.toDateString() === date.toDateString();
-      }).length;
-      if (count) {
-        const dot = document.createElement("span");
-        dot.className = "dot";
-        dot.title = `${count} evento(s)`;
-        cell.append(dot);
-      }
-      cell.addEventListener("click", () => {
-        agendaSelected = date;
-        renderAgendaCalendar();
-      });
-      calendar.append(cell);
+    const now = new Date();
+    const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59, 59, 999);
+    const upcoming = (agendaState.events || [])
+      .map((event) => ({ event, at: eventDate(event) }))
+      .filter(({ at }) => at && at >= now && at <= weekEnd)
+      .sort((a, b) => a.at - b.at);
+    const badge = $("agenda-week-badge");
+    if (badge) {
+      badge.textContent = `Próxima Semana: ${upcoming.length} ${upcoming.length === 1 ? "evento" : "eventos"}`;
     }
-    renderAgendaDay();
-  }
-
-  function renderAgendaDay() {
-    const container = $("agenda-day-events");
-    container.replaceChildren();
-    $("agenda-day-title").textContent = `Eventos del día: ${new Intl.DateTimeFormat("es-ES", {
-      day: "2-digit", month: "long", year: "numeric",
-    }).format(agendaSelected)}`;
-    const rows = (agendaState.events || [])
-      .filter(eventMatchesFilter)
-      .filter((event) => eventDate(event)?.toDateString() === agendaSelected.toDateString())
-      .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
-    if (!rows.length) {
-      const empty = document.createElement("p");
-      empty.className = "muted";
-      empty.textContent = "No hay eventos este día.";
+    if (!upcoming.length) {
+      const empty = document.createElement("div");
+      empty.className = "agenda-empty-state";
+      const title = document.createElement("strong");
+      title.textContent = "No hay eventos en los próximos 7 días";
+      const text = document.createElement("p");
+      text.textContent = "Cuando tu grupo publique un ensayo o una actuación aparecerá aquí.";
+      empty.append(title, text);
       container.append(empty);
       return;
     }
-    rows.forEach((event) => {
-      const item = document.createElement("article");
-      item.className = "agenda-item";
-      const title = document.createElement("strong");
-      const at = eventDate(event);
-      title.textContent = `${at ? at.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : ""} · ${event.title}`;
-      const meta = document.createElement("p");
-      meta.className = "muted";
-      meta.textContent = [event.location, event.group_name].filter(Boolean).join(" · ");
-      item.append(title, meta);
-      container.append(item);
+    upcoming.forEach(({ event, at }) => {
+      const card = document.createElement("article");
+      card.className = "agenda-event-card";
+      const icon = document.createElement("span");
+      icon.className = "agenda-event-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = agendaKindIcon(event.kind);
+      const body = document.createElement("div");
+      body.className = "agenda-event-body";
+      const title = document.createElement("h3");
+      title.className = "agenda-event-title";
+      title.textContent = event.title;
+      const dateLine = document.createElement("p");
+      dateLine.className = "agenda-event-line";
+      const dateIcon = document.createElement("span");
+      dateIcon.setAttribute("aria-hidden", "true");
+      dateIcon.textContent = "▦";
+      dateLine.append(dateIcon, document.createTextNode(formatEventDate(at)));
+      const placeLine = document.createElement("p");
+      placeLine.className = "agenda-event-line";
+      const placeIcon = document.createElement("span");
+      placeIcon.setAttribute("aria-hidden", "true");
+      placeIcon.textContent = "⌖";
+      const place = [event.location, event.group_name].filter(Boolean).join(" · ");
+      placeLine.append(placeIcon, document.createTextNode(place || "Sin lugar asignado"));
+      body.append(title, dateLine, placeLine);
+      card.append(icon, body);
+      container.append(card);
     });
   }
 
   function openAgendaModal() {
-    agendaCursor = new Date(agendaSelected.getFullYear(), agendaSelected.getMonth(), 1);
+    agendaSelected = new Date();
     $("agenda-modal").classList.remove("hidden");
-    renderAgendaFilters();
-    renderAgendaCalendar();
+    renderAgendaOverview();
   }
   async function setRsvp(eventId, status, button) {
     setBusy(button, true, "Guardando…");
@@ -1369,7 +1602,7 @@
         showMessage("login-error", "Completa primero el alta de tu cuenta OSAP.", "error");
         return;
       }
-      showWorkspace(data.nickname || data.email || data.user_id);
+      showWorkspace(data.nickname || data.email || data.user_id, data);
     } catch (error) {
       accessToken = null;
       showMessage("login-error", error.message || "No se pudo iniciar la sesión desde OSAP.", "error");
@@ -1384,7 +1617,7 @@
         showMessage("login-error", "Completa primero el alta de tu cuenta OSAP.", "error");
         return;
       }
-      showWorkspace(profile.nickname || profile.email || profile.user_id);
+      showWorkspace(profile.nickname || profile.email || profile.user_id, profile);
     } catch (error) {
       accessToken = null;
       showMessage("login-error", error.message, "error");
@@ -1412,7 +1645,7 @@
     showWorkspace(email);
     try {
       const profile = await request("/api/v1/auth/me", {}, false);
-      showWorkspace(profile.nickname || profile.email || email);
+      showWorkspace(profile.nickname || profile.email || email, profile);
     } catch (_) {
       // La etiqueta inicial (email) sigue siendo válida si /auth/me no responde.
     }
@@ -1789,22 +2022,20 @@
     _msgContent.classList.add("hidden");
   }
 
-  $("inbox-button").addEventListener("click",()=>{void openInbox(false);});
+  $("inbox-button").addEventListener("click",()=>{mailboxMode="inbox";mailboxGroupId="";setMailboxTab("inbox");void openInbox(false);});
   $("messages-new").addEventListener("click",()=>{void openInbox(true);});
   document.querySelectorAll(".mailbox-tab").forEach((tab) => {
-    tab.addEventListener("click",() => {
-      mailboxMode = tab.dataset.mailbox === "sent" ? "sent" : "inbox";
-      document.querySelectorAll(".mailbox-tab").forEach((item) => item.classList.toggle("active", item === tab));
+    tab.addEventListener("click", () => {
+      mailboxMode = tab.dataset.mailbox || "inbox";
+      mailboxGroupId = "";
+      setMailboxTab(mailboxMode);
       void openInbox(false);
     });
   });
   $("inbox-close").addEventListener("click",()=>{$("inbox-modal").classList.add("hidden");});
-  $("inbox-expand").addEventListener("click",()=>{
-    const panel = document.querySelector(".inbox-panel");
-    panel.classList.toggle("expanded");
-    $("inbox-expand").textContent = panel.classList.contains("expanded") ? "Reducir" : "Ampliar";
-  });
-  $("inbox-reply").addEventListener("submit",(event)=>{void sendInboxReply(event);});
+  $("inbox-back").addEventListener("click",()=>{void openInbox(false);});
+  $("inbox-reply").addEventListener("submit",(event)=>{void sendInboxReply(event, true);});
+  $("inbox-reply-sender").addEventListener("click",()=>{void sendInboxReply({preventDefault(){}}, false);});
   $("ga-close").addEventListener("click",()=>{$("group-admin-modal").classList.add("hidden");});
   $("ga-edit-form").addEventListener("submit",(event)=>{void saveGroupData(event);});
 
@@ -1848,10 +2079,13 @@
   $("material-import-toggle").addEventListener("click",()=>{$("material-form").classList.toggle("hidden");});
   $("material-form").addEventListener("submit",(event)=>{void importMaterial(event);});
   $("material-group").addEventListener("change",()=>{void loadMaterialSections();});
+  $("repertoire-add").addEventListener("click",()=>{
+    document.getElementById("library-section").scrollIntoView({behavior:"smooth"});
+    $("material-form").classList.remove("hidden");
+    $("material-files").focus();
+  });
   $("open-agenda").addEventListener("click", openAgendaModal);
   $("agenda-close").addEventListener("click",()=>{$("agenda-modal").classList.add("hidden");});
-  $("agenda-prev").addEventListener("click",()=>{agendaCursor=new Date(agendaCursor.getFullYear(),agendaCursor.getMonth()-1,1);renderAgendaCalendar();});
-  $("agenda-next").addEventListener("click",()=>{agendaCursor=new Date(agendaCursor.getFullYear(),agendaCursor.getMonth()+1,1);renderAgendaCalendar();});
   $("agenda-new").addEventListener("click",()=>{
     $("agenda-modal").classList.add("hidden");
     $("material-form")?.classList.add("hidden");
@@ -1862,6 +2096,18 @@
     form.scrollIntoView({behavior:"smooth",block:"center"});
   });
   $("material-view-button").addEventListener("click",()=>{void loadMaterialTree($("material-view-group").value);});
+  $("material-part").disabled = true;
+  $("material-files").addEventListener("change",()=>{
+    const first = $("material-files").files?.[0];
+    if (first && !$("material-work").value) {
+      $("material-work").value = first.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ");
+    }
+  });
+  const materialForm = $("material-form");
+  if (materialForm) {
+    materialForm.prepend($("material-folder").closest("label"));
+    materialForm.prepend($("material-files").closest("label"));
+  }
   let libraryTimer = null;
   $("library-query").addEventListener("input",()=>{
     clearTimeout(libraryTimer);
@@ -1873,6 +2119,79 @@
     query.scrollIntoView({behavior:"smooth",block:"center"});
   });
   $("mxl-file").addEventListener("change",(event)=>uploadMxl(event.target.files[0]));
+  function avatarDataFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      const url = URL.createObjectURL(file);
+      image.onload = () => {
+        try {
+          const side = Math.min(image.width, image.height);
+          const sx = (image.width - side) / 2;
+          const sy = (image.height - side) / 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = 256;
+          canvas.height = 256;
+          const context = canvas.getContext("2d");
+          context.drawImage(image, sx, sy, side, side, 0, 0, 256, 256);
+          resolve(canvas.toDataURL("image/jpeg", 0.82));
+        } catch (error) {
+          reject(error);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("No se pudo leer la imagen"));
+      };
+      image.src = url;
+    });
+  }
+  const avatarFile = $("avatar-file");
+  if (avatarFile) avatarFile.addEventListener("change", async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
+      showMessage("avatar-message", "Usa una imagen JPG, PNG o WebP.", "error");
+      event.target.value = "";
+      return;
+    }
+    showMessage("avatar-message", "Subiendo foto…");
+    try {
+      const data = await avatarDataFromFile(file);
+      const profile = await request("/api/v1/auth/me/avatar", {
+        method: "PATCH",
+        body: JSON.stringify({data}),
+      });
+      profileAvatarUrl = profile && profile.avatar_url
+        ? `${profile.avatar_url}?v=${Date.now()}`
+        : null;
+      paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      showMessage("avatar-message", "Foto actualizada.", "ok");
+    } catch (error) {
+      showMessage("avatar-message", error.message, "error");
+    } finally {
+      event.target.value = "";
+    }
+  });
+  const avatarRemove = $("avatar-remove");
+  if (avatarRemove) avatarRemove.addEventListener("click", async () => {
+    showMessage("avatar-message", "Quitando foto…");
+    try {
+      const profile = await request("/api/v1/auth/me/avatar", {method: "DELETE"});
+      profileAvatarUrl = profile && profile.avatar_url
+        ? `${profile.avatar_url}?v=${Date.now()}`
+        : null;
+      paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      showMessage("avatar-message", "Foto eliminada.", "ok");
+    } catch (error) {
+      showMessage("avatar-message", error.message, "error");
+    }
+  });
   $("logout-button").addEventListener("click",async()=>{
     try{if(accessToken)await request("/api/v1/auth/logout",{method:"POST"},false);}catch(_){}
     accessToken=null;currentDraft=null;showLogin();
@@ -1890,39 +2209,8 @@
   } else {
     refreshSession().then(async(ok)=>{
       if(!ok)return;
-      try{const profile=await request("/api/v1/auth/me",{},false);if(profile.onboarding && profile.onboarding.required){showMessage("login-error","Completa primero el alta de tu cuenta OSAP.","error");return;}showWorkspace(profile.nickname || profile.email || profile.user_id);}
+      try{const profile=await request("/api/v1/auth/me",{},false);if(profile.onboarding && profile.onboarding.required){showMessage("login-error","Completa primero el alta de tu cuenta OSAP.","error");return;}showWorkspace(profile.nickname || profile.email || profile.user_id, profile);}
       catch(_){accessToken=null;}
     });
   }
 })();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

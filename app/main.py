@@ -148,6 +148,7 @@ class MemberUpdateBody(BaseModel):
 
 class MessageReplyBody(BaseModel):
     body: str = Field(min_length=1, max_length=8000)
+    all: bool = False
 
 
 class MessageBody(BaseModel):
@@ -603,9 +604,67 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         result["onboarding"] = profile.get("onboarding")
         return result
 
+    def local_avatar(profile: dict[str, Any]) -> dict[str, Any]:
+        user_id = profile.get("user_id")
+        if user_id and profile.get("avatar_url"):
+            profile["avatar_url"] = f"/api/v1/auth/users/{user_id}/avatar"
+        return profile
+
     @app.get("/api/v1/auth/me")
     def me(authorization: str | None = Header(default=None)) -> Any:
-        return profile_from_authorization(authorization)
+        return local_avatar(profile_from_authorization(authorization))
+
+    @app.get("/api/v1/auth/users/{user_id}/avatar")
+    def user_avatar(user_id: str) -> Response:
+        try:
+            cfg.validate_auth()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Identity service is not configured") from exc
+        try:
+            with httpx.Client(timeout=cfg.auth_timeout_seconds) as client:
+                upstream = client.get(f"{cfg.auth_base_url}/auth/users/{user_id}/avatar")
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail="Identity service unavailable") from exc
+        if upstream.status_code != 200:
+            raise HTTPException(status_code=404, detail="Avatar no encontrado")
+        return Response(
+            content=upstream.content,
+            media_type=upstream.headers.get("content-type", "image/jpeg"),
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+
+    @app.patch("/api/v1/auth/me/avatar")
+    def update_my_avatar(
+        body: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> Any:
+        profile_from_authorization(authorization)
+        token = authorization[7:].strip() if authorization else ""
+        status_code, document = auth_call(
+            "PATCH", "/auth/me/avatar", token=token, payload=body
+        )
+        if status_code != 200:
+            detail = document.get("detail") if isinstance(document, dict) else None
+            raise HTTPException(
+                status_code=status_code if status_code < 500 else 502,
+                detail=detail or "No se pudo guardar la foto",
+            )
+        return local_avatar(document) if isinstance(document, dict) else document
+
+    @app.delete("/api/v1/auth/me/avatar")
+    def delete_my_avatar(authorization: str | None = Header(default=None)) -> Any:
+        profile_from_authorization(authorization)
+        token = authorization[7:].strip() if authorization else ""
+        status_code, document = auth_call(
+            "DELETE", "/auth/me/avatar", token=token
+        )
+        if status_code != 200:
+            detail = document.get("detail") if isinstance(document, dict) else None
+            raise HTTPException(
+                status_code=status_code if status_code < 500 else 502,
+                detail=detail or "No se pudo quitar la foto",
+            )
+        return local_avatar(document) if isinstance(document, dict) else document
 
     @app.get("/api/v1/auth/legal/current")
     def legal_current() -> Any:
@@ -1055,7 +1114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for row in rows
         ]
 
-    def _sync_osap_groups(conn, user_id: str, token: str | None) -> None:
+    def _sync_osap_groups(conn, user_id: str, token: str | None, display_name: str = "") -> None:
         """Trae a Chorus los grupos de «Los amigos» del usuario autenticado."""
         if not token or not cfg.osap_api_base_url:
             return
@@ -1099,13 +1158,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "INSERT INTO group_members "
                     "(id,group_id,user_sub,role,status,display_name,joined_at,updated_at) "
                     "VALUES (?,?,?,?,'active',?,?,?)",
-                    (uuid.uuid4().hex, gid, user_id, role, "", now, now),
+                    (uuid.uuid4().hex, gid, user_id, role, display_name, now, now),
                 )
             else:
                 conn.execute(
-                    "UPDATE group_members SET role = ?, status = 'active', updated_at = ? "
+                    "UPDATE group_members SET role = ?, status = 'active', "
+                    "display_name = COALESCE(NULLIF(display_name, ''), ?), updated_at = ? "
                     "WHERE id = ?",
-                    (role, now, member["id"]),
+                    (role, display_name, now, member["id"]),
                 )
 
     @app.get("/api/v1/agenda")
@@ -1121,7 +1181,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if membership.get("entity_id")
         }
         with _connect(cfg) as conn:
-            _sync_osap_groups(conn, user_id, request.cookies.get("chorus_access"))
+            _sync_osap_groups(
+                conn, user_id, request.cookies.get("chorus_access"),
+                str(profile.get("name") or profile.get("nickname") or ""),
+            )
             group_rows = conn.execute(
                 "SELECT g.*, gm.role FROM group_members gm "
                 "JOIN groups g ON g.id = gm.group_id "
@@ -1474,9 +1537,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
             row = conn.execute(
-                "SELECT COUNT(*) AS n FROM message_recipients "
-                "WHERE user_sub = ? AND read_at IS NULL",
-                (user_id,),
+                "SELECT COUNT(*) AS n FROM message_recipients r "
+                "JOIN messages m ON m.id=r.message_id "
+                "WHERE r.user_sub = ? AND r.read_at IS NULL AND m.sender_sub <> ?",
+                (user_id, user_id),
             ).fetchone()
         return {"count": int(row["n"])}
 
@@ -1485,12 +1549,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
             rows = conn.execute(
-                "SELECT m.*, g.name AS group_name, r.read_at AS my_read_at "
+                "SELECT m.*, g.name AS group_name, gm.display_name AS sender_name, "
+                "(SELECT read_at FROM message_recipients r "
+                " WHERE r.message_id = m.id AND r.user_sub = ?) AS my_read_at, "
+                "(SELECT COUNT(*) FROM message_recipients r "
+                " WHERE r.message_id = m.id) AS recipient_count, "
+                "(SELECT group_concat(r.user_sub) FROM message_recipients r "
+                " WHERE r.message_id = m.id) AS recipient_subs "
                 "FROM messages m JOIN groups g ON g.id = m.group_id "
-                "JOIN message_recipients r ON r.message_id = m.id "
-                "WHERE r.user_sub = ? OR m.sender_sub = ? "
+                "LEFT JOIN group_members gm ON gm.group_id = m.group_id "
+                "AND gm.user_sub = m.sender_sub "
+                "WHERE m.sender_sub = ? OR EXISTS (SELECT 1 FROM message_recipients r "
+                "WHERE r.message_id = m.id AND r.user_sub = ?) "
                 "ORDER BY m.created_at DESC LIMIT 100",
-                (user_id, user_id),
+                (user_id, user_id, user_id),
             ).fetchall()
         return [
             {
@@ -1498,11 +1570,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "group_id": row["group_id"],
                 "group_name": row["group_name"],
                 "sender_sub": row["sender_sub"],
+                "sender_name": row["sender_name"] or row["sender_sub"][:8],
                 "scope": row["scope"],
                 "subject": row["subject"],
                 "body": row["body"],
                 "created_at": row["created_at"],
                 "my_read_at": row["my_read_at"],
+                "recipient_count": row["recipient_count"],
+                "recipient_subs": [
+                    sub for sub in str(row["recipient_subs"] or "").split(",") if sub
+                ],
                 "is_sender": row["sender_sub"] == user_id,
             }
             for row in rows
@@ -1515,10 +1592,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
             row = conn.execute(
-                "SELECT m.*, g.name AS group_name, "
+                "SELECT m.*, g.name AS group_name, gm.display_name AS sender_name, "
                 "(SELECT read_at FROM message_recipients r WHERE r.message_id=m.id "
-                "AND r.user_sub=?) AS my_read_at FROM messages m "
-                "JOIN groups g ON g.id=m.group_id WHERE m.id=?",
+                "AND r.user_sub=?) AS my_read_at, "
+                "(SELECT COUNT(*) FROM message_recipients r "
+                " WHERE r.message_id = m.id) AS recipient_count, "
+                "(SELECT group_concat(r.user_sub) FROM message_recipients r "
+                " WHERE r.message_id = m.id) AS recipient_subs "
+                "FROM messages m "
+                "JOIN groups g ON g.id=m.group_id "
+                "LEFT JOIN group_members gm ON gm.group_id = m.group_id "
+                "AND gm.user_sub = m.sender_sub "
+                "WHERE m.id=?",
                 (user_id, message_id),
             ).fetchone()
             if row is None:
@@ -1531,9 +1616,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=403, detail="Not allowed")
         return {
             "id": row["id"], "group_id": row["group_id"], "group_name": row["group_name"],
-            "sender_sub": row["sender_sub"], "scope": row["scope"],
+            "sender_sub": row["sender_sub"], "sender_name": row["sender_name"] or row["sender_sub"][:8],
+            "scope": row["scope"],
             "subject": row["subject"], "body": row["body"], "created_at": row["created_at"],
             "my_read_at": row["my_read_at"], "is_sender": row["sender_sub"] == user_id,
+            "recipient_count": row["recipient_count"],
+            "recipient_subs": [
+                sub for sub in str(row["recipient_subs"] or "").split(",") if sub
+            ],
         }
 
     @app.post("/api/v1/messages/{message_id}/reply", status_code=201)
@@ -1559,7 +1649,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchone() is not None
             if not allowed:
                 raise HTTPException(status_code=403, detail="Not allowed")
-            recipient = original["sender_sub"]
+            recipients = {str(original["sender_sub"])}
+            if body.all:
+                for recipient_row in conn.execute(
+                    "SELECT user_sub FROM message_recipients WHERE message_id=?",
+                    (message_id,),
+                ).fetchall():
+                    recipients.add(str(recipient_row["user_sub"]))
+            recipients.discard(user_id)
             new_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO messages (id,group_id,sender_sub,scope,subject,body,created_at) "
@@ -1567,12 +1664,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 (new_id, original["group_id"], user_id, "users",
                  f"Re: {original['subject']}", text, now),
             )
-            conn.execute(
-                "INSERT OR IGNORE INTO message_recipients (message_id,user_sub,read_at) "
-                "VALUES (?,?,NULL)",
-                (new_id, recipient),
-            )
-        return {"id": new_id, "group_id": original["group_id"], "status": "sent"}
+            for recipient in sorted(recipients):
+                conn.execute(
+                    "INSERT OR IGNORE INTO message_recipients (message_id,user_sub,read_at) "
+                    "VALUES (?,?,NULL)",
+                    (new_id, recipient),
+                )
+        return {
+            "id": new_id,
+            "group_id": original["group_id"],
+            "recipient_count": len(recipients),
+            "status": "sent",
+        }
 
     @app.get("/api/v1/groups/directory")
     def groups_directory(
@@ -2490,7 +2593,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         part = _material_folder(meta.get("part_label"))
         preview = bool(meta.get("preview"))
         group_id = str(meta.get("group_id") or "") or None
-        group_section_id = str(meta.get("group_section_id") or "") or None
         now = utcnow()
         if group_id:
             with _connect(cfg) as check:
@@ -2720,40 +2822,4 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

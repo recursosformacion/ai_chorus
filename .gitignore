@@ -5,3 +5,7 @@ var/
 __pycache__/
 .pytest_cache/
 *.py[cod]
+
+# Aider Studio (auto-added)
+REPO_MAP.md
+.aider/
