@@ -12,10 +12,10 @@
   <meta name="twitter:card" content="summary">
   <meta name="description" content="Chorus — tu espacio personal para trabajar con partituras y música.">
   <title>Chorus · Tu espacio musical</title>
-  <link rel="stylesheet" href="/styles.css?v=0.6.0">
-  <link rel="stylesheet" href="/cover.css?v=0.6.0">
-  <link rel="stylesheet" href="/dashboard.css?v=0.6.0">
-  <script src="/app.js?v=0.6.0" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=0.12.1">
+  <link rel="stylesheet" href="/cover.css?v=0.12.1">
+  <link rel="stylesheet" href="/dashboard.css?v=0.12.1">
+  <script src="/app.js?v=0.12.1" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -33,9 +33,9 @@
   <div id="agenda-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="agenda-title">
     <div class="inbox-panel agenda-panel agenda-overview-panel">
       <div class="card-head messages-head agenda-head">
-        <h2 id="agenda-title">AGENDA</h2>
+        <div class="modal-heading"><p class="modal-eyebrow">Agenda</p><h2 id="agenda-title">Próximos eventos</h2><p>Ensayos y actuaciones de tus grupos.</p></div>
         <div class="agenda-head-right">
-          <span id="agenda-week-badge" class="agenda-week-badge">Próxima Semana: 0 eventos</span>
+          <span id="agenda-week-badge" class="agenda-week-badge">Próximos 7 días: 0 eventos</span>
           <button id="agenda-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
         </div>
       </div>
@@ -48,18 +48,18 @@
   <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="inbox-title">
     <div class="inbox-panel messages-workspace">
       <div class="card-head messages-head">
-        <h2 id="inbox-title">Gestor de Comunicaciones Internas</h2>
+        <div class="modal-heading"><p class="modal-eyebrow">Mensajes</p><div class="modal-title-line"><h2 id="inbox-title">Tu bandeja</h2><span id="inbox-unread" class="badge badge-muted">Al día</span></div><p>Conversaciones, avisos y enviados de tus grupos.</p></div>
         <button id="inbox-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
       </div>
       <div class="messages-grid">
         <aside class="messages-nav">
           <button id="messages-new" class="messages-new" type="button"><span aria-hidden="true">✎</span> Nuevo mensaje</button>
           <nav class="mailbox-tabs" aria-label="Carpetas">
-            <button class="mailbox-tab active" data-mailbox="inbox" type="button"><span class="mailbox-icon" aria-hidden="true">▤</span><span>Bandeja de Entrada</span><span id="mailbox-unread" class="mailbox-count"></span></button>
+            <button class="mailbox-tab active" data-mailbox="inbox" type="button"><span class="mailbox-icon" aria-hidden="true">▤</span><span>Bandeja de entrada</span><span id="mailbox-unread" class="mailbox-count"></span></button>
             <button class="mailbox-tab" data-mailbox="sent" type="button"><span class="mailbox-icon" aria-hidden="true">➤</span><span>Enviados</span></button>
-            <button class="mailbox-tab" data-mailbox="support" type="button"><span class="mailbox-icon" aria-hidden="true">◎</span><span>Soporte / Admin de Chorus</span></button>
+            <button class="mailbox-tab" data-mailbox="support" type="button"><span class="mailbox-icon" aria-hidden="true">◎</span><span>Ayuda y administración</span></button>
           </nav>
-          <div class="messages-groups-head"><span class="eyebrow messages-nav-title">Mis Grupos</span><span class="messages-groups-chevron" aria-hidden="true">⌄</span></div>
+          <div class="messages-groups-head"><span class="eyebrow messages-nav-title">Mis grupos</span><span class="messages-groups-chevron" aria-hidden="true">⌄</span></div>
           <div id="messages-groups" class="messages-groups"></div>
         </aside>
         <section class="messages-main-column">

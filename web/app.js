@@ -603,6 +603,11 @@
       const count = Number(data.count || 0);
       $("inbox-count").textContent = String(count);
       $("inbox-button").classList.toggle("badge-gold", count > 0);
+      const headerBadge = $("inbox-unread");
+      if (headerBadge) {
+        headerBadge.textContent = count ? `${count} sin leer` : "Al día";
+        headerBadge.className = "badge " + (count ? "badge-gold" : "badge-muted");
+      }
     } catch (_) {
       /* silencioso */
     }
@@ -691,7 +696,7 @@
       copy.append(name, subtitle);
       const badge = document.createElement("span");
       badge.className = "messages-group-active";
-      badge.textContent = "active";
+      badge.textContent = "Activo";
       button.append(avatar, copy, badge);
       button.addEventListener("click", () => {
         mailboxMode = "group";
@@ -708,7 +713,7 @@
     const panel = document.createElement("div");
     panel.className = "support-panel";
     const title = document.createElement("h3");
-    title.textContent = "Soporte / Admin de Chorus";
+    title.textContent = "Ayuda y administración";
     const text = document.createElement("p");
     text.textContent = "Escribe directamente a la administración de tus grupos. Te responderán en la bandeja de entrada.";
     panel.append(title, text);
@@ -754,6 +759,11 @@
     if (count) {
       count.textContent = unread ? `(${unread} no ${unread === 1 ? "leído" : "leídos"})` : "";
     }
+    const headerBadge = $("inbox-unread");
+    if (headerBadge) {
+      headerBadge.textContent = unread ? `${unread} sin leer` : "Al día";
+      headerBadge.className = "badge " + (unread ? "badge-gold" : "badge-muted");
+    }
     if (mailboxMode === "support") {
       renderSupportPanel(list);
       return;
@@ -763,13 +773,30 @@
     else if (mailboxMode === "group") rows = rows.filter((row) => String(row.group_id) === String(mailboxGroupId));
     else rows = rows.filter((row) => !row.is_sender);
     if (!rows.length) {
-      const empty = document.createElement("p");
-      empty.className = "inbox-empty";
-      empty.textContent = mailboxMode === "sent"
-        ? "No has enviado mensajes."
+      const empty = document.createElement("div");
+      empty.className = "inbox-empty-state";
+      const icon = document.createElement("span");
+      icon.className = "inbox-empty-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = mailboxMode === "sent" ? "➤" : "✉";
+      const title = document.createElement("h3");
+      title.textContent = mailboxMode === "sent"
+        ? "Todavía no has enviado mensajes"
         : mailboxMode === "group"
-          ? "No hay mensajes en este grupo."
-          : "No tienes mensajes.";
+          ? "Este grupo no tiene mensajes"
+          : "Tu bandeja está vacía";
+      const text = document.createElement("p");
+      text.textContent = mailboxMode === "sent"
+        ? "Cuando escribas al grupo o a sus gestores, verás aquí lo enviado."
+        : mailboxMode === "group"
+          ? "Los avisos y conversaciones del grupo aparecerán en este espacio."
+          : "Los avisos de tus grupos y las conversaciones con sus gestores aparecerán aquí.";
+      const action = document.createElement("button");
+      action.type = "button";
+      action.className = "button button-primary";
+      action.textContent = "Escribir mensaje";
+      action.addEventListener("click", () => void openInbox(true));
+      empty.append(icon, title, text, action);
       list.append(empty);
       return;
     }
@@ -830,6 +857,11 @@
       return;
     }
     $("inbox-list").classList.remove("hidden");
+    renderMailboxGroups();
+    const loading = document.createElement("div");
+    loading.className = "inbox-loading";
+    loading.textContent = "Cargando mensajes…";
+    $("inbox-list").replaceChildren(loading);
     try {
       await loadInboxRows();
       renderInboxRows();
@@ -1287,16 +1319,20 @@
       .sort((a, b) => a.at - b.at);
     const badge = $("agenda-week-badge");
     if (badge) {
-      badge.textContent = `Próxima Semana: ${upcoming.length} ${upcoming.length === 1 ? "evento" : "eventos"}`;
+      badge.textContent = `Próximos 7 días: ${upcoming.length} ${upcoming.length === 1 ? "evento" : "eventos"}`;
     }
     if (!upcoming.length) {
       const empty = document.createElement("div");
       empty.className = "agenda-empty-state";
+      const icon = document.createElement("span");
+      icon.className = "agenda-empty-icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "▦";
       const title = document.createElement("strong");
       title.textContent = "No hay eventos en los próximos 7 días";
       const text = document.createElement("p");
       text.textContent = "Cuando tu grupo publique un ensayo o una actuación aparecerá aquí.";
-      empty.append(title, text);
+      empty.append(icon, title, text);
       container.append(empty);
       return;
     }
