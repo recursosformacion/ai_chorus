@@ -136,6 +136,8 @@
     $("app-nav").classList.remove("hidden");
     $("inbox-button").classList.remove("hidden");
     void refreshUnread();
+    void loadMaterialTree();
+    void loadMaterialGroups();
     $("account-label").textContent = profileLabel || "Sesión iniciada";
     const rawName = String(profileLabel || "").split("@")[0].replace(/[._-]+/g, " ").trim();
     const displayName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : "músico";
@@ -187,6 +189,7 @@
   async function loadAgenda() {
     agendaState = await request("/api/v1/agenda");
     renderAgenda();
+    void loadMaterialGroups();
     await loadMessages();
   }
 
@@ -800,6 +803,305 @@
     } catch (error) {
       showMessage("ga-message", error.message, "error");
     }
+  }
+  async function loadMaterialGroups() {
+    const select = $("material-group");
+    const view = $("material-view-group");
+    if (select) select.replaceChildren(new Option("Biblioteca personal", ""));
+    if (view) view.replaceChildren(new Option("Mi biblioteca", ""));
+    (agendaState.groups || []).forEach((group) => {
+      if (select && group.can_manage) select.append(new Option(group.name, group.id));
+      if (view) view.append(new Option(group.name, group.id));
+    });
+  }
+
+  async function loadMaterialSections() {
+    const groupId = $("material-group").value;
+    const select = $("material-section");
+    select.replaceChildren(new Option("Todas", ""));
+    if (!groupId) return;
+    try {
+      const catalog = await request(`/api/v1/groups/${encodeURIComponent(groupId)}/catalog`);
+      (catalog.section || []).forEach((item) => select.append(new Option(item.name, item.id || "")));
+    } catch (_) {
+      /* sin secciones */
+    }
+  }
+
+  async function loadMaterialTree() {
+    const container = $("material-tree");
+    if (!container) return;
+    try {
+      const works = await request("/api/v1/material/tree");
+      container.replaceChildren();
+      if (!works.length) {
+        const p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = "Aún no hay material propio importado.";
+        container.append(p);
+        return;
+      }
+      works.forEach((work) => {
+        const workBox = document.createElement("section");
+        workBox.className = "material-work";
+        const heading = document.createElement("h4");
+        heading.textContent = work.title;
+        workBox.append(heading);
+        (work.resources || []).forEach((resource) => {
+          const version = document.createElement("p");
+          version.className = "material-version";
+          version.textContent = `${resource.version_label || "Original"} · ${resource.material_status}`;
+          workBox.append(version);
+          (resource.files || []).forEach((file) => {
+            const row = document.createElement("div");
+            row.className = "material-file";
+            const label = document.createElement("span");
+            label.textContent = `${file.folder_path ? file.folder_path + "/" : ""}${file.display_name || file.name}`;
+            const status = document.createElement("span");
+            status.className = "badge badge-muted";
+            status.textContent = file.status;
+            row.append(label, status);
+            workBox.append(row);
+          });
+          const review = document.createElement("button");
+          review.type = "button";
+          review.className = "button button-outline button-small";
+          review.textContent = resource.material_status === "draft" ? "Marcar revisado" : "Revisado";
+          review.disabled = resource.material_status !== "draft";
+          review.addEventListener("click", async () => {
+            try {
+              await request(`/api/v1/material/resources/${encodeURIComponent(resource.id)}`, {
+                method: "PATCH",
+                body: JSON.stringify({ material_status: "reviewed" }),
+              });
+              await loadMaterialTree();
+            } catch (error) {
+              showMessage("material-message", error.message, "error");
+            }
+          });
+          workBox.append(review);
+          const publish = document.createElement("button");
+          publish.type = "button";
+          publish.className = "button button-quiet button-small";
+          publish.textContent = resource.material_status === "published" ? "Publicado" : "Publicar";
+          publish.disabled = resource.material_status === "published";
+          publish.addEventListener("click", async () => {
+            try {
+              await request(`/api/v1/material/resources/${encodeURIComponent(resource.id)}/publish`, { method: "POST" });
+              await loadMaterialTree();
+            } catch (error) {
+              showMessage("material-message", error.message, "error");
+            }
+          });
+          workBox.append(publish);
+        });
+        container.append(workBox);
+      });
+    } catch (error) {
+      showMessage("material-message", error.message, "error");
+    }
+  }
+
+  let pendingMaterial = null;
+
+  function renderMaterialPreview(data) {
+    const container = $("material-preview");
+    container.replaceChildren();
+    const table = document.createElement("table");
+    table.className = "material-preview-table";
+    const head = document.createElement("tr");
+    ["Original", "Nombre propuesto", "Carpeta", "SHA-256"].forEach((text) => {
+      const th = document.createElement("th");
+      th.textContent = text;
+      head.append(th);
+    });
+    table.append(head);
+    (data.files || []).forEach((file) => {
+      const row = document.createElement("tr");
+      [file.original, file.display_name, file.folder || "—", String(file.sha).slice(0, 12)]
+        .forEach((value) => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        });
+      table.append(row);
+    });
+    container.append(table);
+    if (data.duplicates?.length) {
+      const duplicate = document.createElement("p");
+      duplicate.className = "muted";
+      duplicate.textContent = `Duplicados omitidos: ${data.duplicates.join(", ")}`;
+      container.append(duplicate);
+    }
+    const confirm = document.createElement("button");
+    confirm.type = "button";
+    confirm.className = "button button-primary button-small";
+    confirm.textContent = "Confirmar importación";
+    confirm.addEventListener("click", () => void confirmMaterial());
+    container.append(confirm);
+  }
+
+  async function importMaterial(event) {
+    event.preventDefault();
+    const files = [
+      ...Array.from($("material-files").files || []),
+      ...Array.from($("material-folder").files || []),
+    ];
+    if (!files.length) return;
+    const metadata = {
+      work_title: $("material-work").value.trim(),
+      group_id: $("material-group").value || null,
+      group_section_id: $("material-section").value || null,
+      version_label: $("material-version").value.trim() || "Original",
+      part_label: $("material-part").value.trim() || null,
+      preview: true,
+    };
+    const form = new FormData();
+    form.append("metadata", JSON.stringify(metadata));
+    files.forEach((file) => form.append("files", file, file.webkitRelativePath || file.name));
+    try {
+      const data = await request("/api/v1/material/import", { method: "POST", body: form });
+      pendingMaterial = { files, metadata };
+      renderMaterialPreview(data);
+      showMessage("material-message", "Revisa la propuesta y confirma.", "success");
+    } catch (error) {
+      showMessage("material-message", error.message, "error");
+    }
+  }
+
+  async function confirmMaterial() {
+    if (!pendingMaterial) return;
+    const { files, metadata } = pendingMaterial;
+    const form = new FormData();
+    form.append("metadata", JSON.stringify({ ...metadata, preview: false }));
+    files.forEach((file) => form.append("files", file, file.webkitRelativePath || file.name));
+    try {
+      const data = await request("/api/v1/material/import", { method: "POST", body: form });
+      showMessage("material-message", data.duplicates?.length ? "Importado; algunos duplicados se omitieron." : "Material importado.", "success");
+      pendingMaterial = null;
+      $("material-preview").replaceChildren();
+      $("material-form").classList.add("hidden");
+      $("material-form").reset();
+      $("material-version").value = "Original";
+      await loadMaterialTree();
+    } catch (error) {
+      showMessage("material-message", error.message, "error");
+    }
+  }
+  let agendaCursor = new Date();
+  let agendaSelected = new Date();
+  let agendaFilter = "all";
+
+  function eventDate(event) {
+    const value = event.starts_at || event.created_at;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function eventMatchesFilter(event) {
+    if (agendaFilter === "all") return true;
+    if (agendaFilter === "personal") return event.scope === "personal" || !event.group_id;
+    return String(event.group_id || "") === agendaFilter;
+  }
+
+  function renderAgendaFilters() {
+    const container = $("agenda-filters");
+    container.replaceChildren();
+    const options = [["all", "Todos"], ["personal", "Personal"]];
+    (agendaState.groups || []).forEach((group) => options.push([group.id, group.name]));
+    options.forEach(([value, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "agenda-filter" + (agendaFilter === value ? " active" : "");
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        agendaFilter = value;
+        renderAgendaCalendar();
+      });
+      container.append(button);
+    });
+  }
+
+  function renderAgendaCalendar() {
+    const calendar = $("agenda-calendar");
+    const cursor = agendaCursor;
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth();
+    $("agenda-month").textContent = new Intl.DateTimeFormat("es-ES", {
+      month: "long", year: "numeric",
+    }).format(cursor);
+    calendar.replaceChildren();
+    ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].forEach((day) => {
+      const cell = document.createElement("div");
+      cell.className = "dow";
+      cell.textContent = day;
+      calendar.append(cell);
+    });
+    const first = new Date(year, month, 1);
+    const offset = (first.getDay() + 6) % 7;
+    const start = new Date(year, month, 1 - offset);
+    const events = (agendaState.events || []).filter(eventMatchesFilter);
+    for (let index = 0; index < 42; index += 1) {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+      const cell = document.createElement("div");
+      cell.className = "day" + (date.getMonth() !== month ? " muted" : "");
+      if (date.toDateString() === agendaSelected.toDateString()) cell.classList.add("selected");
+      cell.textContent = String(date.getDate());
+      const count = events.filter((event) => {
+        const eventAt = eventDate(event);
+        return eventAt && eventAt.toDateString() === date.toDateString();
+      }).length;
+      if (count) {
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.title = `${count} evento(s)`;
+        cell.append(dot);
+      }
+      cell.addEventListener("click", () => {
+        agendaSelected = date;
+        renderAgendaCalendar();
+      });
+      calendar.append(cell);
+    }
+    renderAgendaDay();
+  }
+
+  function renderAgendaDay() {
+    const container = $("agenda-day-events");
+    container.replaceChildren();
+    $("agenda-day-title").textContent = `Eventos del día: ${new Intl.DateTimeFormat("es-ES", {
+      day: "2-digit", month: "long", year: "numeric",
+    }).format(agendaSelected)}`;
+    const rows = (agendaState.events || [])
+      .filter(eventMatchesFilter)
+      .filter((event) => eventDate(event)?.toDateString() === agendaSelected.toDateString())
+      .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "No hay eventos este día.";
+      container.append(empty);
+      return;
+    }
+    rows.forEach((event) => {
+      const item = document.createElement("article");
+      item.className = "agenda-item";
+      const title = document.createElement("strong");
+      const at = eventDate(event);
+      title.textContent = `${at ? at.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : ""} · ${event.title}`;
+      const meta = document.createElement("p");
+      meta.className = "muted";
+      meta.textContent = [event.location, event.group_name].filter(Boolean).join(" · ");
+      item.append(title, meta);
+      container.append(item);
+    });
+  }
+
+  function openAgendaModal() {
+    agendaCursor = new Date(agendaSelected.getFullYear(), agendaSelected.getMonth(), 1);
+    $("agenda-modal").classList.remove("hidden");
+    renderAgendaFilters();
+    renderAgendaCalendar();
   }
   async function setRsvp(eventId, status, button) {
     setBusy(button, true, "Guardando…");
@@ -1543,6 +1845,23 @@
   $("modal-download").addEventListener("click",()=>{void downloadDraftSource();});
   $("modal-file").addEventListener("change",(event)=>{const file=event.target.files&&event.target.files[0];if(file){closeDraftModal();void uploadMxl(file);}});
   $("library-refresh").addEventListener("click",()=>{refreshLibrary($("library-query").value.trim()).catch((error)=>showMessage("library-message",error.message,"error"));});
+  $("material-import-toggle").addEventListener("click",()=>{$("material-form").classList.toggle("hidden");});
+  $("material-form").addEventListener("submit",(event)=>{void importMaterial(event);});
+  $("material-group").addEventListener("change",()=>{void loadMaterialSections();});
+  $("open-agenda").addEventListener("click", openAgendaModal);
+  $("agenda-close").addEventListener("click",()=>{$("agenda-modal").classList.add("hidden");});
+  $("agenda-prev").addEventListener("click",()=>{agendaCursor=new Date(agendaCursor.getFullYear(),agendaCursor.getMonth()-1,1);renderAgendaCalendar();});
+  $("agenda-next").addEventListener("click",()=>{agendaCursor=new Date(agendaCursor.getFullYear(),agendaCursor.getMonth()+1,1);renderAgendaCalendar();});
+  $("agenda-new").addEventListener("click",()=>{
+    $("agenda-modal").classList.add("hidden");
+    $("material-form")?.classList.add("hidden");
+    const form = $("dash-event-form");
+    form.classList.remove("hidden");
+    const date = new Date(agendaSelected.getFullYear(),agendaSelected.getMonth(),agendaSelected.getDate(),19,0);
+    $("dash-event-start").value = new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
+    form.scrollIntoView({behavior:"smooth",block:"center"});
+  });
+  $("material-view-button").addEventListener("click",()=>{void loadMaterialTree($("material-view-group").value);});
   let libraryTimer = null;
   $("library-query").addEventListener("input",()=>{
     clearTimeout(libraryTimer);
@@ -1576,6 +1895,18 @@
     });
   }
 })();
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

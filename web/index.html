@@ -31,6 +31,28 @@
     <div class="topbar-right"><button id="inbox-button" class="button button-quiet hidden" type="button" aria-label="Mensajes">✉ <span id="inbox-count">0</span></button><span id="account-label" class="account-label"></span><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
   </header>
 
+  <div id="agenda-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
+    <div class="inbox-panel agenda-panel">
+      <div class="card-head">
+        <h2>Agenda: Calendario Musical y Citas</h2>
+        <button id="agenda-close" class="button button-quiet" type="button">Cerrar</button>
+      </div>
+      <div class="agenda-toolbar">
+        <button id="agenda-prev" class="button button-outline button-small" type="button">←</button>
+        <strong id="agenda-month">Noviembre 2026</strong>
+        <button id="agenda-next" class="button button-outline button-small" type="button">→</button>
+        <button id="agenda-new" class="button button-primary button-small" type="button">+ Nueva cita / Evento</button>
+      </div>
+      <div id="agenda-filters" class="agenda-filters"></div>
+      <div class="agenda-body">
+        <div id="agenda-calendar" class="agenda-calendar"></div>
+        <section class="agenda-day">
+          <h3 id="agenda-day-title">Eventos del día</h3>
+          <div id="agenda-day-events"></div>
+        </section>
+      </div>
+    </div>
+  </div>
   <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
     <div class="inbox-panel messages-workspace">
       <div class="card-head messages-head">
@@ -128,6 +150,7 @@
         <div class="cover-grid">
           <article class="card event-card" id="dashboard-agenda">
             <div class="card-head"><p class="eyebrow">AGENDA</p><span id="dash-event-badge" class="badge badge-muted">Sin agenda</span></div>
+            <button id="open-agenda" class="button button-quiet button-small" type="button">Ver agenda</button>
             <div id="dash-next-content" class="hidden"></div>
             <div id="dash-next-empty" class="empty-state">
               <span class="empty-icon" aria-hidden="true">◷</span>
@@ -358,6 +381,30 @@
         <p id="library-summary" class="muted"></p>
         <ul id="library-items" class="library-list"></ul>
         <p id="library-message" class="message" role="status"></p>
+
+        <div id="material-section" class="material-section">
+          <div class="section-heading">
+            <div><p class="eyebrow">MATERIAL EN CURSO</p><h3>Repertorio por obra, versión y parte</h3></div>
+            <button id="material-import-toggle" class="button button-outline button-small" type="button">Importar material</button>
+          </div>
+          <form id="material-form" class="mini-form hidden">
+            <label>Obra<input id="material-work" maxlength="500" placeholder="Ave verum" required></label>
+            <label>Versión<input id="material-version" maxlength="255" value="Original"></label>
+            <label>Parte / instrumento<input id="material-part" maxlength="255" placeholder="Soprano, Director, Todas"></label>
+            <label>Grupo<select id="material-group"><option value="">Biblioteca personal</option></select></label>
+            <label>Sección del grupo<select id="material-section"><option value="">Todas</option></select></label>
+            <label>Ficheros<input id="material-files" type="file" multiple required></label>
+            <label>Carpeta completa<input id="material-folder" type="file" webkitdirectory directory multiple></label>
+            <button class="button button-primary button-small" type="submit">Importar y revisar</button>
+          </form>
+          <div class="msg-toolbar">
+            <label>Ver material de<select id="material-view-group"><option value="">Mi biblioteca</option></select></label>
+            <button id="material-view-button" class="button button-outline button-small" type="button">Abrir</button>
+          </div>
+          <div id="material-preview"></div>
+          <div id="material-tree"></div>
+          <p id="material-message" class="message" role="status"></p>
+        </div>
       </section>
     </section>
   </main>
@@ -379,6 +426,11 @@
     </div>
   </div></body>
 </html>
+
+
+
+
+
 
 
 

@@ -21,7 +21,7 @@ from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
 import httpx
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -274,6 +274,8 @@ def initialise_database(settings: Settings) -> None:
             "009_messages.sql",
             "010_group_member_roles.sql",
             "011_event_targets.sql",
+            "012_material_library.sql",
+            "013_material_groups.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -2300,10 +2302,439 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"draft_id": draft_id, "status": "materialized", "work_id": work_id,
                 "resource_id": resource_id, "file_id": file_id, "sha256": sha}
 
+    def _material_folder(value: str | None) -> str | None:
+        if not value:
+            return None
+        parts = [part for part in str(value).replace("\\", "/").split("/") if part and part not in (".", "..")]
+        return "/".join(parts)[:900] or None
+
+    def _material_display(name: str, original: str) -> str:
+        suffix = Path(original).suffix.lower()
+        if suffix in {".mxl", ".xml"}:
+            return f"Partitura{suffix}"
+        if suffix in {".mid", ".midi"}:
+            return f"Partitura{suffix}"
+        if suffix in {".mp3", ".wav", ".ogg", ".flac"}:
+            return f"Audio{suffix}"
+        if suffix == ".pdf":
+            return "Partitura.pdf"
+        return _safe_name(name)
+
+    def _validate_material(name: str, data: bytes) -> str | None:
+        suffix = Path(name).suffix.lower()
+        allowed = {".pdf", ".xml", ".mxl", ".mid", ".midi", ".mp3", ".wav", ".ogg", ".flac"}
+        if suffix not in allowed:
+            return f"Formato no admitido: {suffix or 'sin extensión'}"
+        if suffix == ".mxl":
+            try:
+                validate_mxl(data, name)
+            except ValueError as exc:
+                return str(exc)
+        elif suffix == ".xml":
+            try:
+                root = ET.fromstring(data)
+                if root.tag.rsplit("}", 1)[-1] not in {"score-partwise", "score-timewise"}:
+                    return "El XML no es MusicXML"
+            except ET.ParseError:
+                return "XML no válido"
+        elif suffix == ".pdf" and not data.startswith(b"%PDF"):
+            return "El PDF no tiene cabecera válida"
+        return None
+
+    @app.get("/api/v1/material/tree")
+    def material_tree(
+        group_id: str | None = None,
+        user: Principal = Depends(current_user),
+    ) -> list[dict[str, Any]]:
+        with _connect(cfg) as conn:
+            if group_id:
+                member = conn.execute(
+                    "SELECT role, section_id FROM group_members WHERE group_id=? "
+                    "AND user_sub=? AND status='active'", (group_id, user.sub)
+                ).fetchone()
+                if member is None:
+                    raise HTTPException(status_code=403, detail="Not a member of this group")
+                resources = conn.execute(
+                    "SELECT r.id,r.work_id,r.version_label,r.part_label,r.material_status,"
+                    "r.resource_type,w.title,w.subtitle,w.created_at,w.updated_at "
+                    "FROM resources r JOIN works w ON w.id=r.work_id "
+                    "WHERE r.group_id=? AND r.material_status='published' "
+                    "AND (r.group_section_id IS NULL OR r.group_section_id=?) "
+                    "ORDER BY w.title, r.created_at", (group_id, member["section_id"])
+                ).fetchall()
+                grouped: dict[str, dict[str, Any]] = {}
+                for resource in resources:
+                    item = grouped.setdefault(
+                        str(resource["work_id"]),
+                        {
+                            "id": resource["work_id"],
+                            "title": resource["title"],
+                            "subtitle": resource["subtitle"],
+                            "created_at": resource["created_at"],
+                            "updated_at": resource["updated_at"],
+                            "resources": [],
+                        },
+                    )
+                    files = conn.execute(
+                        "SELECT id,name,display_name,original_name,folder_path,mime_type,"
+                        "size_bytes,sha256,status FROM files WHERE resource_id=? "
+                        "ORDER BY folder_path, display_name, name", (resource["id"],)
+                    ).fetchall()
+                    res = {
+                        "id": resource["id"],
+                        "version_label": resource["version_label"],
+                        "part_label": resource["part_label"],
+                        "material_status": resource["material_status"],
+                        "resource_type": resource["resource_type"],
+                        "files": [dict(row) for row in files],
+                    }
+                    item["resources"].append(res)
+                return list(grouped.values())
+
+            works = conn.execute(
+                "SELECT id,title,subtitle,created_at,updated_at FROM works "
+                "WHERE owner_sub=? ORDER BY updated_at DESC", (user.sub,)
+            ).fetchall()
+            result = []
+            for work in works:
+                resources = conn.execute(
+                    "SELECT id,version_label,part_label,material_status,resource_type "
+                    "FROM resources WHERE work_id=? ORDER BY created_at, id", (work["id"],)
+                ).fetchall()
+                item = dict(work)
+                item["resources"] = []
+                for resource in resources:
+                    files = conn.execute(
+                        "SELECT id,name,display_name,original_name,folder_path,mime_type,"
+                        "size_bytes,sha256,status FROM files WHERE resource_id=? "
+                        "ORDER BY folder_path, display_name, name", (resource["id"],)
+                    ).fetchall()
+                    res = dict(resource)
+                    res["files"] = [dict(row) for row in files]
+                    item["resources"].append(res)
+                result.append(item)
+        return result
+
+    @app.get("/api/v1/material/manifest")
+    def material_manifest(
+        group_id: str | None = None, user: Principal = Depends(current_user)
+    ) -> dict[str, Any]:
+        if not group_id:
+            raise HTTPException(status_code=400, detail="group_id required")
+        with _connect(cfg) as conn:
+            member = conn.execute(
+                "SELECT section_id FROM group_members WHERE group_id=? AND user_sub=? "
+                "AND status='active'", (group_id, user.sub)
+            ).fetchone()
+            if member is None:
+                raise HTTPException(status_code=403, detail="Not a member of this group")
+            rows = conn.execute(
+                "SELECT r.id,r.version_label,r.part_label,r.group_section_id,r.updated_at,"
+                "w.id AS work_id,w.title,f.id AS file_id,f.display_name,f.name,"
+                "f.folder_path,f.sha256,f.size_bytes,f.mime_type "
+                "FROM resources r JOIN works w ON w.id=r.work_id "
+                "JOIN files f ON f.resource_id=r.id "
+                "WHERE r.group_id=? AND r.material_status='published' "
+                "AND f.status='available' "
+                "AND (r.group_section_id IS NULL OR r.group_section_id=?) "
+                "ORDER BY w.title, r.version_label, f.folder_path, f.display_name",
+                (group_id, member["section_id"]),
+            ).fetchall()
+        works: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            work = works.setdefault(
+                str(row["work_id"]),
+                {"work_id": row["work_id"], "title": row["title"], "versions": {}},
+            )
+            version = work["versions"].setdefault(
+                str(row["id"]),
+                {
+                    "resource_id": row["id"],
+                    "version_label": row["version_label"],
+                    "section_id": row["group_section_id"],
+                    "updated_at": row["updated_at"],
+                    "files": [],
+                },
+            )
+            version["files"].append(
+                {
+                    "file_id": row["file_id"],
+                    "path": f"{row['folder_path'] + '/' if row['folder_path'] else ''}{row['display_name'] or row['name']}",
+                    "sha256": row["sha256"],
+                    "size_bytes": row["size_bytes"],
+                    "mime_type": row["mime_type"],
+                    "download_url": f"/api/v1/material/files/{row['file_id']}/download",
+                }
+            )
+        return {
+            "group_id": group_id,
+            "generated_at": utcnow(),
+            "works": [
+                {**work, "versions": list(work["versions"].values())}
+                for work in works.values()
+            ],
+        }
+    @app.post("/api/v1/material/import", status_code=201)
+    async def material_import(
+        metadata: str = Form(...),
+        files: list[UploadFile] = File(...),
+        user: Principal = Depends(current_user),
+    ) -> dict[str, Any]:
+        try:
+            meta = json.loads(metadata)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="metadata no es JSON") from exc
+        if not isinstance(meta, dict):
+            raise HTTPException(status_code=400, detail="metadata inválida")
+        version = str(meta.get("version_label") or "Original").strip() or "Original"
+        part = _material_folder(meta.get("part_label"))
+        preview = bool(meta.get("preview"))
+        group_id = str(meta.get("group_id") or "") or None
+        group_section_id = str(meta.get("group_section_id") or "") or None
+        now = utcnow()
+        if group_id:
+            with _connect(cfg) as check:
+                membership = check.execute(
+                    "SELECT role FROM group_members WHERE group_id=? AND user_sub=? "
+                    "AND status='active'", (group_id, user.sub)
+                ).fetchone()
+            if membership is None or membership["role"] != "manager":
+                raise HTTPException(status_code=403, detail="Solo el gestor del grupo puede publicar material")
+        prepared: list[dict[str, Any]] = []
+        duplicates: list[str] = []
+        for upload in files:
+            relative = str(upload.filename or "archivo").replace("\\", "/")
+            relative_parts = [
+                item for item in relative.split("/") if item and item not in (".", "..")
+            ]
+            original = _safe_name(relative_parts[-1] if relative_parts else "archivo")
+            folder = _material_folder("/".join(relative_parts[:-1])) or part
+            data = await upload.read()
+            if len(data) > 50 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail=f"{original}: supera 50 MB")
+            error = _validate_material(original, data)
+            if error:
+                raise HTTPException(status_code=400, detail=f"{original}: {error}")
+            sha = hashlib.sha256(data).hexdigest()
+            with _connect(cfg) as conn:
+                duplicate = conn.execute(
+                    "SELECT f.id FROM files f JOIN resources r ON r.id=f.resource_id "
+                    "JOIN works w ON w.id=r.work_id WHERE w.owner_sub=? AND f.sha256=? LIMIT 1",
+                    (user.sub, sha),
+                ).fetchone()
+            if duplicate is not None:
+                duplicates.append(original)
+                continue
+            if preview:
+                prepared.append(
+                    {
+                        "original": original,
+                        "sha": sha,
+                        "mime": upload.content_type or "",
+                        "folder": folder,
+                        "display_name": _material_display(original, original),
+                    }
+                )
+                continue
+            pointer = _save_private(cfg, data, Path(original).suffix.lower())
+            prepared.append(
+                {"original": original, "data": data, "sha": sha, "pointer": pointer, "mime": upload.content_type or "", "folder": folder}
+            )
+        if preview:
+            return {"status": "preview", "files": prepared, "duplicates": duplicates}
+        if not prepared:
+            return {"status": "duplicate", "files": [], "duplicates": duplicates}
+        work_id = str(meta.get("work_id") or "")
+        with _connect(cfg) as conn:
+            if cfg.database_url:
+                conn.execute("SET FOREIGN_KEY_CHECKS=0")
+            else:
+                conn.execute("PRAGMA foreign_keys=OFF")
+            if work_id:
+                work = conn.execute(
+                    "SELECT * FROM works WHERE id=? AND owner_sub=?", (work_id, user.sub)
+                ).fetchone()
+                if work is None:
+                    raise HTTPException(status_code=404, detail="Work not found")
+                title = str(work["title"])
+            else:
+                title = str(meta.get("work_title") or meta.get("title") or "").strip()
+                if not title:
+                    raise HTTPException(status_code=400, detail="Falta work_title")
+                work_id = uuid.uuid4().hex
+                resource_id = uuid.uuid4().hex
+                first_id = uuid.uuid4().hex
+                conn.execute(
+                    "INSERT INTO works (id,title,subtitle,created_at,updated_at,"
+                    "required_resource_id,owner_sub) VALUES (?,?,?,?,?,?,?)",
+                    (work_id, title, meta.get("subtitle"), now, now, resource_id, user.sub),
+                )
+                conn.execute(
+                    "INSERT INTO resources (id,work_id,resource_type,title,description,"
+                    "provenance,rights_license,created_at,updated_at,required_file_id,"
+                    "version_label,part_label,material_status) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (resource_id, work_id, "score", version, None, None, None, now, now,
+                     first_id, version, part, "draft"),
+                )
+            resource = conn.execute(
+                "SELECT * FROM resources WHERE work_id=? AND version_label=? "
+                "ORDER BY created_at LIMIT 1", (work_id, version)
+            ).fetchone()
+            if resource is None:
+                resource_id = uuid.uuid4().hex
+                first_id = uuid.uuid4().hex
+                conn.execute(
+                    "INSERT INTO resources (id,work_id,resource_type,title,created_at,updated_at,"
+                    "required_file_id,version_label,part_label,material_status) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (resource_id, work_id, "score", version, now, now, first_id, version, part, "draft"),
+                )
+            else:
+                resource_id = str(resource["id"])
+                first_id = str(resource["required_file_id"])
+            created = []
+            for item in prepared:
+                display = _material_display(item["original"], item["original"])
+                existing = conn.execute(
+                    "SELECT display_name FROM files WHERE resource_id=? AND COALESCE(folder_path,'')=?",
+                    (resource_id, item["folder"] or ""),
+                ).fetchall()
+                used = {str(row["display_name"] or "") for row in existing}
+                candidate = display
+                n = 2
+                while candidate in used:
+                    stem = Path(display).stem
+                    candidate = f"{stem}-{n}{Path(display).suffix}"
+                    n += 1
+                file_id = uuid.uuid4().hex
+                conn.execute(
+                    "INSERT INTO files (id,resource_id,name,mime_type,size_bytes,status,sha256,"
+                    "storage_pointer,created_at,updated_at,folder_path,display_name,original_name) "
+                    "VALUES (?,?,?,?,?,'available',?,?,?,?,?,?,?)",
+                    (file_id, resource_id, candidate, item["mime"], len(item["data"]),
+                     item["sha"], item["pointer"], now, now, item["folder"], candidate, item["original"]),
+                )
+                created.append({"id": file_id, "name": candidate, "original": item["original"]})
+            if created:
+                conn.execute(
+                    "INSERT OR IGNORE INTO library_items "
+                    "(id,owner_sub,kind,work_id,title,created_at,updated_at) "
+                    "VALUES (?,?,'local_work',?,?,?,?)",
+                    (uuid.uuid4().hex, user.sub, work_id, title, now, now),
+                )
+        return {"status": "created", "work_id": work_id, "resource_id": resource_id,
+                "files": created, "duplicates": duplicates}
+    def _owned_resource(resource_id: str, user: Principal):
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT r.*, w.owner_sub FROM resources r JOIN works w ON w.id=r.work_id "
+                "WHERE r.id=? AND w.owner_sub=?", (resource_id, user.sub)
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Resource not found")
+        return row
+
+    @app.patch("/api/v1/material/resources/{resource_id}")
+    def material_resource_update(
+        resource_id: str,
+        body: dict[str, Any],
+        user: Principal = Depends(current_user),
+    ) -> dict[str, Any]:
+        _owned_resource(resource_id, user)
+        allowed = {"version_label", "part_label", "material_status"}
+        updates = {key: value for key, value in body.items() if key in allowed}
+        if "material_status" in updates and updates["material_status"] not in {
+            "draft", "reviewed", "published", "retired"
+        }:
+            raise HTTPException(status_code=400, detail="Estado no válido")
+        if not updates:
+            raise HTTPException(status_code=400, detail="Nada que actualizar")
+        with _connect(cfg) as conn:
+            columns = ", ".join(f"{key}=?" for key in updates)
+            conn.execute(
+                f"UPDATE resources SET {columns}, updated_at=? WHERE id=?",
+                (*updates.values(), utcnow(), resource_id),
+            )
+            row = conn.execute("SELECT * FROM resources WHERE id=?", (resource_id,)).fetchone()
+        return dict(row)
+
+    @app.get("/api/v1/material/files/{file_id}/download")
+    def material_file_download(
+        file_id: str, user: Principal = Depends(current_user)
+    ) -> Response:
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT f.*, r.material_status FROM files f "
+                "JOIN resources r ON r.id=f.resource_id JOIN works w ON w.id=r.work_id "
+                "WHERE f.id=? AND w.owner_sub=?", (file_id, user.sub)
+            ).fetchone()
+        if row is None or row["status"] != "available":
+            raise HTTPException(status_code=404, detail="File not found")
+        raw = _read_private(cfg, str(row["storage_pointer"]))
+        return Response(
+            content=raw,
+            media_type=str(row["mime_type"] or "application/octet-stream"),
+            headers={
+                "Content-Disposition": f'attachment; filename="{_safe_name(str(row["display_name"] or row["name"]))}"'
+            },
+        )
+    @app.post("/api/v1/material/resources/{resource_id}/publish")
+    def material_resource_publish(
+        resource_id: str, user: Principal = Depends(current_user)
+    ) -> dict[str, Any]:
+        _owned_resource(resource_id, user)
+        with _connect(cfg) as conn:
+            conn.execute(
+                "UPDATE resources SET material_status='published', updated_at=? WHERE id=?",
+                (utcnow(), resource_id),
+            )
+            row = conn.execute("SELECT * FROM resources WHERE id=?", (resource_id,)).fetchone()
+        return dict(row)
+
+    @app.patch("/api/v1/material/files/{file_id}")
+    def material_file_update(
+        file_id: str,
+        body: dict[str, Any],
+        user: Principal = Depends(current_user),
+    ) -> dict[str, Any]:
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT f.*, w.owner_sub FROM files f JOIN resources r ON r.id=f.resource_id "
+                "JOIN works w ON w.id=r.work_id WHERE f.id=? AND w.owner_sub=?",
+                (file_id, user.sub),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="File not found")
+            allowed = {"display_name", "folder_path"}
+            updates = {key: value for key, value in body.items() if key in allowed}
+            if updates:
+                columns = ", ".join(f"{key}=?" for key in updates)
+                conn.execute(
+                    f"UPDATE files SET {columns}, updated_at=? WHERE id=?",
+                    (*updates.values(), utcnow(), file_id),
+                )
+            updated = conn.execute("SELECT * FROM files WHERE id=?", (file_id,)).fetchone()
+        return dict(updated)
     return app
 
 
 app = create_app()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

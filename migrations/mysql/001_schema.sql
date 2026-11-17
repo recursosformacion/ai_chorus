@@ -253,3 +253,4 @@ CREATE TABLE IF NOT EXISTS message_recipients (
 
 SET FOREIGN_KEY_CHECKS = 1;
 
+
