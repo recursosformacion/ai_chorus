@@ -255,9 +255,13 @@
         messages.textContent = "Mensajes";
         messages.addEventListener("click", () => {
           messageState.groupId = item.id;
-          $("msg-group").value = item.id;
+          void openInbox(true);
+          const select = $("msg-group");
+          if (!Array.from(select.options).some((option) => option.value === item.id)) {
+            select.append(new Option(item.name, item.id));
+          }
+          select.value = item.id;
           $("msg-form").classList.remove("hidden");
-          document.getElementById("dashboard-comunicados").scrollIntoView({ behavior: "smooth" });
           void loadMessages();
         });
         row.append(messages);
@@ -1381,7 +1385,13 @@
     } catch(error) { showMessage("dash-event-message",error.message,"error"); }
     finally { setBusy(button,false); }
   });
-  $("inbox-button").addEventListener("click",()=>{void openInbox();});
+  const _msgContent = $("msg-content");
+  if (_msgContent) {
+    $("inbox-compose").appendChild(_msgContent);
+    _msgContent.classList.add("hidden");
+  }
+
+  $("inbox-button").addEventListener("click",()=>{void openInbox(false);});
   $("inbox-close").addEventListener("click",()=>{$("inbox-modal").classList.add("hidden");});
   $("inbox-reply").addEventListener("submit",(event)=>{void sendInboxReply(event);});
   $("ga-close").addEventListener("click",()=>{$("group-admin-modal").classList.add("hidden");});
@@ -1457,6 +1467,8 @@
     });
   }
 })();
+
+
 
 
 
