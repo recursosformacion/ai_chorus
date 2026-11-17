@@ -1083,6 +1083,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     now,
                 ),
             )
+            conn.execute(
+                "UPDATE groups SET name=?, join_code=?, updated_at=? WHERE id=?",
+                (str(group.get("name") or "Grupo"), str(group.get("join_code") or ""), now, gid),
+            )
             member = conn.execute(
                 "SELECT id FROM group_members WHERE group_id = ? AND user_sub = ?",
                 (gid, user_id),
@@ -2298,6 +2302,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
 
 
 
