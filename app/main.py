@@ -213,7 +213,7 @@ def _join_code() -> str:
 
 
 def _event_dto(
-    row: sqlite3.Row, *, my_rsvp: str | None, group_name: str | None, can_manage: bool
+    row: sqlite3.Row, *, my_rsvp: str | None, my_rsvp_updated_at: str | None = None, group_name: str | None = None, can_manage: bool = False
 ) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -228,6 +228,7 @@ def _event_dto(
         "notes": row["notes"],
         "group_name": group_name,
         "my_rsvp": my_rsvp,
+        "my_rsvp_updated_at": my_rsvp_updated_at,
         "rsvp_required": row["kind"] != "note",
         "can_manage": can_manage,
     }
@@ -1163,7 +1164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             events: list[sqlite3.Row] = []
             if visibility:
                 events = conn.execute(
-                    "SELECT e.*, g.name AS group_name, r.status AS my_rsvp "
+                    "SELECT e.*, g.name AS group_name, r.status AS my_rsvp, r.updated_at AS my_rsvp_updated_at "
                     "FROM events e LEFT JOIN groups g ON g.id = e.group_id "
                     "LEFT JOIN event_rsvps r ON r.event_id = e.id AND r.user_sub = ? "
                     "WHERE e.cancelled_at IS NULL AND e.starts_at >= ? AND ("
@@ -1195,6 +1196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _event_dto(
                     row,
                     my_rsvp=row["my_rsvp"],
+                    my_rsvp_updated_at=row["my_rsvp_updated_at"],
                     group_name=row["group_name"],
                     can_manage=admin or roles.get(row["group_id"]) == "manager",
                 )
@@ -2302,6 +2304,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
+
 
 
 

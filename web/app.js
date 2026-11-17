@@ -163,6 +163,16 @@
     return { rehearsal: "Ensayo", concert: "Actuación", note: "Nota" }[kind] || kind;
   }
 
+  function formatDateOnly(value) {
+    try {
+      return new Intl.DateTimeFormat("es-ES", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+      }).format(new Date(value));
+    } catch (_) {
+      return value || "";
+    }
+  }
+
   function formatEventDate(value) {
     try {
       return new Intl.DateTimeFormat("es-ES", {
@@ -311,10 +321,6 @@
     if (event.rsvp_required) {
       const row = document.createElement("div");
       row.className = "rsvp-buttons";
-      const label = document.createElement("span");
-      label.className = "rsvp-label";
-      label.textContent = "¿Asistes?";
-      row.append(label);
       [["yes", "Asisto"], ["no", "No asisto"]].forEach(([status, text]) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -323,6 +329,18 @@
         button.addEventListener("click", () => { void setRsvp(event.id, status, button); });
         row.append(button);
       });
+      const state = document.createElement("span");
+      state.className = "rsvp-status";
+      if (event.my_rsvp === "yes") {
+        state.textContent = event.my_rsvp_updated_at
+          ? `Confirmado el ${formatDateOnly(event.my_rsvp_updated_at)}`
+          : "Confirmado";
+      } else if (event.my_rsvp === "no") {
+        state.textContent = "No asistiré";
+      } else {
+        state.textContent = "Pendiente de confirmación";
+      }
+      row.append(state);
       card.append(row);
     }
     return card;
@@ -348,7 +366,12 @@
       badge.className = "badge badge-muted";
     }
     const manageable = (agendaState.groups || []).filter((group) => group.can_manage);
-    $("dash-event-admin").classList.toggle("hidden", manageable.length === 0);
+    $("dash-event-admin").classList.remove("hidden");
+    const scopeSelect = $("dash-event-scope");
+    Array.from(scopeSelect.options).forEach((option) => {
+      if (option.value !== "personal") option.disabled = manageable.length === 0;
+    });
+    if (!manageable.length) scopeSelect.value = "personal";
     const select = $("dash-event-group");
     select.replaceChildren();
     manageable.forEach((group) => select.append(new Option(group.name, group.id)));
@@ -1506,6 +1529,9 @@
     });
   }
 })();
+
+
+
 
 
 
