@@ -32,21 +32,36 @@
   </header>
 
   <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
-    <div class="inbox-panel">
-      <div class="card-head"><h2>Mensajes</h2><div><button id="inbox-expand" class="button button-quiet" type="button">Ampliar</button><button id="inbox-close" class="button button-quiet" type="button">Cerrar</button></div></div>
-      <div id="inbox-list"></div>
-      <div id="inbox-directory" class="inbox-directory"></div>
-      <div id="inbox-compose"></div>
-      <div id="inbox-detail" class="hidden">
-        <p id="inbox-subject" class="eyebrow"></p>
-        <p id="inbox-meta" class="muted"></p>
-        <p id="inbox-body" class="inbox-body"></p>
-        <form id="inbox-reply"><textarea id="inbox-reply-body" rows="4" required placeholder="Escribe una respuesta…"></textarea><button class="button button-primary button-small" type="submit">Responder</button></form>
-        <p id="inbox-message" class="message" role="status"></p>
+    <div class="inbox-panel messages-workspace">
+      <div class="card-head messages-head">
+        <div><p class="eyebrow">CHORUS</p><h2>Mensajes</h2></div>
+        <div><button id="inbox-expand" class="button button-quiet" type="button">Ampliar</button><button id="inbox-close" class="button button-quiet" type="button">Cerrar</button></div>
+      </div>
+      <div class="messages-grid">
+        <aside class="messages-nav">
+          <button class="mailbox-tab active" data-mailbox="inbox" type="button">Bandeja de entrada</button>
+          <button class="mailbox-tab" data-mailbox="sent" type="button">Enviados</button>
+          <button id="messages-new" class="button button-primary button-small" type="button">Nuevo mensaje</button>
+          <p class="eyebrow messages-nav-title">Mis grupos</p>
+          <div id="messages-groups"></div>
+        </aside>
+        <section class="messages-list-column">
+          <div id="inbox-list"></div>
+          <div id="inbox-directory" class="inbox-directory"></div>
+        </section>
+        <section class="messages-main-column">
+          <div id="inbox-compose"></div>
+          <div id="inbox-detail" class="hidden">
+            <p id="inbox-subject" class="eyebrow"></p>
+            <p id="inbox-meta" class="muted"></p>
+            <p id="inbox-body" class="inbox-body"></p>
+            <form id="inbox-reply"><textarea id="inbox-reply-body" rows="4" required placeholder="Escribe una respuesta…"></textarea><button class="button button-primary button-small" type="submit">Responder</button></form>
+            <p id="inbox-message" class="message" role="status"></p>
+          </div>
+        </section>
       </div>
     </div>
   </div>
-
   <div id="group-admin-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
     <div class="inbox-panel group-admin-panel">
       <div class="card-head"><h2 id="ga-title">Grupo</h2><button id="ga-close" class="button button-quiet" type="button">Cerrar</button></div>
@@ -364,6 +379,7 @@
     </div>
   </div></body>
 </html>
+
 
 
 

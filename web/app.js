@@ -582,40 +582,79 @@
     }
   }
 
-  async function openInbox() {
+  let mailboxMode = "inbox";
+  let inboxRows = [];
+
+  function renderMailboxGroups() {
+    const container = $("messages-groups");
+    container.replaceChildren();
+    (agendaState.groups || []).forEach((group) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "messages-group-button";
+      button.textContent = group.name;
+      button.addEventListener("click", () => {
+        messageState.groupId = group.id;
+        void openInbox(true);
+      });
+      container.append(button);
+    });
+  }
+
+  function renderInboxRows() {
+    const list = $("inbox-list");
+    list.replaceChildren();
+    const rows = inboxRows.filter((row) =>
+      mailboxMode === "sent" ? row.is_sender : !row.is_sender,
+    );
+    if (!rows.length) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = mailboxMode === "sent" ? "No has enviado mensajes." : "No tienes mensajes.";
+      list.append(p);
+      return;
+    }
+    rows.forEach((row) => {
+      const item = document.createElement("div");
+      item.className = "inbox-item" + (row.my_read_at || row.is_sender ? "" : " unread");
+      const left = document.createElement("div");
+      const subject = document.createElement("strong");
+      subject.textContent = `${row.subject} · ${row.group_name}`;
+      const meta = document.createElement("p");
+      meta.className = "muted";
+      meta.textContent = formatEventDate(row.created_at);
+      left.append(subject, meta);
+      item.append(left);
+      item.addEventListener("click", () => void openInboxMessage(row.id));
+      list.append(item);
+    });
+  }
+
+  async function openInbox(showCompose = false) {
     $("inbox-modal").classList.remove("hidden");
     $("inbox-detail").classList.add("hidden");
-    $("inbox-list").classList.remove("hidden");
-    try {
-      const rows = await request("/api/v1/messages/inbox");
-      const list = $("inbox-list");
-      list.replaceChildren();
-      if (!rows.length) {
-        const p = document.createElement("p");
-        p.className = "muted";
-        p.textContent = "No tienes mensajes.";
-        list.append(p);
-        return;
+    renderMailboxGroups();
+    $("inbox-list").classList.toggle("hidden", showCompose);
+    $("inbox-directory").classList.toggle("hidden", showCompose);
+    $("msg-content").classList.toggle("hidden", !showCompose);
+    if (showCompose) {
+      if (!messageState.groupId) {
+        const first = (agendaState.groups || [])[0];
+        if (first) messageState.groupId = first.id;
       }
-      rows.forEach((row) => {
-        const item = document.createElement("div");
-        item.className = "inbox-item" + (row.my_read_at || row.is_sender ? "" : " unread");
-        const left = document.createElement("div");
-        const subject = document.createElement("strong");
-        subject.textContent = `${row.subject} · ${row.group_name}`;
-        const meta = document.createElement("p");
-        meta.className = "muted";
-        meta.textContent = row.created_at;
-        left.append(subject, meta);
-        item.append(left);
-        item.addEventListener("click", () => void openInboxMessage(row.id));
-        list.append(item);
-      });
+      $("msg-form").classList.remove("hidden");
+      void loadMessages();
+      $("msg-subject").focus();
+      return;
+    }
+    try {
+      inboxRows = await request("/api/v1/messages/inbox");
+      renderInboxRows();
+      void loadInboxDirectory();
     } catch (error) {
       showMessage("inbox-message", error.message, "error");
     }
   }
-
   async function openInboxMessage(messageId) {
     try {
       const row = await request(`/api/v1/messages/${encodeURIComponent(messageId)}`);
@@ -1449,6 +1488,14 @@
   }
 
   $("inbox-button").addEventListener("click",()=>{void openInbox(false);});
+  $("messages-new").addEventListener("click",()=>{void openInbox(true);});
+  document.querySelectorAll(".mailbox-tab").forEach((tab) => {
+    tab.addEventListener("click",() => {
+      mailboxMode = tab.dataset.mailbox === "sent" ? "sent" : "inbox";
+      document.querySelectorAll(".mailbox-tab").forEach((item) => item.classList.toggle("active", item === tab));
+      void openInbox(false);
+    });
+  });
   $("inbox-close").addEventListener("click",()=>{$("inbox-modal").classList.add("hidden");});
   $("inbox-expand").addEventListener("click",()=>{
     const panel = document.querySelector(".inbox-panel");
@@ -1529,6 +1576,8 @@
     });
   }
 })();
+
+
 
 
 
