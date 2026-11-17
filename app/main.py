@@ -121,7 +121,10 @@ class EntityLeadBody(BaseModel):
 
 
 class EventBody(BaseModel):
-    group_id: str = Field(min_length=1, max_length=64)
+    group_id: str | None = Field(default=None, max_length=64)
+    scope: Literal["personal", "group", "section", "users"] = "group"
+    section_id: str | None = None
+    recipient_subs: list[str] = Field(default_factory=list)
     kind: Literal["rehearsal", "concert", "note"]
     title: str = Field(min_length=1, max_length=200)
     starts_at: str = Field(min_length=10, max_length=64)
@@ -247,6 +250,12 @@ def initialise_database(settings: Settings) -> None:
                     "INSERT INTO chorus_schema_migrations (name, applied_at) VALUES (?, ?)",
                     ("mysql_schema_v1", utcnow()),
                 )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS event_targets "
+                "(event_id VARCHAR(191) NOT NULL, target_type VARCHAR(16) NOT NULL, "
+                "target_value VARCHAR(191) NOT NULL, PRIMARY KEY (event_id,target_type,target_value), "
+                "CONSTRAINT fk_event_target_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE)"
+            )
             return
         conn.execute(
             "CREATE TABLE IF NOT EXISTS chorus_schema_migrations "
@@ -263,6 +272,7 @@ def initialise_database(settings: Settings) -> None:
             "008_entity_lead_manager.sql",
             "009_messages.sql",
             "010_group_member_roles.sql",
+            "011_event_targets.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -1122,14 +1132,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 visibility.append(
                     "e.scope = 'groups' AND e.group_id IN ("
                     + ",".join("?" for _ in group_ids) + ")"
+                    + " AND (NOT EXISTS (SELECT 1 FROM event_targets t WHERE t.event_id=e.id) "
+                    + " OR EXISTS (SELECT 1 FROM event_targets t WHERE t.event_id=e.id AND ("
+                    + "(t.target_type='user' AND t.target_value=?) OR "
+                    + "(t.target_type='section' AND t.target_value IN (SELECT section_id FROM group_members WHERE user_sub=? AND status='active')))))"
                 )
                 params.extend(group_ids)
+                params.extend([user_id, user_id])
             if entity_ids:
                 visibility.append(
                     "e.scope = 'global' AND e.entity_id IN ("
                     + ",".join("?" for _ in entity_ids) + ")"
                 )
                 params.extend(sorted(entity_ids))
+            visibility.append("e.scope = 'personal' AND e.created_by = ?")
+            params.append(user_id)
+            visibility.append(
+                "e.scope IN ('section','users') AND EXISTS ("
+                "SELECT 1 FROM event_targets t WHERE t.event_id = e.id AND ("
+                "(t.target_type = 'user' AND t.target_value = ?) OR "
+                "(t.target_type = 'section' AND t.target_value IN ("
+                "SELECT section_id FROM group_members WHERE user_sub = ? "
+                "AND status = 'active' AND section_id IS NOT NULL))))"
+            )
+            params.extend([user_id, user_id])
             events: list[sqlite3.Row] = []
             if visibility:
                 events = conn.execute(
@@ -1755,43 +1781,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now = utcnow()
         event_id = uuid.uuid4().hex
         with _connect(cfg) as conn:
-            group = conn.execute("SELECT * FROM groups WHERE id = ?", (body.group_id,)).fetchone()
-            if group is None:
-                raise HTTPException(status_code=404, detail="Group not found")
-            role = conn.execute(
-                "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
-                "AND status = 'active'",
-                (group["id"], user_id),
-            ).fetchone()
-            if not admin and (role is None or role["role"] != "manager"):
-                raise HTTPException(status_code=403, detail="Group manager role required")
+            group = None
+            if body.scope != "personal":
+                if not body.group_id:
+                    raise HTTPException(status_code=400, detail="Group is required")
+                group = conn.execute("SELECT * FROM groups WHERE id = ?", (body.group_id,)).fetchone()
+                if group is None:
+                    raise HTTPException(status_code=404, detail="Group not found")
+                role = conn.execute(
+                    "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                    "AND status = 'active'",
+                    (group["id"], user_id),
+                ).fetchone()
+                if not admin and (role is None or role["role"] != "manager"):
+                    raise HTTPException(status_code=403, detail="Group manager role required")
+            entity_id = group["entity_id"] if group is not None else user_id
+            group_id = group["id"] if group is not None else None
+            stored_scope = "global" if body.scope == "personal" else "groups"
             conn.execute(
                 "INSERT INTO events "
                 "(id,group_id,entity_id,scope,kind,title,starts_at,ends_at,location,notes,"
                 "created_by,created_at,updated_at) "
-                "VALUES (?,?,?,'groups',?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    event_id,
-                    group["id"],
-                    group["entity_id"],
-                    body.kind,
-                    body.title.strip(),
-                    starts_at,
-                    ends_at,
-                    body.location,
-                    body.notes,
-                    user_id,
-                    now,
-                    now,
+                    event_id, group_id, entity_id, stored_scope, body.kind,
+                    body.title.strip(), starts_at, ends_at, body.location, body.notes,
+                    user_id, now, now,
                 ),
             )
-            conn.execute(
-                "INSERT INTO event_groups (event_id, group_id) VALUES (?,?)",
-                (event_id, group["id"]),
-            )
+            if group is not None:
+                conn.execute(
+                    "INSERT INTO event_groups (event_id, group_id) VALUES (?,?)",
+                    (event_id, group["id"]),
+                )
+            if body.scope == "section" and body.section_id:
+                conn.execute(
+                    "INSERT OR IGNORE INTO event_targets (event_id,target_type,target_value) VALUES (?,?,?)",
+                    (event_id, "section", body.section_id),
+                )
+            if body.scope == "users":
+                for sub in body.recipient_subs:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO event_targets (event_id,target_type,target_value) VALUES (?,?,?)",
+                        (event_id, "user", sub),
+                    )
             row = conn.execute(
                 "SELECT e.*, g.name AS group_name FROM events e "
-                "JOIN groups g ON g.id = e.group_id WHERE e.id = ?",
+                "LEFT JOIN groups g ON g.id = e.group_id WHERE e.id = ?",
                 (event_id,),
             ).fetchone()
         return _event_dto(
@@ -2262,6 +2298,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+
+
+
+
+
 
 
 

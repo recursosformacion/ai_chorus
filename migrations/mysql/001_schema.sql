@@ -234,6 +234,14 @@ CREATE TABLE IF NOT EXISTS messages (
     CONSTRAINT fk_messages_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS event_targets (
+    event_id VARCHAR(191) NOT NULL,
+    target_type VARCHAR(16) NOT NULL,
+    target_value VARCHAR(191) NOT NULL,
+    PRIMARY KEY (event_id, target_type, target_value),
+    CONSTRAINT fk_event_target_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS message_recipients (
     message_id VARCHAR(191) NOT NULL,
     user_sub VARCHAR(191) NOT NULL,
@@ -244,3 +252,4 @@ CREATE TABLE IF NOT EXISTS message_recipients (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
+

@@ -1365,6 +1365,37 @@
   $("dash-add-event").addEventListener("click",()=>{
     $("dash-event-form").classList.toggle("hidden");
   });
+  async function loadEventTargets() {
+    const groupId = $("dash-event-group").value;
+    if (!groupId) return;
+    try {
+      const [catalog, members] = await Promise.all([
+        request(`/api/v1/groups/${encodeURIComponent(groupId)}/catalog`).catch(() => ({ section: [] })),
+        request(`/api/v1/groups/${encodeURIComponent(groupId)}/members`).catch(() => []),
+      ]);
+      const sections = $("dash-event-section");
+      sections.replaceChildren(new Option("Toda la sección", ""));
+      (catalog.section || []).forEach((item) => sections.append(new Option(item.name, item.id || "")));
+      const users = $("dash-event-users");
+      users.replaceChildren();
+      (members || []).forEach((member) => users.append(new Option(member.name, member.user_sub)));
+    } catch (_) {
+      /* sin destinos */
+    }
+  }
+
+  function syncEventScope() {
+    const scope = $("dash-event-scope").value;
+    $("dash-event-group-wrap").classList.toggle("hidden", scope === "personal");
+    $("dash-event-section-wrap").classList.toggle("hidden", scope !== "section");
+    $("dash-event-users-wrap").classList.toggle("hidden", scope !== "users");
+    if (scope !== "personal") void loadEventTargets();
+  }
+
+  $("dash-event-scope").addEventListener("change", syncEventScope);
+  $("dash-event-group").addEventListener("change", () => { void loadEventTargets(); });
+  syncEventScope();
+
   $("dash-event-form").addEventListener("submit",async (event)=>{
     event.preventDefault();
     const button=event.submitter; setBusy(button,true,"Guardando…");
@@ -1372,7 +1403,10 @@
       const startsAt=new Date($("dash-event-start").value);
       if (Number.isNaN(startsAt.getTime())) throw new Error("Fecha inválida");
       await request("/api/v1/events",{method:"POST",body:JSON.stringify({
-        group_id:$("dash-event-group").value,
+        group_id: $("dash-event-scope").value === "personal" ? null : $("dash-event-group").value,
+        scope: $("dash-event-scope").value,
+        section_id: $("dash-event-section").value || null,
+        recipient_subs: Array.from($("dash-event-users").selectedOptions).map((option) => option.value),
         kind:$("dash-event-kind").value,
         title:$("dash-event-title").value.trim(),
         starts_at:startsAt.toISOString(),
@@ -1393,6 +1427,11 @@
 
   $("inbox-button").addEventListener("click",()=>{void openInbox(false);});
   $("inbox-close").addEventListener("click",()=>{$("inbox-modal").classList.add("hidden");});
+  $("inbox-expand").addEventListener("click",()=>{
+    const panel = document.querySelector(".inbox-panel");
+    panel.classList.toggle("expanded");
+    $("inbox-expand").textContent = panel.classList.contains("expanded") ? "Reducir" : "Ampliar";
+  });
   $("inbox-reply").addEventListener("submit",(event)=>{void sendInboxReply(event);});
   $("ga-close").addEventListener("click",()=>{$("group-admin-modal").classList.add("hidden");});
   $("ga-edit-form").addEventListener("submit",(event)=>{void saveGroupData(event);});
@@ -1467,6 +1506,8 @@
     });
   }
 })();
+
+
 
 
 

@@ -186,3 +186,5 @@
 .inbox-directory{margin-top:16px;border-top:1px solid #e5e5e5;padding-top:10px}.inbox-directory h3{font-size:14px;margin:0 0 6px}.inbox-directory-row{display:flex;justify-content:space-between;gap:8px;padding:6px 0;font-size:13px}
 
 #msg-filters{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}#msg-filters input,#msg-filters select{font-size:12px;padding:4px 6px;border:1px solid #d9d2c3;border-radius:6px;background:#fffdf8}
+
+.inbox-panel.expanded{width:96vw;max-width:1400px;height:92vh;max-height:92vh}.inbox-panel.expanded #inbox-list{max-height:45vh;overflow:auto}.inbox-panel.expanded #msg-content{max-height:55vh;overflow:auto}

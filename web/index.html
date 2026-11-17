@@ -33,7 +33,7 @@
 
   <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
     <div class="inbox-panel">
-      <div class="card-head"><h2>Mensajes</h2><button id="inbox-close" class="button button-quiet" type="button">Cerrar</button></div>
+      <div class="card-head"><h2>Mensajes</h2><div><button id="inbox-expand" class="button button-quiet" type="button">Ampliar</button><button id="inbox-close" class="button button-quiet" type="button">Cerrar</button></div></div>
       <div id="inbox-list"></div>
       <div id="inbox-directory" class="inbox-directory"></div>
       <div id="inbox-compose"></div>
@@ -122,7 +122,15 @@
             <div id="dash-event-admin" class="hidden">
               <button id="dash-add-event" class="button button-outline button-small" type="button">Añadir evento</button>
               <form id="dash-event-form" class="mini-form hidden">
-                <label>Grupo<select id="dash-event-group"></select></label>
+                <label>Para<select id="dash-event-scope">
+                  <option value="personal">Para mí</option>
+                  <option value="group">Un grupo</option>
+                  <option value="section">Una sección</option>
+                  <option value="users">Personas concretas</option>
+                </select></label>
+                <label id="dash-event-group-wrap">Grupo<select id="dash-event-group"></select></label>
+                <label id="dash-event-section-wrap" class="hidden">Sección<select id="dash-event-section"></select></label>
+                <label id="dash-event-users-wrap" class="hidden">Personas<select id="dash-event-users" multiple size="4"></select></label>
                 <label>Tipo<select id="dash-event-kind">
                   <option value="rehearsal">Ensayo</option>
                   <option value="concert">Actuación</option>
@@ -356,6 +364,8 @@
     </div>
   </div></body>
 </html>
+
+
 
 
 
