@@ -179,6 +179,92 @@
     renderLibrary(data || {});
   }
   let agendaState = { groups: [], entities: [], events: [], can_create_group: false };
+  let activeGroupId = "";
+  let groupPickerOpen = false;
+
+  function activeGroup() {
+    return (agendaState.groups || []).find((group) => group.id === activeGroupId) || null;
+  }
+
+  function updateActiveGroupUi() {
+    const button = $("active-group-button");
+    if (!button) return;
+    const group = activeGroup();
+    button.classList.toggle("hidden", !group);
+    $("articles-button")?.classList.toggle("hidden", !group);
+    if (group) button.textContent = group.name;
+  }
+
+  function openGroupPicker() {
+    const list = $("group-picker-list");
+    if (!list) return;
+    groupPickerOpen = true;
+    list.replaceChildren();
+    (agendaState.groups || []).forEach((group) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "group-picker-card" + (group.id === activeGroupId ? " active" : "");
+      const mark = document.createElement("span");
+      mark.className = "group-mark";
+      mark.textContent = (group.name || "G").slice(0, 2).toUpperCase();
+      const copy = document.createElement("span");
+      const name = document.createElement("strong");
+      name.textContent = group.name;
+      const role = document.createElement("small");
+      role.textContent = group.role === "manager" ? "Responsable" : "Miembro";
+      copy.append(name, role);
+      button.append(mark, copy);
+      button.addEventListener("click", () => {
+        setActiveGroup(group.id);
+        $("group-picker-modal").classList.add("hidden");
+        groupPickerOpen = false;
+      });
+      list.append(button);
+    });
+    $("group-picker-modal").classList.remove("hidden");
+  }
+
+  function setActiveGroup(groupId, reloadMessages = true) {
+    activeGroupId = groupId;
+    if (!agendaFilter || !["all", "personal"].includes(agendaFilter)) {
+      if (!(agendaState.groups || []).some((group) => group.id === agendaFilter)) {
+        agendaFilter = groupId;
+      }
+    }
+    updateActiveGroupUi();
+    renderAgenda();
+    renderGroupCard();
+    if (messageState.groupId !== groupId) {
+      messageState.groupId = groupId;
+      if (reloadMessages) void loadMessages();
+    }
+    const agendaModal = $("agenda-modal");
+    if (agendaModal && !agendaModal.classList.contains("hidden")) {
+      renderAgendaFilters();
+      renderAgendaCalendar();
+    }
+  }
+
+  function ensureActiveGroup() {
+    const groups = agendaState.groups || [];
+    if (!groups.length) {
+      activeGroupId = "";
+      updateActiveGroupUi();
+      $("group-picker-modal")?.classList.add("hidden");
+      return;
+    }
+    const stored = groups.find((group) => group.id === activeGroupId);
+    if (stored) {
+      updateActiveGroupUi();
+      if (!agendaFilter) agendaFilter = stored.id;
+      return;
+    }
+    if (groups.length === 1) {
+      setActiveGroup(groups[0].id, false);
+      return;
+    }
+    if (!groupPickerOpen) openGroupPicker();
+  }
 
   function kindLabel(kind) {
     return { rehearsal: "Ensayo", concert: "Actuación", note: "Nota" }[kind] || kind;
@@ -207,6 +293,7 @@
 
   async function loadAgenda() {
     agendaState = await request("/api/v1/agenda");
+    ensureActiveGroup();
     renderAgenda();
     const agendaModal = $("agenda-modal");
     if (agendaModal && !agendaModal.classList.contains("hidden")) {
@@ -222,7 +309,7 @@
     const content = $("dash-group-content");
     const empty = $("dash-group-empty");
     if (groups.length) {
-      const group = groups[0];
+      const group = groups.find((item) => item.id === activeGroupId) || groups[0];
       content.classList.remove("hidden");
       empty.classList.add("hidden");
       content.replaceChildren();
@@ -320,6 +407,147 @@
     });
   }
 
+  let articlesState = {items: [], current: null};
+
+  function articleStatusLabel(status) {
+    return {draft: "Borrador", pending: "Pendiente", published: "Publicado", withdrawn: "Retirado"}[status] || status;
+  }
+
+  function renderArticlesList() {
+    const list = $("articles-list");
+    if (!list) return;
+    list.replaceChildren();
+    if (!articlesState.items.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted";
+      empty.textContent = "Todavía no hay artículos en este grupo.";
+      list.append(empty);
+      return;
+    }
+    articlesState.items.forEach((article) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "article-row" + (articlesState.current?.id === article.id ? " active" : "");
+      const title = document.createElement("strong");
+      title.textContent = article.title;
+      const meta = document.createElement("small");
+      meta.textContent = [articleStatusLabel(article.status), article.event_date].filter(Boolean).join(" · ");
+      button.append(title, meta);
+      button.addEventListener("click", () => selectArticle(article));
+      list.append(button);
+    });
+  }
+
+  function selectArticle(article = null) {
+    articlesState.current = article;
+    $("article-title").value = article ? article.title : "";
+    $("article-summary").value = article ? article.summary || "" : "";
+    $("article-body").value = article ? article.body || "" : "";
+    $("article-cover").value = article ? article.cover_url || "" : "";
+    $("article-date").value = article ? article.event_date || "" : "";
+    $("article-media-list").replaceChildren();
+    (article?.media || []).forEach((media) => {
+      const link = document.createElement("a");
+      link.href = media.url;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = [media.kind, media.caption || media.url].filter(Boolean).join(" · ");
+      $("article-media-list").append(link);
+    });
+    const editing = Boolean(article);
+    $("article-delete").classList.toggle("hidden", !(editing && article.can_edit && article.status !== "published"));
+    $("article-withdraw").classList.toggle("hidden", !(editing && article.can_edit && article.status === "published"));
+    $("article-publish").classList.toggle("hidden", !(editing && article.can_publish && article.status !== "published"));
+    $("article-message").textContent = "";
+    renderArticlesList();
+  }
+
+  async function loadArticles() {
+    const group = activeGroup();
+    if (!group) return;
+    $("articles-group-name").textContent = group.name;
+    const items = await request(`/api/v1/groups/${encodeURIComponent(group.id)}/articles`);
+    articlesState.items = Array.isArray(items) ? items : [];
+    if (articlesState.current) {
+      const current = articlesState.items.find((item) => item.id === articlesState.current.id);
+      selectArticle(current || null);
+    } else {
+      renderArticlesList();
+    }
+  }
+
+  async function openArticles() {
+    if (!activeGroup()) {
+      openGroupPicker();
+      return;
+    }
+    articlesState.current = null;
+    $("articles-modal").classList.remove("hidden");
+    selectArticle(null);
+    try { await loadArticles(); } catch (error) {
+      showMessage("article-message", error.message, "error");
+    }
+  }
+
+  function articlePayload() {
+    return {
+      title: $("article-title").value.trim(),
+      summary: $("article-summary").value.trim() || null,
+      body: $("article-body").value || null,
+      cover_url: $("article-cover").value.trim() || null,
+      event_date: $("article-date").value || null,
+    };
+  }
+
+  async function saveArticle() {
+    const group = activeGroup();
+    if (!group) return;
+    const payload = articlePayload();
+    if (!payload.title) {
+      showMessage("article-message", "El título es obligatorio.", "error");
+      return;
+    }
+    const button = $("article-save");
+    setBusy(button, true, "Guardando…");
+    try {
+      const current = articlesState.current;
+      const article = current
+        ? await request(`/api/v1/articles/${encodeURIComponent(current.id)}`, {
+          method: "PATCH", body: JSON.stringify(payload),
+        })
+        : await request(`/api/v1/groups/${encodeURIComponent(group.id)}/articles`, {
+          method: "POST", body: JSON.stringify(payload),
+        });
+      articlesState.current = article;
+      await loadArticles();
+      selectArticle(articlesState.items.find((item) => item.id === article.id) || article);
+      showMessage("article-message", "Artículo guardado.", "success");
+    } catch (error) {
+      showMessage("article-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
+  async function articleAction(action) {
+    const current = articlesState.current;
+    if (!current) return;
+    try {
+      if (action === "delete") {
+        await request(`/api/v1/articles/${encodeURIComponent(current.id)}`, {method: "DELETE"});
+      } else {
+        await request(`/api/v1/articles/${encodeURIComponent(current.id)}/${action}`, {
+          method: "POST", body: JSON.stringify({}),
+        });
+      }
+      articlesState.current = null;
+      await loadArticles();
+      selectArticle(null);
+      showMessage("article-message", action === "delete" ? "Artículo eliminado." : "Estado actualizado.", "success");
+    } catch (error) {
+      showMessage("article-message", error.message, "error");
+    }
+  }
   function renderEvent(event, primary) {
     const card = document.createElement("article");
     card.className = "dash-event" + (primary ? " dash-event-primary" : "");
@@ -334,10 +562,13 @@
       formatEventDate(event.starts_at), event.location, event.group_name,
     ].filter(Boolean).join(" · ");
     left.append(title, meta);
+    const creator = document.createElement("span");
+    creator.className = "agenda-creator-badge";
+    creator.textContent = event.creator_badge || "D";
     const kind = document.createElement("span");
     kind.className = "dash-event-kind " + event.kind;
     kind.textContent = kindLabel(event.kind);
-    head.append(left, kind);
+    head.append(left, creator, kind);
     card.append(head);
     if (event.notes) {
       const notes = document.createElement("p");
@@ -374,7 +605,11 @@
   }
 
   function renderAgenda() {
-    const events = agendaState.events || [];
+    const now = Date.now();
+    const events = (agendaState.events || []).filter(
+      (event) => new Date(event.starts_at).getTime() >= now
+        && (!activeGroupId || !event.group_id || event.group_id === activeGroupId),
+    );
     const content = $("dash-next-content");
     const empty = $("dash-next-empty");
     const badge = $("dash-event-badge");
@@ -392,16 +627,6 @@
       badge.textContent = "Sin agenda";
       badge.className = "badge badge-muted";
     }
-    const manageable = (agendaState.groups || []).filter((group) => group.can_manage);
-    $("dash-event-admin").classList.remove("hidden");
-    const scopeSelect = $("dash-event-scope");
-    Array.from(scopeSelect.options).forEach((option) => {
-      if (option.value !== "personal") option.disabled = manageable.length === 0;
-    });
-    if (!manageable.length) scopeSelect.value = "personal";
-    const select = $("dash-event-group");
-    select.replaceChildren();
-    manageable.forEach((group) => select.append(new Option(group.name, group.id)));
     renderGroupCard();
   }
 
@@ -418,7 +643,7 @@
     content.classList.toggle("hidden", groups.length === 0);
     empty.classList.toggle("hidden", groups.length > 0);
     const select = $("msg-group");
-    const previous = messageState.groupId || select.value;
+    const previous = messageState.groupId || activeGroupId || select.value;
     select.replaceChildren();
     groups.forEach((group) => select.append(new Option(group.name, group.id)));
     if (!groups.length) {
@@ -426,7 +651,9 @@
       return;
     }
     const exists = groups.some((group) => group.id === previous);
-    select.value = exists ? previous : groups[0].id;
+    select.value = exists
+      ? previous
+      : (groups.find((group) => group.id === activeGroupId) || groups[0]).id;
     messageState.groupId = select.value;
   }
 
@@ -1313,7 +1540,7 @@
   }
 
   let agendaCursor = new Date();
-  let agendaFilter = "all";
+  let agendaFilter = "";
 
   function eventMatchesFilter(event) {
     if (agendaFilter === "all") return true;
@@ -1430,10 +1657,22 @@
       head.className = "agenda-day-event-head";
       const time = document.createElement("strong");
       time.textContent = agendaTime(event) || "Todo el día";
+      const creator = document.createElement("span");
+      creator.className = "agenda-creator-badge";
+      creator.textContent = event.creator_badge || "D";
+      creator.title = "Creado por el autor de la cita";
       const kind = document.createElement("span");
       kind.className = "agenda-kind";
       kind.textContent = kindLabel(event.kind);
-      head.append(time, kind);
+      head.append(time, creator, kind);
+      if (event.can_manage) {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "agenda-edit-button";
+        edit.textContent = "Editar";
+        edit.addEventListener("click", () => openEventForm(event));
+        head.append(edit);
+      }
       const name = document.createElement("h4");
       name.textContent = event.title;
       const meta = document.createElement("p");
@@ -1465,6 +1704,7 @@
   function openAgendaModal() {
     agendaSelected = new Date();
     agendaCursor = new Date(agendaSelected.getFullYear(), agendaSelected.getMonth(), 1);
+    if (!agendaFilter) agendaFilter = activeGroupId || "all";
     $("agenda-modal").classList.remove("hidden");
     renderAgendaFilters();
     renderAgendaCalendar();
@@ -2100,63 +2340,251 @@
     } catch(error) { showMessage("dash-group-message",error.message,"error"); }
     finally { setBusy(button,false); }
   });
-  $("dash-add-event").addEventListener("click",()=>{
-    $("dash-event-form").classList.toggle("hidden");
+  $("articles-button").addEventListener("click", () => void openArticles());
+  $("articles-close").addEventListener("click", () => {
+    $("articles-modal").classList.add("hidden");
   });
-  async function loadEventTargets() {
-    const groupId = $("dash-event-group").value;
+  $("article-new").addEventListener("click", () => selectArticle(null));
+  $("article-save").addEventListener("click", () => void saveArticle());
+  $("article-publish").addEventListener("click", () => void articleAction("publish"));
+  $("article-withdraw").addEventListener("click", () => void articleAction("withdraw"));
+  $("article-delete").addEventListener("click", () => {
+    if (window.confirm("¿Eliminar este artículo?")) void articleAction("delete");
+  });  $("active-group-button").addEventListener("click", openGroupPicker);
+
+  let editingEvent = null;
+
+  function localInputValue(value) {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const pad = (number) => String(number).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function populateEventGroups(selected) {
+    const select = $("event-group");
+    const preferred = selected || activeGroupId;
+    const groups = (agendaState.groups || []).filter(
+      (group) => group.can_manage || group.id === preferred,
+    );
+    select.replaceChildren();
+    groups.forEach((group) => select.append(new Option(group.name, group.id)));
+    if (preferred && groups.some((group) => group.id === preferred)) {
+      select.value = preferred;
+    }
+    return groups;
+  }
+
+  async function loadEventSections(selected) {
+    const groupId = $("event-group").value;
+    const select = $("event-section");
+    select.replaceChildren(new Option("Selecciona una sección", ""));
     if (!groupId) return;
     try {
-      const [catalog, members] = await Promise.all([
-        request(`/api/v1/groups/${encodeURIComponent(groupId)}/catalog`).catch(() => ({ section: [] })),
-        request(`/api/v1/groups/${encodeURIComponent(groupId)}/members`).catch(() => []),
-      ]);
-      const sections = $("dash-event-section");
-      sections.replaceChildren(new Option("Toda la sección", ""));
-      (catalog.section || []).forEach((item) => sections.append(new Option(item.name, item.id || "")));
-      const users = $("dash-event-users");
-      users.replaceChildren();
-      (members || []).forEach((member) => users.append(new Option(member.name, member.user_sub)));
+      const catalog = await request(
+        `/api/v1/groups/${encodeURIComponent(groupId)}/catalog`,
+      );
+      (catalog.section || []).forEach((item) => {
+        select.append(new Option(item.name, item.id || ""));
+      });
+      const sectionOption = Array.from($("event-scope").options)
+        .find((option) => option.value === "section");
+      if (sectionOption) {
+        sectionOption.disabled = select.options.length <= 1 && !selected;
+      }
+      if (selected) select.value = selected;
     } catch (_) {
-      /* sin destinos */
+      /* sin secciones */
     }
   }
 
-  function syncEventScope() {
-    const scope = $("dash-event-scope").value;
-    $("dash-event-group-wrap").classList.toggle("hidden", scope === "personal");
-    $("dash-event-section-wrap").classList.toggle("hidden", scope !== "section");
-    $("dash-event-users-wrap").classList.toggle("hidden", scope !== "users");
-    if (scope !== "personal") void loadEventTargets();
+  function syncEventForm() {
+    const scope = $("event-scope").value;
+    $("event-section-wrap").classList.toggle("hidden", scope !== "section");
+    $("event-until-wrap").classList.toggle(
+      "hidden", $("event-recurrence").value === "none",
+    );
+    $("event-edit-scope-wrap").classList.toggle(
+      "hidden", !(editingEvent && editingEvent.is_series),
+    );
   }
 
-  $("dash-event-scope").addEventListener("change", syncEventScope);
-  $("dash-event-group").addEventListener("change", () => { void loadEventTargets(); });
-  syncEventScope();
+  async function openEventForm(event = null) {
+    if (!(agendaState.groups || []).length) {
+      try { await loadAgenda(); } catch (_) { /* sin grupos */ }
+    }
+    editingEvent = event;
+    const form = $("event-form");
+    form.reset();
+    $("event-form-title").textContent = event ? "Editar cita" : "Nueva cita";
+    $("event-save").textContent = event ? "Guardar cambios" : "Guardar cita";
+    $("event-delete").classList.toggle("hidden", !(event && event.can_manage));
+    $("event-delete-choice").classList.add("hidden");
+    $("event-message").textContent = "";
+    $("event-message").className = "message";
+    const groups = populateEventGroups(event && event.group_id);
+    let scope = "personal";
+    if (event) {
+      scope = event.group_id ? (event.section_id ? "section" : "group") : "personal";
+    } else if (groups.length) {
+      scope = "group";
+    }
+    $("event-scope").value = scope;
+    $("event-title").value = event ? event.title : "";
+    $("event-location").value = event ? event.location || "" : "";
+    $("event-notes").value = event ? event.notes || "" : "";
+    const start = event
+      ? new Date(event.starts_at)
+      : new Date(
+        agendaSelected.getFullYear(), agendaSelected.getMonth(),
+        agendaSelected.getDate(), 19, 0,
+      );
+    $("event-start").value = localInputValue(start);
+    $("event-end").value = localInputValue(
+      event && event.ends_at ? new Date(event.ends_at) : new Date(start.getTime() + 3600000),
+    );
+    $("event-recurrence").value = event ? event.recurrence || "none" : "none";
+    $("event-until").value = event && event.recurrence_until
+      ? new Date(event.recurrence_until).toISOString().slice(0, 10)
+      : "";
+    $("event-edit-scope").value = "single";
+    syncEventForm();
+    if (event && event.group_id) void loadEventSections(event.section_id);
+    $("event-modal").classList.remove("hidden");
+    $("event-title").focus();
+  }
 
-  $("dash-event-form").addEventListener("submit",async (event)=>{
-    event.preventDefault();
-    const button=event.submitter; setBusy(button,true,"Guardando…");
-    try {
-      const startsAt=new Date($("dash-event-start").value);
-      if (Number.isNaN(startsAt.getTime())) throw new Error("Fecha inválida");
-      await request("/api/v1/events",{method:"POST",body:JSON.stringify({
-        group_id: $("dash-event-scope").value === "personal" ? null : $("dash-event-group").value,
-        scope: $("dash-event-scope").value,
-        section_id: $("dash-event-section").value || null,
-        recipient_subs: Array.from($("dash-event-users").selectedOptions).map((option) => option.value),
-        kind:$("dash-event-kind").value,
-        title:$("dash-event-title").value.trim(),
-        starts_at:startsAt.toISOString(),
-        location:$("dash-event-location").value.trim() || null,
-      })});
-      $("dash-event-form").reset();
-      $("dash-event-form").classList.add("hidden");
-      showMessage("dash-event-message","Evento creado.","success");
-      await loadAgenda();
-    } catch(error) { showMessage("dash-event-message",error.message,"error"); }
-    finally { setBusy(button,false); }
+  function closeEventForm() {
+    $("event-modal").classList.add("hidden");
+    editingEvent = null;
+  }
+
+  $("agenda-new").addEventListener("click", () => openEventForm());
+  $("event-close").addEventListener("click", closeEventForm);
+  $("event-cancel").addEventListener("click", closeEventForm);
+  $("event-delete-cancel").addEventListener("click", () => {
+    $("event-delete-choice").classList.add("hidden");
   });
+  $("event-scope").addEventListener("change", () => {
+    syncEventForm();
+    if ($("event-scope").value === "section") void loadEventSections();
+  });
+  $("event-group").addEventListener("change", () => { void loadEventSections(); });
+  $("event-recurrence").addEventListener("change", () => {
+    if ($("event-recurrence").value !== "none" && !$("event-until").value) {
+      const start = new Date($("event-start").value);
+      if (!Number.isNaN(start.getTime())) {
+        const until = new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+        $("event-until").value = until.toISOString().slice(0, 10);
+      }
+    }
+    syncEventForm();
+  });
+  $("event-start").addEventListener("change", () => {
+    const start = new Date($("event-start").value);
+    if (!Number.isNaN(start.getTime())) {
+      $("event-end").value = localInputValue(new Date(start.getTime() + 3600000));
+    }
+  });
+
+  $("event-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.submitter || $("event-save");
+    setBusy(button, true, "Guardando…");
+    const scope = $("event-scope").value;
+    const startsAt = new Date($("event-start").value);
+    const endsAt = $("event-end").value ? new Date($("event-end").value) : null;
+    if (Number.isNaN(startsAt.getTime())) {
+      showMessage("event-message", "Indica una fecha de inicio válida.", "error");
+      setBusy(button, false);
+      return;
+    }
+    if (endsAt && (Number.isNaN(endsAt.getTime()) || endsAt <= startsAt)) {
+      showMessage("event-message", "La fecha de fin debe ser posterior al inicio.", "error");
+      setBusy(button, false);
+      return;
+    }
+    const recurrence = $("event-recurrence").value;
+    const until = $("event-until").value;
+    if (recurrence !== "none" && !until) {
+      showMessage("event-message", "Indica hasta cuándo se repite.", "error");
+      setBusy(button, false);
+      return;
+    }
+    const payload = {
+      group_id: scope === "personal" ? null : $("event-group").value,
+      scope,
+      section_id: scope === "section" ? $("event-section").value || null : null,
+      recipient_subs: [],
+      kind: editingEvent ? editingEvent.kind : "rehearsal",
+      title: $("event-title").value.trim(),
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt ? endsAt.toISOString() : null,
+      location: $("event-location").value.trim() || null,
+      notes: $("event-notes").value.trim() || null,
+      recurrence,
+      recurrence_until: recurrence === "none" || !until
+        ? null
+        : new Date(`${until}T23:59:59`).toISOString(),
+      edit_scope: editingEvent && editingEvent.is_series
+        ? $("event-edit-scope").value
+        : "single",
+    };
+    try {
+      const wasEditing = Boolean(editingEvent);
+      if (editingEvent) {
+        await request(`/api/v1/events/${encodeURIComponent(editingEvent.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await request("/api/v1/events", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      closeEventForm();
+      await loadAgenda();
+      showMessage(
+        "agenda-message",
+        wasEditing ? "Cita actualizada." : "Cita creada.",
+        "success",
+      );
+    } catch (error) {
+      showMessage("event-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  });
+
+  async function deleteEvent(scope) {
+    if (!editingEvent) return;
+    try {
+      await request(
+        `/api/v1/events/${encodeURIComponent(editingEvent.id)}?scope=${scope}`,
+        { method: "DELETE" },
+      );
+      closeEventForm();
+      await loadAgenda();
+      showMessage(
+        "agenda-message",
+        scope === "series" ? "Secuencia eliminada." : "Cita eliminada.",
+        "success",
+      );
+    } catch (error) {
+      showMessage("event-message", error.message, "error");
+    }
+  }
+
+  $("event-delete").addEventListener("click", () => {
+    if (editingEvent && editingEvent.is_series) {
+      $("event-delete-choice").classList.remove("hidden");
+      return;
+    }
+    if (window.confirm("¿Eliminar esta cita?")) void deleteEvent("single");
+  });
+  $("event-delete-single").addEventListener("click", () => { void deleteEvent("single"); });
+  $("event-delete-series").addEventListener("click", () => { void deleteEvent("series"); });
   const _msgContent = $("msg-content");
   if (_msgContent) {
     $("inbox-compose").appendChild(_msgContent);
@@ -2241,15 +2669,6 @@
     agendaSelected = new Date();
     agendaCursor = new Date(agendaSelected.getFullYear(), agendaSelected.getMonth(), 1);
     renderAgendaCalendar();
-  });
-  $("agenda-new").addEventListener("click",()=>{
-    $("agenda-modal").classList.add("hidden");
-    $("material-form")?.classList.add("hidden");
-    const form = $("dash-event-form");
-    form.classList.remove("hidden");
-    const date = new Date(agendaSelected.getFullYear(),agendaSelected.getMonth(),agendaSelected.getDate(),19,0);
-    $("dash-event-start").value = new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
-    form.scrollIntoView({behavior:"smooth",block:"center"});
   });
   $("material-view-button").addEventListener("click",()=>{void loadMaterialTree($("material-view-group").value);});
   $("material-part").disabled = true;

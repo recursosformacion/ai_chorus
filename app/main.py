@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import calendar
 import hashlib
 import json
 import logging
@@ -10,6 +11,7 @@ import re
 import secrets
 import sqlite3
 import time
+import unicodedata
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
@@ -79,9 +81,43 @@ class CollectionItemBody(BaseModel):
 
 
 class GroupBody(BaseModel):
-    entity_id: str = Field(min_length=1, max_length=64)
+    entity_id: str | None = Field(default=None, max_length=64)
     name: str = Field(min_length=1, max_length=120)
     timezone: str = Field(default="Europe/Madrid", max_length=80)
+    kind: str = Field(default="grupo", max_length=32)
+
+
+class ArticleMediaBody(BaseModel):
+    kind: str = Field(default="photo", max_length=16)
+    url: str = Field(min_length=1, max_length=1024)
+    provider: str | None = Field(default=None, max_length=32)
+    video_id: str | None = Field(default=None, max_length=64)
+    caption: str | None = Field(default=None, max_length=512)
+    credit: str | None = Field(default=None, max_length=512)
+    position: int = 0
+
+
+class ArticleBody(BaseModel):
+    title: str = Field(min_length=1, max_length=512)
+    summary: str | None = Field(default=None, max_length=4000)
+    body: str | None = None
+    cover_url: str | None = Field(default=None, max_length=1024)
+    event_date: str | None = Field(default=None, max_length=32)
+    status: Literal["draft", "pending", "published", "withdrawn"] = "draft"
+    media: list[ArticleMediaBody] = Field(default_factory=list)
+
+
+class ArticleUpdateBody(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=512)
+    summary: str | None = Field(default=None, max_length=4000)
+    body: str | None = None
+    cover_url: str | None = Field(default=None, max_length=1024)
+    event_date: str | None = Field(default=None, max_length=32)
+    media: list[ArticleMediaBody] | None = None
+
+
+class ArticleReviewBody(BaseModel):
+    review_note: str | None = Field(default=None, max_length=512)
 
 
 class GroupUpdateBody(BaseModel):
@@ -131,6 +167,9 @@ class EventBody(BaseModel):
     ends_at: str | None = Field(default=None, max_length=64)
     location: str | None = Field(default=None, max_length=300)
     notes: str | None = Field(default=None, max_length=4000)
+    recurrence: Literal["none", "daily", "monthly"] = "none"
+    recurrence_until: str | None = Field(default=None, max_length=64)
+    edit_scope: Literal["single", "series"] = "single"
 
 
 class RsvpBody(BaseModel):
@@ -196,6 +235,122 @@ def _normalise_iso(value: str) -> str:
     return parsed.astimezone(UTC).isoformat()
 
 
+def _parse_dt(value: str) -> datetime:
+    raw = value.strip()
+    if len(raw) == 10:
+        raw += "T23:59:59+00:00"
+    parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def _occurrence_times(
+    starts_at: str, ends_at: str | None, recurrence: str, until: str | None
+) -> list[tuple[str, str]]:
+    start = _parse_dt(starts_at)
+    end = _parse_dt(ends_at) if ends_at else start + timedelta(hours=1)
+    if end <= start:
+        raise ValueError("ends_at must be after starts_at")
+    if recurrence == "none":
+        return [(start.isoformat(), end.isoformat())]
+    if not until:
+        raise ValueError("recurrence_until is required")
+    limit = _parse_dt(until)
+    if limit < start:
+        raise ValueError("recurrence_until must be after starts_at")
+    duration = end - start
+    rows: list[tuple[str, str]] = []
+    cursor = start
+    while cursor <= limit and len(rows) < 400:
+        rows.append((cursor.isoformat(), (cursor + duration).isoformat()))
+        cursor = cursor + timedelta(days=1) if recurrence == "daily" else _add_months(cursor, 1)
+    if not rows:
+        raise ValueError("recurrence produces no occurrences")
+    return rows
+
+
+def _creator_badge(scope: str, role: str | None, is_admin: bool = False) -> str:
+    if scope == "personal":
+        return "P"
+    if scope == "section":
+        return "S"
+    return "D" if is_admin else "G"
+
+
+def _insert_event_rows(
+    conn,
+    *,
+    body: "EventBody",
+    user_id: str,
+    group,
+    entity_id: str,
+    stored_scope: str,
+    series_id: str | None,
+    badge: str,
+) -> list[str]:
+    until = _normalise_iso(body.recurrence_until) if body.recurrence_until else None
+    occurrences = _occurrence_times(
+        _normalise_iso(body.starts_at),
+        _normalise_iso(body.ends_at) if body.ends_at else None,
+        body.recurrence,
+        until,
+    )
+    now = utcnow()
+    ids: list[str] = []
+    for starts_at, ends_at in occurrences:
+        event_id = uuid.uuid4().hex
+        ids.append(event_id)
+        conn.execute(
+            "INSERT INTO events "
+            "(id,group_id,entity_id,scope,kind,title,starts_at,ends_at,location,notes,"
+            "created_by,created_at,updated_at,recurrence,recurrence_until,series_id,creator_badge) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                event_id, group["id"] if group is not None else None, entity_id,
+                stored_scope, body.kind, body.title.strip(), starts_at, ends_at,
+                body.location, body.notes, user_id, now, now, body.recurrence,
+                until, series_id, badge,
+            ),
+        )
+        if group is not None:
+            conn.execute(
+                "INSERT OR IGNORE INTO event_groups (event_id, group_id) VALUES (?,?)",
+                (event_id, group["id"]),
+            )
+        if body.scope == "section" and body.section_id:
+            conn.execute(
+                "INSERT OR IGNORE INTO event_targets (event_id,target_type,target_value) VALUES (?,?,?)",
+                (event_id, "section", body.section_id),
+            )
+        if body.scope == "users":
+            for sub in body.recipient_subs:
+                conn.execute(
+                    "INSERT OR IGNORE INTO event_targets (event_id,target_type,target_value) VALUES (?,?,?)",
+                    (event_id, "user", sub),
+                )
+    return ids
+
+
+def _can_manage_event(conn, event, user_id: str, profile: dict[str, Any]) -> bool:
+    if _is_admin(profile) or str(event["created_by"]) == user_id:
+        return True
+    if event["group_id"]:
+        member = conn.execute(
+            "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+            (event["group_id"], user_id),
+        ).fetchone()
+        return member is not None and member["role"] == "manager"
+    return False
+
 def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -207,6 +362,79 @@ def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
         "can_manage": can_manage,
     }
 
+
+def _slugify(value: str) -> str:
+    text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    text = re.sub(r"[^a-zA-Z0-9]+", "-", text.lower()).strip("-")
+    return text[:180] or "articulo"
+
+
+def _article_media(conn, article_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM group_article_media WHERE article_id=? ORDER BY position, id",
+        (article_id,),
+    ).fetchall()
+    return [
+        {
+            "id": row["id"], "kind": row["kind"], "url": row["url"],
+            "provider": row["provider"], "video_id": row["video_id"],
+            "caption": row["caption"], "credit": row["credit"],
+            "position": row["position"],
+        }
+        for row in rows
+    ]
+
+
+def _article_dto(conn, row, *, can_edit: bool = False, can_publish: bool = False) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "group_id": row["group_id"],
+        "title": row["title"],
+        "slug": row["slug"],
+        "summary": row["summary"],
+        "body": row["body"],
+        "cover_url": row["cover_url"],
+        "event_date": row["event_date"],
+        "status": row["status"],
+        "author_user_id": row["author_user_id"],
+        "publisher_user_id": row["publisher_user_id"],
+        "reviewed_by": row["reviewed_by"],
+        "reviewed_at": row["reviewed_at"],
+        "review_note": row["review_note"],
+        "published_at": row["published_at"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "media": _article_media(conn, row["id"]),
+        "can_edit": can_edit,
+        "can_publish": can_publish,
+    }
+
+
+def _article_permissions(conn, row, user_id: str, profile: dict[str, Any]) -> tuple[bool, bool]:
+    admin = _is_admin(profile)
+    member = conn.execute(
+        "SELECT role FROM group_members WHERE group_id=? AND user_sub=? AND status='active'",
+        (row["group_id"], user_id),
+    ).fetchone()
+    role = member["role"] if member is not None else None
+    can_edit = admin or role in ("manager", "collaborator") or str(row["author_user_id"]) == user_id
+    can_publish = admin or role == "manager"
+    return can_edit, can_publish
+
+
+def _replace_article_media(conn, article_id: str, media: list["ArticleMediaBody"], now: str) -> None:
+    conn.execute("DELETE FROM group_article_media WHERE article_id=?", (article_id,))
+    for index, item in enumerate(media):
+        conn.execute(
+            "INSERT INTO group_article_media "
+            "(id,article_id,kind,url,provider,video_id,caption,credit,position,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                uuid.uuid4().hex, article_id, item.kind, item.url, item.provider,
+                item.video_id, item.caption, item.credit,
+                item.position if item.position else index, now,
+            ),
+        )
 
 def _join_code() -> str:
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -232,6 +460,13 @@ def _event_dto(
         "my_rsvp_updated_at": my_rsvp_updated_at,
         "rsvp_required": row["kind"] != "note",
         "can_manage": can_manage,
+        "created_by": row["created_by"],
+        "recurrence": row["recurrence"] or "none",
+        "recurrence_until": row["recurrence_until"],
+        "series_id": row["series_id"],
+        "creator_badge": row["creator_badge"] or ("P" if row["scope"] == "global" else "D"),
+        "section_id": row["section_id"],
+        "is_series": bool(row["series_id"]),
     }
 
 
@@ -277,6 +512,8 @@ def initialise_database(settings: Settings) -> None:
             "011_event_targets.sql",
             "012_material_library.sql",
             "013_material_groups.sql",
+            "014_agenda_recurrence.sql",
+            "015_group_articles.sql",
         ):
             applied = conn.execute(
                 "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
@@ -1114,77 +1351,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for row in rows
         ]
 
-    def _sync_osap_groups(conn, user_id: str, token: str | None, display_name: str = "") -> None:
-        """Trae a Chorus los grupos de «Los amigos» del usuario autenticado."""
-        if not token or not cfg.osap_api_base_url:
-            return
-        data, response = osap_call("GET", "/api/v1/amigos/my/groups", token=token)
-        if response.status_code != 200 or not isinstance(data, list):
-            return
-        now = utcnow()
-        for item in data:
-            if not isinstance(item, dict) or not isinstance(item.get("group"), dict):
-                continue
-            group = item["group"]
-            gid = str(group.get("id") or "")
-            if not gid:
-                continue
-            role = "manager" if str(item.get("role")) == "admin" else "member"
-            conn.execute(
-                "INSERT OR IGNORE INTO groups "
-                "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    gid,
-                    gid,
-                    str(group.get("name") or "Grupo"),
-                    "Europe/Madrid",
-                    user_id,
-                    _join_code(),
-                    now,
-                    now,
-                ),
-            )
-            conn.execute(
-                "UPDATE groups SET name=?, join_code=?, updated_at=? WHERE id=?",
-                (str(group.get("name") or "Grupo"), str(group.get("join_code") or ""), now, gid),
-            )
-            member = conn.execute(
-                "SELECT id FROM group_members WHERE group_id = ? AND user_sub = ?",
-                (gid, user_id),
-            ).fetchone()
-            if member is None:
-                conn.execute(
-                    "INSERT INTO group_members "
-                    "(id,group_id,user_sub,role,status,display_name,joined_at,updated_at) "
-                    "VALUES (?,?,?,?,'active',?,?,?)",
-                    (uuid.uuid4().hex, gid, user_id, role, display_name, now, now),
-                )
-            else:
-                conn.execute(
-                    "UPDATE group_members SET role = ?, status = 'active', "
-                    "display_name = COALESCE(NULLIF(display_name, ''), ?), updated_at = ? "
-                    "WHERE id = ?",
-                    (role, display_name, now, member["id"]),
-                )
-
     @app.get("/api/v1/agenda")
     def get_agenda(
         request: Request, profile: dict[str, Any] = Depends(current_profile)
     ) -> dict[str, Any]:
         user_id = str(profile["user_id"])
         admin = _is_admin(profile)
-        memberships = _approved_memberships(profile)
-        entity_ids = {
-            str(membership["entity_id"])
-            for membership in memberships
-            if membership.get("entity_id")
-        }
         with _connect(cfg) as conn:
-            _sync_osap_groups(
-                conn, user_id, request.cookies.get("chorus_access"),
-                str(profile.get("name") or profile.get("nickname") or ""),
-            )
             group_rows = conn.execute(
                 "SELECT g.*, gm.role FROM group_members gm "
                 "JOIN groups g ON g.id = gm.group_id "
@@ -1209,13 +1382,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 params.extend(group_ids)
                 params.extend([user_id, user_id])
-            if entity_ids:
-                visibility.append(
-                    "e.scope = 'global' AND e.entity_id IN ("
-                    + ",".join("?" for _ in entity_ids) + ")"
-                )
-                params.extend(sorted(entity_ids))
             visibility.append("e.scope = 'personal' AND e.created_by = ?")
+            params.append(user_id)
+            visibility.append("e.created_by = ?")
             params.append(user_id)
             visibility.append(
                 "e.scope IN ('section','users') AND EXISTS ("
@@ -1229,23 +1398,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             events: list[sqlite3.Row] = []
             if visibility:
                 events = conn.execute(
-                    "SELECT e.*, g.name AS group_name, r.status AS my_rsvp, r.updated_at AS my_rsvp_updated_at "
+                    "SELECT e.*, g.name AS group_name, r.status AS my_rsvp, r.updated_at AS my_rsvp_updated_at, "
+                    "(SELECT target_value FROM event_targets t WHERE t.event_id = e.id AND t.target_type = 'section' LIMIT 1) AS section_id "
                     "FROM events e LEFT JOIN groups g ON g.id = e.group_id "
                     "LEFT JOIN event_rsvps r ON r.event_id = e.id AND r.user_sub = ? "
-                    "WHERE e.cancelled_at IS NULL AND e.starts_at >= ? AND ("
+                    "WHERE e.cancelled_at IS NULL AND ("
                     + " OR ".join(visibility) + ") "
-                    "ORDER BY e.starts_at LIMIT 50",
-                    (user_id, utcnow(), *params),
+                    "ORDER BY e.starts_at LIMIT 500",
+                    (user_id, *params),
                 ).fetchall()
-        representative_entities = [
-            {
-                "id": str(membership["entity_id"]),
-                "name": membership.get("entity_name") or "Entidad",
-                "kind": membership.get("entity_kind") or "grupo",
-            }
-            for membership in memberships
-            if admin or membership.get("is_representative") is True
-        ]
         return {
             "groups": [
                 _group_dto(
@@ -1255,15 +1416,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 for row in group_rows
             ],
-            "entities": representative_entities,
-            "can_create_group": admin or bool(representative_entities),
+            "entities": [],
+            "can_create_group": True,
             "events": [
                 _event_dto(
                     row,
                     my_rsvp=row["my_rsvp"],
                     my_rsvp_updated_at=row["my_rsvp_updated_at"],
                     group_name=row["group_name"],
-                    can_manage=admin or roles.get(row["group_id"]) == "manager",
+                    can_manage=(
+                        admin
+                        or roles.get(row["group_id"]) == "manager"
+                        or str(row["created_by"]) == user_id
+                    ),
                 )
                 for row in events
             ],
@@ -1274,17 +1439,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body: GroupBody, profile: dict[str, Any] = Depends(current_profile)
     ) -> dict[str, Any]:
         user_id = str(profile["user_id"])
-        entity_id = body.entity_id.strip()
-        if not _is_representative(profile, entity_id):
-            raise HTTPException(
-                status_code=403,
-                detail="Only the entity representative can create groups",
-            )
         name = body.name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Group name is required")
         now = utcnow()
         group_id = uuid.uuid4().hex
+        entity_id = (body.entity_id or group_id).strip()
         with _connect(cfg) as conn:
             existing = conn.execute(
                 "SELECT * FROM groups WHERE entity_id = ? AND name = ?",
@@ -1299,11 +1459,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 join_code = _join_code()
             conn.execute(
                 "INSERT INTO groups "
-                "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at,kind,slug) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     group_id, entity_id, name, body.timezone.strip(),
-                    user_id, join_code, now, now,
+                    user_id, join_code, now, now, body.kind.strip() or "grupo", group_id,
                 ),
             )
             conn.execute(
@@ -1318,18 +1478,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/groups/{group_id}/catalog")
     def group_catalog(
         group_id: str,
-        request: Request,
         profile: dict[str, Any] = Depends(current_profile),
     ) -> dict[str, Any]:
-        token = request.cookies.get("chorus_access")
-        if not token:
-            return {"admin": [], "musical": [], "section": []}
-        data, response = osap_call(
-            "GET", f"/api/v1/amigos/groups/{quote(group_id)}/catalog", token=token
-        )
-        return data if response.status_code == 200 and isinstance(data, dict) else {
-            "admin": [], "musical": [], "section": []
-        }
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            member = conn.execute(
+                "SELECT 1 FROM group_members WHERE group_id=? AND user_sub=? "
+                "AND status='active'", (group_id, user_id)
+            ).fetchone()
+            if member is None and not _is_admin(profile):
+                raise HTTPException(status_code=403, detail="Active member required")
+            rows = conn.execute(
+                "SELECT * FROM group_sections WHERE group_id=? AND active=1 "
+                "ORDER BY scope, sort_order, name", (group_id,)
+            ).fetchall()
+        result: dict[str, list[dict[str, Any]]] = {"admin": [], "musical": [], "section": []}
+        for row in rows:
+            scope = str(row["scope"] or "section")
+            result.setdefault(scope, []).append({
+                "id": row["id"], "code": row["code"], "name": row["name"],
+                "parent_id": row["parent_id"], "sort_order": row["sort_order"],
+            })
+        return result
 
     @app.patch("/api/v1/groups/{group_id}/members/{user_sub}")
     def update_group_member(
@@ -1363,29 +1533,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ).fetchone()["n"]
                 if int(managers) <= 1:
                     raise HTTPException(status_code=400, detail="The group needs a manager")
-            token = request.cookies.get("chorus_access")
-            if token:
-                if body.status == "removed":
-                    _, osap_response = osap_call(
-                        "DELETE",
-                        f"/api/v1/admin/amigos/groups/{quote(group_id)}/members/{quote(user_sub)}",
-                        token=token,
-                    )
-                else:
-                    _, osap_response = osap_call(
-                        "POST",
-                        f"/api/v1/admin/amigos/groups/{quote(group_id)}/members",
-                        token=token,
-                        payload={
-                            "user_id": user_sub,
-                            "role": "admin" if (body.role or target["role"]) == "manager" else "collaborator",
-                            "admin_role_id": body.admin_role_id if body.admin_role_id is not None else target["admin_role_id"],
-                            "musical_role_id": body.musical_role_id if body.musical_role_id is not None else target["musical_role_id"],
-                            "section_id": body.section_id if body.section_id is not None else target["section_id"],
-                        },
-                    )
-                if osap_response.status_code not in (200, 201):
-                    raise HTTPException(status_code=502, detail="OSAP rejected the change")
             updates = []
             values: list[Any] = []
             for column in ("role", "admin_role_id", "musical_role_id", "section_id", "status"):
@@ -1438,16 +1585,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             timezone = (body.timezone or group["timezone"]).strip()
             if not name or not timezone:
                 raise HTTPException(status_code=400, detail="Name and timezone are required")
-            token = request.cookies.get("chorus_access")
-            if token:
-                _, osap_response = osap_call(
-                    "PATCH",
-                    f"/api/v1/admin/amigos/groups/{quote(group_id)}",
-                    token=token,
-                    payload={"name": name},
-                )
-                if osap_response.status_code not in (200, 201):
-                    raise HTTPException(status_code=502, detail="OSAP rejected the change")
             conn.execute(
                 "UPDATE groups SET name = ?, timezone = ?, updated_at = ? WHERE id = ?",
                 (name, timezone, utcnow(), group_id),
@@ -1679,43 +1816,204 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/groups/directory")
     def groups_directory(
-        request: Request, profile: dict[str, Any] = Depends(current_profile)
+        profile: dict[str, Any] = Depends(current_profile)
     ) -> list[dict[str, Any]]:
-        token = request.cookies.get("chorus_access")
-        if not token:
-            return []
-        data, response = osap_call("GET", "/api/v1/amigos/groups", token=token)
-        if response.status_code != 200 or not isinstance(data, list):
-            return []
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
-            local = {
-                row["id"]
-                for row in conn.execute("SELECT id FROM groups").fetchall()
-            }
-            result = []
-            for item in data:
-                if not isinstance(item, dict) or not item.get("id"):
-                    continue
-                gid = str(item["id"])
-                if gid not in local:
-                    now = utcnow()
-                    conn.execute(
-                        "INSERT OR IGNORE INTO groups "
-                        "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at) "
-                        "VALUES (?,?,?,?,?,?,?,?)",
-                        (gid, gid, str(item.get("name") or "Grupo"), "Europe/Madrid",
-                         user_id, _join_code(), now, now),
-                    )
-                member = conn.execute(
-                    "SELECT 1 FROM group_members WHERE group_id=? AND user_sub=? "
-                    "AND status='active'", (gid, user_id)
-                ).fetchone()
-                result.append({
-                    "id": gid, "name": item.get("name"), "kind": item.get("kind"),
-                    "joined": member is not None,
-                })
-        return result
+            rows = conn.execute(
+                "SELECT g.id, g.name, g.kind, "
+                "EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=g.id "
+                "AND gm.user_sub=? AND gm.status='active') AS joined "
+                "FROM groups g WHERE g.status='active' ORDER BY g.name",
+                (user_id,),
+            ).fetchall()
+        return [
+            {"id": row["id"], "name": row["name"], "kind": row["kind"],
+             "joined": bool(row["joined"])}
+            for row in rows
+        ]
+    @app.get("/api/v1/groups/{group_id}/articles")
+    def list_group_articles(
+        group_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> list[dict[str, Any]]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            member = conn.execute(
+                "SELECT role FROM group_members WHERE group_id=? AND user_sub=? AND status='active'",
+                (group_id, user_id),
+            ).fetchone()
+            if member is None and not admin:
+                raise HTTPException(status_code=403, detail="Active member required")
+            role = member["role"] if member is not None else "manager"
+            rows = conn.execute(
+                "SELECT * FROM group_articles WHERE group_id=? "
+                "AND (? IN ('manager','collaborator') OR status='published' OR author_user_id=?) "
+                "ORDER BY COALESCE(event_date, created_at) DESC, created_at DESC",
+                (group_id, role, user_id),
+            ).fetchall()
+            return [
+                _article_dto(
+                    conn, row,
+                    can_edit=admin or role in ("manager", "collaborator")
+                    or str(row["author_user_id"]) == user_id,
+                    can_publish=admin or role == "manager",
+                )
+                for row in rows
+            ]
+
+    @app.get("/api/v1/articles/{article_id}")
+    def get_article(
+        article_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            row = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Article not found")
+            can_edit, can_publish = _article_permissions(conn, row, user_id, profile)
+            if row["status"] != "published" and not can_edit:
+                raise HTTPException(status_code=403, detail="Article not available")
+            return _article_dto(conn, row, can_edit=can_edit, can_publish=can_publish)
+
+    @app.post("/api/v1/groups/{group_id}/articles", status_code=201)
+    def create_article(
+        group_id: str,
+        body: ArticleBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        now = utcnow()
+        with _connect(cfg) as conn:
+            member = conn.execute(
+                "SELECT role FROM group_members WHERE group_id=? AND user_sub=? AND status='active'",
+                (group_id, user_id),
+            ).fetchone()
+            role = member["role"] if member is not None else None
+            if not admin and role not in ("manager", "collaborator"):
+                raise HTTPException(status_code=403, detail="Editorial role required")
+            article_id = uuid.uuid4().hex
+            base_slug = _slugify(body.title)
+            slug = base_slug
+            suffix = 2
+            while conn.execute(
+                "SELECT 1 FROM group_articles WHERE group_id=? AND slug=?", (group_id, slug)
+            ).fetchone() is not None:
+                slug = f"{base_slug}-{suffix}"
+                suffix += 1
+            status = body.status if (admin or role == "manager") else "draft"
+            conn.execute(
+                "INSERT INTO group_articles "
+                "(id,group_id,title,slug,summary,body,cover_url,event_date,status,"
+                "author_user_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    article_id, group_id, body.title.strip(), slug, body.summary,
+                    body.body, body.cover_url, body.event_date, status, user_id, now, now,
+                ),
+            )
+            _replace_article_media(conn, article_id, body.media, now)
+            row = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            return _article_dto(
+                conn, row, can_edit=True, can_publish=admin or role == "manager",
+            )
+
+    @app.patch("/api/v1/articles/{article_id}")
+    def update_article(
+        article_id: str,
+        body: ArticleUpdateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        with _connect(cfg) as conn:
+            row = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Article not found")
+            can_edit, can_publish = _article_permissions(conn, row, user_id, profile)
+            if not can_edit:
+                raise HTTPException(status_code=403, detail="No puedes editar este artículo")
+            updates: list[str] = []
+            values: list[Any] = []
+            for column in ("title", "summary", "body", "cover_url", "event_date"):
+                value = getattr(body, column)
+                if value is not None:
+                    updates.append(f"{column}=?")
+                    values.append(value.strip() if isinstance(value, str) else value)
+            if updates:
+                values.extend([now, article_id])
+                conn.execute(
+                    f"UPDATE group_articles SET {', '.join(updates)}, updated_at=? WHERE id=?",
+                    tuple(values),
+                )
+            if body.media is not None:
+                _replace_article_media(conn, article_id, body.media, now)
+                conn.execute(
+                    "UPDATE group_articles SET updated_at=? WHERE id=?", (now, article_id)
+                )
+            updated = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            return _article_dto(conn, updated, can_edit=True, can_publish=can_publish)
+
+    @app.post("/api/v1/articles/{article_id}/publish")
+    def publish_article(
+        article_id: str,
+        body: ArticleReviewBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        with _connect(cfg) as conn:
+            row = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Article not found")
+            _, can_publish = _article_permissions(conn, row, user_id, profile)
+            if not can_publish:
+                raise HTTPException(status_code=403, detail="Publisher role required")
+            conn.execute(
+                "UPDATE group_articles SET status='published', publisher_user_id=?, "
+                "reviewed_by=?, reviewed_at=?, review_note=?, published_at=?, updated_at=? "
+                "WHERE id=?",
+                (user_id, user_id, now, body.review_note, now, now, article_id),
+            )
+            updated = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            return _article_dto(conn, updated, can_edit=True, can_publish=True)
+
+    @app.post("/api/v1/articles/{article_id}/withdraw")
+    def withdraw_article(
+        article_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            row = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Article not found")
+            can_edit, can_publish = _article_permissions(conn, row, user_id, profile)
+            if not can_edit:
+                raise HTTPException(status_code=403, detail="No puedes retirar este artículo")
+            conn.execute(
+                "UPDATE group_articles SET status='withdrawn', updated_at=? WHERE id=?",
+                (utcnow(), article_id),
+            )
+            updated = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            return _article_dto(conn, updated, can_edit=True, can_publish=can_publish)
+
+    @app.delete("/api/v1/articles/{article_id}")
+    def delete_article(
+        article_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            row = conn.execute("SELECT * FROM group_articles WHERE id=?", (article_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Article not found")
+            can_edit, _ = _article_permissions(conn, row, user_id, profile)
+            if not can_edit:
+                raise HTTPException(status_code=403, detail="No puedes borrar este artículo")
+            if row["status"] == "published":
+                raise HTTPException(status_code=409, detail="Retira el artículo antes de borrarlo")
+            conn.execute("DELETE FROM group_article_media WHERE article_id=?", (article_id,))
+            conn.execute("DELETE FROM group_articles WHERE id=?", (article_id,))
+        return {"ok": True}
     @app.get("/api/v1/groups/{group_id}/messages")
     def group_messages(
         group_id: str, profile: dict[str, Any] = Depends(current_profile)
@@ -1885,66 +2183,199 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = str(profile["user_id"])
         admin = _is_admin(profile)
         try:
-            starts_at = _normalise_iso(body.starts_at)
-            ends_at = _normalise_iso(body.ends_at) if body.ends_at else None
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid event date") from exc
-        now = utcnow()
-        event_id = uuid.uuid4().hex
-        with _connect(cfg) as conn:
-            group = None
-            if body.scope != "personal":
-                if not body.group_id:
-                    raise HTTPException(status_code=400, detail="Group is required")
-                group = conn.execute("SELECT * FROM groups WHERE id = ?", (body.group_id,)).fetchone()
-                if group is None:
-                    raise HTTPException(status_code=404, detail="Group not found")
-                role = conn.execute(
-                    "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
-                    "AND status = 'active'",
-                    (group["id"], user_id),
+            with _connect(cfg) as conn:
+                group = None
+                role = None
+                if body.scope != "personal":
+                    if not body.group_id:
+                        raise HTTPException(status_code=400, detail="Group is required")
+                    group = conn.execute(
+                        "SELECT * FROM groups WHERE id = ?", (body.group_id,)
+                    ).fetchone()
+                    if group is None:
+                        raise HTTPException(status_code=404, detail="Group not found")
+                    member = conn.execute(
+                        "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                        "AND status = 'active'",
+                        (group["id"], user_id),
+                    ).fetchone()
+                    role = member["role"] if member is not None else None
+                    if body.scope == "group" and not admin and role != "manager":
+                        raise HTTPException(status_code=403, detail="Group manager role required")
+                    if body.scope == "section" and not admin and member is None:
+                        raise HTTPException(status_code=403, detail="Active group member required")
+                    if body.scope == "section" and not body.section_id:
+                        raise HTTPException(status_code=400, detail="Section is required")
+                entity_id = group["entity_id"] if group is not None else user_id
+                stored_scope = "global" if body.scope == "personal" else "groups"
+                series_id = uuid.uuid4().hex if body.recurrence != "none" else None
+                ids = _insert_event_rows(
+                    conn,
+                    body=body,
+                    user_id=user_id,
+                    group=group,
+                    entity_id=entity_id,
+                    stored_scope=stored_scope,
+                    series_id=series_id,
+                    badge=_creator_badge(body.scope, role, admin),
+                )
+                row = conn.execute(
+                    "SELECT e.*, g.name AS group_name, "
+                    "(SELECT target_value FROM event_targets t WHERE t.event_id = e.id AND t.target_type = 'section' LIMIT 1) AS section_id "
+                    "FROM events e "
+                    "LEFT JOIN groups g ON g.id = e.group_id WHERE e.id = ?",
+                    (ids[0],),
                 ).fetchone()
-                if not admin and (role is None or role["role"] != "manager"):
-                    raise HTTPException(status_code=403, detail="Group manager role required")
-            entity_id = group["entity_id"] if group is not None else user_id
-            group_id = group["id"] if group is not None else None
-            stored_scope = "global" if body.scope == "personal" else "groups"
-            conn.execute(
-                "INSERT INTO events "
-                "(id,group_id,entity_id,scope,kind,title,starts_at,ends_at,location,notes,"
-                "created_by,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    event_id, group_id, entity_id, stored_scope, body.kind,
-                    body.title.strip(), starts_at, ends_at, body.location, body.notes,
-                    user_id, now, now,
-                ),
-            )
-            if group is not None:
-                conn.execute(
-                    "INSERT INTO event_groups (event_id, group_id) VALUES (?,?)",
-                    (event_id, group["id"]),
-                )
-            if body.scope == "section" and body.section_id:
-                conn.execute(
-                    "INSERT OR IGNORE INTO event_targets (event_id,target_type,target_value) VALUES (?,?,?)",
-                    (event_id, "section", body.section_id),
-                )
-            if body.scope == "users":
-                for sub in body.recipient_subs:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO event_targets (event_id,target_type,target_value) VALUES (?,?,?)",
-                        (event_id, "user", sub),
-                    )
-            row = conn.execute(
-                "SELECT e.*, g.name AS group_name FROM events e "
-                "LEFT JOIN groups g ON g.id = e.group_id WHERE e.id = ?",
-                (event_id,),
-            ).fetchone()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _event_dto(
             row, my_rsvp=None, group_name=row["group_name"], can_manage=True
         )
+    @app.patch("/api/v1/events/{event_id}")
+    def update_event(
+        event_id: str,
+        body: EventBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        try:
+            with _connect(cfg) as conn:
+                event = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+                if event is None:
+                    raise HTTPException(status_code=404, detail="Event not found")
+                if not _can_manage_event(conn, event, user_id, profile):
+                    raise HTTPException(status_code=403, detail="No puedes modificar esta cita")
+                group = None
+                role = None
+                if body.scope != "personal":
+                    if not body.group_id:
+                        raise HTTPException(status_code=400, detail="Group is required")
+                    group = conn.execute(
+                        "SELECT * FROM groups WHERE id = ?", (body.group_id,)
+                    ).fetchone()
+                    if group is None:
+                        raise HTTPException(status_code=404, detail="Group not found")
+                    member = conn.execute(
+                        "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                        "AND status = 'active'",
+                        (group["id"], user_id),
+                    ).fetchone()
+                    role = member["role"] if member is not None else None
+                    if body.scope == "group" and not admin and role != "manager":
+                        raise HTTPException(status_code=403, detail="Group manager role required")
+                    if body.scope == "section" and not admin and member is None:
+                        raise HTTPException(status_code=403, detail="Active group member required")
+                    if body.scope == "section" and not body.section_id:
+                        raise HTTPException(status_code=400, detail="Section is required")
+                entity_id = group["entity_id"] if group is not None else user_id
+                stored_scope = "global" if body.scope == "personal" else "groups"
+                badge = _creator_badge(body.scope, role, admin)
+                if body.edit_scope == "series" and event["series_id"]:
+                    conn.execute(
+                        "DELETE FROM event_rsvps WHERE event_id IN "
+                        "(SELECT id FROM events WHERE series_id = ?)",
+                        (event["series_id"],),
+                    )
+                    conn.execute(
+                        "DELETE FROM event_targets WHERE event_id IN "
+                        "(SELECT id FROM events WHERE series_id = ?)",
+                        (event["series_id"],),
+                    )
+                    conn.execute(
+                        "DELETE FROM event_groups WHERE event_id IN "
+                        "(SELECT id FROM events WHERE series_id = ?)",
+                        (event["series_id"],),
+                    )
+                    conn.execute("DELETE FROM events WHERE series_id = ?", (event["series_id"],))
+                    series_id = event["series_id"] if body.recurrence != "none" else None
+                    ids = _insert_event_rows(
+                        conn,
+                        body=body,
+                        user_id=user_id,
+                        group=group,
+                        entity_id=entity_id,
+                        stored_scope=stored_scope,
+                        series_id=series_id,
+                        badge=badge,
+                    )
+                    updated_id = ids[0]
+                else:
+                    starts_at = _normalise_iso(body.starts_at)
+                    ends_at = _normalise_iso(body.ends_at) if body.ends_at else None
+                    conn.execute(
+                        "UPDATE events SET group_id=?, entity_id=?, scope=?, kind=?, title=?, "
+                        "starts_at=?, ends_at=?, location=?, notes=?, updated_at=?, "
+                        "recurrence=?, recurrence_until=?, creator_badge=? WHERE id=?",
+                        (
+                            group["id"] if group is not None else None, entity_id, stored_scope,
+                            body.kind, body.title.strip(), starts_at, ends_at, body.location,
+                            body.notes, utcnow(), body.recurrence,
+                            _normalise_iso(body.recurrence_until) if body.recurrence_until else None,
+                            badge, event_id,
+                        ),
+                    )
+                    conn.execute("DELETE FROM event_targets WHERE event_id = ?", (event_id,))
+                    conn.execute("DELETE FROM event_groups WHERE event_id = ?", (event_id,))
+                    if group is not None:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO event_groups (event_id, group_id) VALUES (?,?)",
+                            (event_id, group["id"]),
+                        )
+                    if body.scope == "section" and body.section_id:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO event_targets "
+                            "(event_id,target_type,target_value) VALUES (?,?,?)",
+                            (event_id, "section", body.section_id),
+                        )
+                    if body.scope == "users":
+                        for sub in body.recipient_subs:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO event_targets "
+                                "(event_id,target_type,target_value) VALUES (?,?,?)",
+                                (event_id, "user", sub),
+                            )
+                    updated_id = event_id
+                row = conn.execute(
+                    "SELECT e.*, g.name AS group_name, "
+                    "(SELECT target_value FROM event_targets t WHERE t.event_id = e.id AND t.target_type = 'section' LIMIT 1) AS section_id "
+                    "FROM events e "
+                    "LEFT JOIN groups g ON g.id = e.group_id WHERE e.id = ?",
+                    (updated_id,),
+                ).fetchone()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _event_dto(row, my_rsvp=None, group_name=row["group_name"], can_manage=True)
 
+    @app.delete("/api/v1/events/{event_id}")
+    def delete_event(
+        event_id: str,
+        scope: Literal["single", "series"] = "single",
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            event = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            if event is None:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if not _can_manage_event(conn, event, user_id, profile):
+                raise HTTPException(status_code=403, detail="No puedes borrar esta cita")
+            if scope == "series" and event["series_id"]:
+                ids = [
+                    row["id"]
+                    for row in conn.execute(
+                        "SELECT id FROM events WHERE series_id = ?", (event["series_id"],)
+                    ).fetchall()
+                ]
+            else:
+                ids = [event_id]
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                conn.execute(f"DELETE FROM event_rsvps WHERE event_id IN ({placeholders})", tuple(ids))
+                conn.execute(f"DELETE FROM event_targets WHERE event_id IN ({placeholders})", tuple(ids))
+                conn.execute(f"DELETE FROM event_groups WHERE event_id IN ({placeholders})", tuple(ids))
+                conn.execute(f"DELETE FROM events WHERE id IN ({placeholders})", tuple(ids))
+        return {"ok": True, "deleted": len(ids)}
     @app.post("/api/v1/events/{event_id}/rsvp")
     def set_rsvp(
         event_id: str,
@@ -2822,4 +3253,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-

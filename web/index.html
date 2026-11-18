@@ -12,10 +12,10 @@
   <meta name="twitter:card" content="summary">
   <meta name="description" content="Chorus — tu espacio personal para trabajar con partituras y música.">
   <title>Chorus · Tu espacio musical</title>
-  <link rel="stylesheet" href="/styles.css?v=0.12.4">
-  <link rel="stylesheet" href="/cover.css?v=0.12.4">
-  <link rel="stylesheet" href="/dashboard.css?v=0.12.4">
-  <script src="/app.js?v=0.12.4" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=0.14.0">
+  <link rel="stylesheet" href="/cover.css?v=0.14.0">
+  <link rel="stylesheet" href="/dashboard.css?v=0.14.0">
+  <script src="/app.js?v=0.14.0" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -27,7 +27,8 @@
       <a href="#library-section">Biblioteca</a>
       <a href="/alta.html">Solicitar alta</a>
     </nav>
-    <div class="topbar-right"><button id="inbox-button" class="button button-quiet hidden" type="button" aria-label="Mensajes">✉ <span id="inbox-count">0</span></button><span id="account-label" class="account-label"></span><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
+    <div class="topbar-right"><button id="active-group-button" class="button button-quiet button-small hidden" type="button" aria-label="Cambiar grupo">Grupo</button><button id="articles-button" class="button button-quiet button-small hidden" type="button">Artículos</button>
+        <button id="inbox-button" class="button button-quiet hidden" type="button" aria-label="Mensajes">✉ <span id="inbox-count">0</span></button><span id="account-label" class="account-label"></span><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
   </header>
 
   <div id="agenda-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="agenda-title">
@@ -58,6 +59,104 @@
           <h3 id="agenda-day-title">Eventos del día</h3>
           <div id="agenda-day-events"></div>
           <p id="agenda-message" class="message" role="status"></p>
+        </section>
+      </div>
+    </div>
+  </div>  <div id="event-modal" class="inbox-modal event-modal hidden" role="dialog" aria-modal="true" aria-labelledby="event-form-title">
+    <div class="inbox-panel event-panel">
+      <div class="card-head messages-head event-head">
+        <div class="modal-heading">
+          <p class="modal-eyebrow">Cita</p>
+          <h2 id="event-form-title">Nueva cita</h2>
+          <p>Indica a quién afecta, cuándo y si se repite.</p>
+        </div>
+        <button id="event-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <form id="event-form" class="event-form">
+        <div class="event-grid">
+          <div class="event-col">
+            <label>Para<select id="event-scope" required>
+              <option value="personal">Particular</option>
+              <option value="section">Sección</option>
+              <option value="group">Grupo</option>
+            </select></label>
+            <label id="event-section-wrap">Sección<select id="event-section"></select></label>
+            <label>Título<input id="event-title" type="text" maxlength="200" placeholder="Ensayo general, actuación..." required></label>
+            <label>Lugar<input id="event-location" type="text" maxlength="300" placeholder="Local, sala, dirección..."></label>
+            <label>Detalle<textarea id="event-notes" rows="3" placeholder="Qué se hará en ese tiempo"></textarea></label>
+          </div>
+          <div class="event-col">
+            <label>Inicio<input id="event-start" type="datetime-local" required></label>
+            <label>Fin<input id="event-end" type="datetime-local"></label>
+            <label>Repetición<select id="event-recurrence">
+              <option value="none">Única</option>
+              <option value="daily">Diaria</option>
+              <option value="monthly">Mensual</option>
+            </select></label>
+            <label id="event-until-wrap">Repetir hasta<input id="event-until" type="date"></label>
+            <label id="event-edit-scope-wrap">Modificar<select id="event-edit-scope">
+              <option value="single">Solo esta cita</option>
+              <option value="series">Toda la secuencia</option>
+            </select></label>
+          </div>
+        </div>
+        <select id="event-group" class="hidden" aria-hidden="true" tabindex="-1"></select>
+        <div id="event-delete-choice" class="event-delete-choice hidden">
+          <p>¿Qué quieres eliminar?</p>
+          <div class="event-actions">
+            <button id="event-delete-single" class="button button-outline button-small" type="button">Solo esta cita</button>
+            <button id="event-delete-series" class="button button-danger button-small" type="button">Toda la secuencia</button>
+            <button id="event-delete-cancel" class="button button-quiet button-small" type="button">Cancelar</button>
+          </div>
+        </div>
+        <div class="event-actions">
+          <button id="event-delete" class="button button-danger button-small hidden" type="button">Eliminar</button>
+          <button id="event-cancel" class="button button-quiet" type="button">Cancelar</button>
+          <button id="event-save" class="button button-primary" type="submit">Guardar cita</button>
+        </div>
+        <p id="event-message" class="message" role="status"></p>
+      </form>      </form>
+    </div>
+  </div>  <div id="group-picker-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="group-picker-title">
+    <div class="inbox-panel group-picker-panel">
+      <div class="card-head messages-head group-picker-head">
+        <div class="modal-heading">
+          <p class="modal-eyebrow">Grupo de trabajo</p>
+          <h2 id="group-picker-title">¿Con qué grupo trabajas?</h2>
+          <p>Elige el grupo activo. Podrás cambiarlo desde la cabecera.</p>
+        </div>
+      </div>
+      <div id="group-picker-list" class="group-picker-list"></div>
+    </div>
+  </div>  <div id="articles-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="articles-title">
+    <div class="inbox-panel articles-panel">
+      <div class="card-head messages-head articles-head">
+        <div class="modal-heading">
+          <p class="modal-eyebrow">Publicaciones</p>
+          <h2 id="articles-title">Artículos del grupo</h2>
+          <p id="articles-group-name">Contenido editorial propio de Chorus.</p>
+        </div>
+        <div class="articles-head-actions">
+          <button id="article-new" class="button button-primary button-small" type="button">Nuevo artículo</button>
+          <button id="articles-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
+        </div>
+      </div>
+      <div class="articles-layout">
+        <aside id="articles-list" class="articles-list"></aside>
+        <section class="articles-editor">
+          <label>Título<input id="article-title" type="text" maxlength="512"></label>
+          <label>Resumen<textarea id="article-summary" rows="2" maxlength="4000"></textarea></label>
+          <label>Contenido<textarea id="article-body" rows="8"></textarea></label>
+          <label>Imagen de portada (URL)<input id="article-cover" type="text" maxlength="1024"></label>
+          <label>Fecha<input id="article-date" type="date"></label>
+          <div id="article-media-list" class="article-media-list"></div>
+          <div class="event-actions">
+            <button id="article-delete" class="button button-danger button-small hidden" type="button">Eliminar</button>
+            <button id="article-withdraw" class="button button-outline button-small hidden" type="button">Retirar</button>
+            <button id="article-publish" class="button button-outline button-small hidden" type="button">Publicar</button>
+            <button id="article-save" class="button button-primary button-small" type="button">Guardar</button>
+          </div>
+          <p id="article-message" class="message" role="status"></p>
         </section>
       </div>
     </div>
@@ -176,29 +275,6 @@
               <h2>Aún no hay ensayos ni actuaciones</h2>
               <p class="muted">Cuando tu grupo publique la agenda, el próximo evento aparecerá aquí con los botones <strong>Asisto / No asisto</strong>.</p>
             </div>
-            <div id="dash-event-admin" class="hidden">
-              <button id="dash-add-event" class="button button-outline button-small" type="button">Añadir evento</button>
-              <form id="dash-event-form" class="mini-form hidden">
-                <label>Para<select id="dash-event-scope">
-                  <option value="personal">Para mí</option>
-                  <option value="group">Un grupo</option>
-                  <option value="section">Una sección</option>
-                  <option value="users">Personas concretas</option>
-                </select></label>
-                <label id="dash-event-group-wrap">Grupo<select id="dash-event-group"></select></label>
-                <label id="dash-event-section-wrap" class="hidden">Sección<select id="dash-event-section"></select></label>
-                <label id="dash-event-users-wrap" class="hidden">Personas<select id="dash-event-users" multiple size="4"></select></label>
-                <label>Tipo<select id="dash-event-kind">
-                  <option value="rehearsal">Ensayo</option>
-                  <option value="concert">Actuación</option>
-                  <option value="note">Nota</option>
-                </select></label>
-                <label>Título<input id="dash-event-title" type="text" maxlength="200" required></label>
-                <label>Inicio<input id="dash-event-start" type="datetime-local" required></label>
-                <label>Lugar<input id="dash-event-location" type="text" maxlength="300"></label>
-                <button class="button button-primary button-small" type="submit">Guardar evento</button>
-              </form>
-            </div>
             <p id="dash-event-message" class="message" role="status"></p>
           </article>
 
@@ -208,7 +284,7 @@
             <div id="dash-group-empty" class="empty-state">
               <span class="group-mark" aria-hidden="true">C</span>
               <h2>Sin grupo asignado</h2>
-              <p class="muted">Los grupos los crea el representante de tu entidad. También puedes unirte con el código que te comparta.</p>
+              <p class="muted">Crea tu grupo en Chorus o únete con el código que te compartan.</p>
               <form id="dash-join-form" class="mini-form">
                 <label>Código de grupo<input id="dash-join-code" type="text" maxlength="12" placeholder="Ej. 7KQ4M2" required></label>
                 <button class="button button-outline button-small" type="submit">Unirme</button>

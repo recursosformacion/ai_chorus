@@ -142,9 +142,19 @@ CREATE TABLE IF NOT EXISTS groups (
     timezone VARCHAR(80) NOT NULL DEFAULT 'Europe/Madrid',
     created_by VARCHAR(191) NOT NULL,
     join_code VARCHAR(64) NOT NULL UNIQUE,
-    created_at VARCHAR(64) NOT NULL,
-    updated_at VARCHAR(64) NOT NULL,
-    UNIQUE KEY uq_group_entity_name (entity_id, name)
+      created_at VARCHAR(64) NOT NULL,
+      updated_at VARCHAR(64) NOT NULL,
+      slug VARCHAR(191) NULL,
+      kind VARCHAR(32) NOT NULL DEFAULT 'grupo',
+      description TEXT NULL,
+      image_url VARCHAR(1024) NULL,
+      website VARCHAR(1024) NULL,
+      email VARCHAR(254) NULL,
+      logo_url VARCHAR(1024) NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'active',
+      editorial_mode VARCHAR(16) NOT NULL DEFAULT 'moderated',
+      technical_description TEXT NULL,
+      UNIQUE KEY uq_group_entity_name (entity_id, name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS group_members (
@@ -181,6 +191,10 @@ CREATE TABLE IF NOT EXISTS events (
     created_at VARCHAR(64) NOT NULL,
     updated_at VARCHAR(64) NOT NULL,
     cancelled_at VARCHAR(64) NULL,
+    recurrence VARCHAR(16) NOT NULL DEFAULT 'none',
+    recurrence_until VARCHAR(64) NULL,
+    series_id VARCHAR(191) NULL,
+    creator_badge VARCHAR(8) NULL,
     CONSTRAINT fk_events_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -252,5 +266,3 @@ CREATE TABLE IF NOT EXISTS message_recipients (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
-
-
