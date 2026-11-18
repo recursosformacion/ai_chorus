@@ -208,6 +208,11 @@
   async function loadAgenda() {
     agendaState = await request("/api/v1/agenda");
     renderAgenda();
+    const agendaModal = $("agenda-modal");
+    if (agendaModal && !agendaModal.classList.contains("hidden")) {
+      renderAgendaFilters();
+      renderAgendaCalendar();
+    }
     void loadMaterialGroups();
     await loadMessages();
   }
@@ -1307,72 +1312,171 @@
     return { rehearsal: "♪", concert: "★", note: "✎" }[kind] || "♪";
   }
 
-  function renderAgendaOverview() {
-    const container = $("agenda-upcoming");
+  let agendaCursor = new Date();
+  let agendaFilter = "all";
+
+  function eventMatchesFilter(event) {
+    if (agendaFilter === "all") return true;
+    if (agendaFilter === "personal") return event.scope === "personal" || !event.group_id;
+    return String(event.group_id || "") === agendaFilter;
+  }
+
+  function renderAgendaFilters() {
+    const container = $("agenda-filters");
     if (!container) return;
     container.replaceChildren();
-    const now = new Date();
-    const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 23, 59, 59, 999);
-    const upcoming = (agendaState.events || [])
-      .map((event) => ({ event, at: eventDate(event) }))
-      .filter(({ at }) => at && at >= now && at <= weekEnd)
-      .sort((a, b) => a.at - b.at);
-    const badge = $("agenda-week-badge");
-    if (badge) {
-      badge.textContent = `Próximos 7 días: ${upcoming.length} ${upcoming.length === 1 ? "evento" : "eventos"}`;
+    const options = [["all", "Todos"], ["personal", "Personal"]];
+    (agendaState.groups || []).forEach((group) => options.push([group.id, group.name]));
+    options.forEach(([value, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "agenda-filter" + (agendaFilter === value ? " active" : "");
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        agendaFilter = value;
+        renderAgendaCalendar();
+      });
+      container.append(button);
+    });
+  }
+
+  function renderAgendaCalendar() {
+    const calendar = $("agenda-calendar");
+    if (!calendar) return;
+    const cursor = agendaCursor;
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth();
+    const monthLabel = new Intl.DateTimeFormat("es-ES", {
+      month: "long", year: "numeric",
+    }).format(cursor);
+    $("agenda-month").textContent = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
+    calendar.replaceChildren();
+    ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].forEach((day) => {
+      const cell = document.createElement("div");
+      cell.className = "dow";
+      cell.textContent = day;
+      calendar.append(cell);
+    });
+    const first = new Date(year, month, 1);
+    const offset = (first.getDay() + 6) % 7;
+    const start = new Date(year, month, 1 - offset);
+    const events = (agendaState.events || []).filter(eventMatchesFilter);
+    const todayKey = new Date().toDateString();
+    for (let index = 0; index < 42; index += 1) {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "day" + (date.getMonth() !== month ? " muted" : "");
+      if (date.toDateString() === agendaSelected.toDateString()) cell.classList.add("selected");
+      if (date.toDateString() === todayKey) cell.classList.add("today");
+      const number = document.createElement("span");
+      number.className = "day-number";
+      number.textContent = String(date.getDate());
+      cell.append(number);
+      const count = events.filter((event) => {
+        const eventAt = eventDate(event);
+        return eventAt && eventAt.toDateString() === date.toDateString();
+      }).length;
+      if (count) {
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.title = `${count} ${count === 1 ? "evento" : "eventos"}`;
+        cell.append(dot);
+      }
+      cell.addEventListener("click", () => {
+        agendaSelected = date;
+        agendaCursor = new Date(date.getFullYear(), date.getMonth(), 1);
+        renderAgendaCalendar();
+      });
+      calendar.append(cell);
     }
-    if (!upcoming.length) {
+    renderAgendaDay();
+  }
+
+  function agendaTime(event) {
+    const at = eventDate(event);
+    return at ? at.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : "";
+  }
+
+  function renderAgendaDay() {
+    const container = $("agenda-day-events");
+    if (!container) return;
+    container.replaceChildren();
+    const title = new Intl.DateTimeFormat("es-ES", {
+      weekday: "long", day: "2-digit", month: "long",
+    }).format(agendaSelected);
+    $("agenda-day-title").textContent = title.charAt(0).toUpperCase() + title.slice(1);
+    const rows = (agendaState.events || [])
+      .filter(eventMatchesFilter)
+      .filter((event) => eventDate(event)?.toDateString() === agendaSelected.toDateString())
+      .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
+    if (!rows.length) {
       const empty = document.createElement("div");
-      empty.className = "agenda-empty-state";
+      empty.className = "agenda-day-empty";
       const icon = document.createElement("span");
       icon.className = "agenda-empty-icon";
       icon.setAttribute("aria-hidden", "true");
       icon.textContent = "▦";
-      const title = document.createElement("strong");
-      title.textContent = "No hay eventos en los próximos 7 días";
       const text = document.createElement("p");
-      text.textContent = "Cuando tu grupo publique un ensayo o una actuación aparecerá aquí.";
-      empty.append(icon, title, text);
+      text.textContent = "No hay eventos este día.";
+      empty.append(icon, text);
       container.append(empty);
       return;
     }
-    upcoming.forEach(({ event, at }) => {
+    rows.forEach((event) => {
       const card = document.createElement("article");
-      card.className = "agenda-event-card";
-      const icon = document.createElement("span");
-      icon.className = "agenda-event-icon";
-      icon.setAttribute("aria-hidden", "true");
-      icon.textContent = agendaKindIcon(event.kind);
-      const body = document.createElement("div");
-      body.className = "agenda-event-body";
-      const title = document.createElement("h3");
-      title.className = "agenda-event-title";
-      title.textContent = event.title;
-      const dateLine = document.createElement("p");
-      dateLine.className = "agenda-event-line";
-      const dateIcon = document.createElement("span");
-      dateIcon.setAttribute("aria-hidden", "true");
-      dateIcon.textContent = "▦";
-      dateLine.append(dateIcon, document.createTextNode(formatEventDate(at)));
-      const placeLine = document.createElement("p");
-      placeLine.className = "agenda-event-line";
-      const placeIcon = document.createElement("span");
-      placeIcon.setAttribute("aria-hidden", "true");
-      placeIcon.textContent = "⌖";
-      const place = [event.location, event.group_name].filter(Boolean).join(" · ");
-      placeLine.append(placeIcon, document.createTextNode(place || "Sin lugar asignado"));
-      body.append(title, dateLine, placeLine);
-      card.append(icon, body);
+      card.className = "agenda-day-event";
+      const head = document.createElement("div");
+      head.className = "agenda-day-event-head";
+      const time = document.createElement("strong");
+      time.textContent = agendaTime(event) || "Todo el día";
+      const kind = document.createElement("span");
+      kind.className = "agenda-kind";
+      kind.textContent = kindLabel(event.kind);
+      head.append(time, kind);
+      const name = document.createElement("h4");
+      name.textContent = event.title;
+      const meta = document.createElement("p");
+      meta.textContent = [event.location, event.group_name].filter(Boolean).join(" · ") || "Sin lugar asignado";
+      card.append(head, name, meta);
+      if (event.notes) {
+        const notes = document.createElement("p");
+        notes.className = "agenda-day-notes";
+        notes.textContent = event.notes;
+        card.append(notes);
+      }
+      if (event.kind !== "note" && event.scope !== "personal") {
+        const actions = document.createElement("div");
+        actions.className = "agenda-rsvp";
+        [["yes", "Asisto"], ["no", "No asisto"]].forEach(([status, label]) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "agenda-rsvp-button" + (event.my_rsvp === status ? " active" : "");
+          button.textContent = label;
+          button.addEventListener("click", () => void setRsvp(event.id, status, button));
+          actions.append(button);
+        });
+        card.append(actions);
+      }
       container.append(card);
     });
   }
 
   function openAgendaModal() {
     agendaSelected = new Date();
+    agendaCursor = new Date(agendaSelected.getFullYear(), agendaSelected.getMonth(), 1);
     $("agenda-modal").classList.remove("hidden");
-    renderAgendaOverview();
+    renderAgendaFilters();
+    renderAgendaCalendar();
   }
+
+  function agendaMessageTarget() {
+    const modal = $("agenda-modal");
+    return modal && !modal.classList.contains("hidden") ? "agenda-message" : "dash-event-message";
+  }
+
   async function setRsvp(eventId, status, button) {
+    const target = agendaMessageTarget();
     setBusy(button, true, "Guardando…");
     try {
       await request(`/api/v1/events/${encodeURIComponent(eventId)}/rsvp`, {
@@ -1381,12 +1485,13 @@
       });
       await loadAgenda();
       showMessage(
-        "dash-event-message",
+        target,
         status === "yes" ? "Asistencia confirmada." : "Ausencia registrada.",
         "success",
       );
     } catch (error) {
-      showMessage("dash-event-message", error.message, "error");
+      showMessage(target, error.message, "error");
+    } finally {
       setBusy(button, false);
     }
   }
@@ -2122,6 +2227,21 @@
   });
   $("open-agenda").addEventListener("click", openAgendaModal);
   $("agenda-close").addEventListener("click",()=>{$("agenda-modal").classList.add("hidden");});
+  $("agenda-prev").addEventListener("click",()=>{
+    agendaCursor = new Date(agendaCursor.getFullYear(), agendaCursor.getMonth() - 1, 1);
+    agendaSelected = new Date(agendaCursor.getFullYear(), agendaCursor.getMonth(), 1);
+    renderAgendaCalendar();
+  });
+  $("agenda-next").addEventListener("click",()=>{
+    agendaCursor = new Date(agendaCursor.getFullYear(), agendaCursor.getMonth() + 1, 1);
+    agendaSelected = new Date(agendaCursor.getFullYear(), agendaCursor.getMonth(), 1);
+    renderAgendaCalendar();
+  });
+  $("agenda-today").addEventListener("click",()=>{
+    agendaSelected = new Date();
+    agendaCursor = new Date(agendaSelected.getFullYear(), agendaSelected.getMonth(), 1);
+    renderAgendaCalendar();
+  });
   $("agenda-new").addEventListener("click",()=>{
     $("agenda-modal").classList.add("hidden");
     $("material-form")?.classList.add("hidden");

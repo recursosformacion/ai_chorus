@@ -12,10 +12,10 @@
   <meta name="twitter:card" content="summary">
   <meta name="description" content="Chorus — tu espacio personal para trabajar con partituras y música.">
   <title>Chorus · Tu espacio musical</title>
-  <link rel="stylesheet" href="/styles.css?v=0.12.1">
-  <link rel="stylesheet" href="/cover.css?v=0.12.1">
-  <link rel="stylesheet" href="/dashboard.css?v=0.12.1">
-  <script src="/app.js?v=0.12.1" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=0.12.4">
+  <link rel="stylesheet" href="/cover.css?v=0.12.4">
+  <link rel="stylesheet" href="/dashboard.css?v=0.12.4">
+  <script src="/app.js?v=0.12.4" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -31,21 +31,37 @@
   </header>
 
   <div id="agenda-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="agenda-title">
-    <div class="inbox-panel agenda-panel agenda-overview-panel">
+    <div class="inbox-panel agenda-panel agenda-calendar-panel">
       <div class="card-head messages-head agenda-head">
-        <div class="modal-heading"><p class="modal-eyebrow">Agenda</p><h2 id="agenda-title">Próximos eventos</h2><p>Ensayos y actuaciones de tus grupos.</p></div>
+        <div class="modal-heading">
+          <p class="modal-eyebrow">Calendario</p>
+          <h2 id="agenda-title">Agenda</h2>
+          <p>Ensayos, actuaciones y citas de tus grupos.</p>
+        </div>
         <div class="agenda-head-right">
-          <span id="agenda-week-badge" class="agenda-week-badge">Próximos 7 días: 0 eventos</span>
           <button id="agenda-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
         </div>
       </div>
-      <div id="agenda-upcoming" class="agenda-upcoming"></div>
-      <div class="agenda-footer">
-        <button id="agenda-new" class="button button-outline" type="button">Añadir evento</button>
+      <div class="agenda-toolbar">
+        <div class="agenda-month-nav">
+          <button id="agenda-prev" class="agenda-nav-button" type="button" aria-label="Mes anterior">←</button>
+          <strong id="agenda-month"></strong>
+          <button id="agenda-next" class="agenda-nav-button" type="button" aria-label="Mes siguiente">→</button>
+          <button id="agenda-today" class="agenda-today-button" type="button">Hoy</button>
+        </div>
+        <button id="agenda-new" class="button button-primary button-small" type="button">+ Nueva cita / Evento</button>
+      </div>
+      <div id="agenda-filters" class="agenda-filters"></div>
+      <div class="agenda-body">
+        <div id="agenda-calendar" class="agenda-calendar"></div>
+        <section class="agenda-day">
+          <h3 id="agenda-day-title">Eventos del día</h3>
+          <div id="agenda-day-events"></div>
+          <p id="agenda-message" class="message" role="status"></p>
+        </section>
       </div>
     </div>
-  </div>
-  <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="inbox-title">
+  </div>  <div id="inbox-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="inbox-title">
     <div class="inbox-panel messages-workspace">
       <div class="card-head messages-head">
         <div class="modal-heading"><p class="modal-eyebrow">Mensajes</p><div class="modal-title-line"><h2 id="inbox-title">Tu bandeja</h2><span id="inbox-unread" class="badge badge-muted">Al día</span></div><p>Conversaciones, avisos y enviados de tus grupos.</p></div>
