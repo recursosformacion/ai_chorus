@@ -1,0 +1,96 @@
+name: Test Suite
+
+# MariaDB se instala y arranca de forma nativa en el runner.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    name: Unit Tests (sin BD)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -e ".[test]"
+      - name: Run unit tests
+        run: pytest -m unit -x -q
+        # Sin CHORUS_DATABASE_URL → estos tests usan SQLite en tmp_path
+
+  integration-tests:
+    name: Integration Tests (MariaDB 10.4 nativo)
+    runs-on: ubuntu-22.04
+    env:
+      TEST_DB: osap_chorus_test
+      TEST_USER: osap2027_test
+      TEST_PASS: testpass
+      CHORUS_DATABASE_URL: mysql+pymysql://osap2027_test:testpass@127.0.0.1:3306/osap_chorus_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install MariaDB 10.4 (nativo)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+          curl -fsSL https://r.mariadb.com/downloads/mariadb_repo_setup \
+            | sudo bash -s -- --mariadb-server-version="mariadb-10.4"
+          sudo apt-get update
+          sudo apt-get install -y mariadb-server mariadb-client
+      - name: Start MariaDB and provision test DB/user
+        run: |
+          sudo service mariadb start
+          mariadb --version
+          sudo mariadb -e "CREATE DATABASE IF NOT EXISTS ${TEST_DB};"
+          sudo mariadb -e "CREATE USER IF NOT EXISTS '${TEST_USER}'@'%' IDENTIFIED BY '${TEST_PASS}';"
+          sudo mariadb -e "GRANT ALL PRIVILEGES ON ${TEST_DB}.* TO '${TEST_USER}'@'%'; FLUSH PRIVILEGES;"
+      - name: Install dependencies
+        run: pip install -e ".[test]"
+      - name: Rebuild test database
+        run: python scripts/rebuild_test_db.py
+      - name: Run integration tests
+        run: pytest -m integration -x -v
+
+  migration-tests:
+    name: Migration Tests (MariaDB 10.4 nativo)
+    runs-on: ubuntu-22.04
+    env:
+      TEST_DB: osap_chorus_test
+      TEST_USER: osap2027_test
+      TEST_PASS: testpass
+      CHORUS_DATABASE_URL: mysql+pymysql://osap2027_test:testpass@127.0.0.1:3306/osap_chorus_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install MariaDB 10.4 (nativo)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+          curl -fsSL https://r.mariadb.com/downloads/mariadb_repo_setup \
+            | sudo bash -s -- --mariadb-server-version="mariadb-10.4"
+          sudo apt-get update
+          sudo apt-get install -y mariadb-server mariadb-client
+      - name: Start MariaDB and provision test DB/user
+        run: |
+          sudo service mariadb start
+          mariadb --version
+          sudo mariadb -e "CREATE DATABASE IF NOT EXISTS ${TEST_DB};"
+          sudo mariadb -e "CREATE USER IF NOT EXISTS '${TEST_USER}'@'%' IDENTIFIED BY '${TEST_PASS}';"
+          sudo mariadb -e "GRANT ALL PRIVILEGES ON ${TEST_DB}.* TO '${TEST_USER}'@'%'; FLUSH PRIVILEGES;"
+      - name: Install dependencies
+        run: pip install -e ".[test]"
+      - name: Rebuild test database
+        run: python scripts/rebuild_test_db.py
+      - name: Run migration tests
+        run: pytest -m migrations -x -v

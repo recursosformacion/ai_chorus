@@ -57,6 +57,7 @@ def insert_chain(
     )
 
 
+@pytest.mark.unit
 def test_complete_work_resource_file_chain_commits(db: sqlite3.Connection) -> None:
     insert_chain(db)
     db.commit()
@@ -66,6 +67,7 @@ def test_complete_work_resource_file_chain_commits(db: sqlite3.Connection) -> No
     assert db.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 1
 
 
+@pytest.mark.unit
 def test_work_without_resource_is_rejected_at_commit(db: sqlite3.Connection) -> None:
     db.execute("BEGIN")
     db.execute(
@@ -81,6 +83,7 @@ def test_work_without_resource_is_rejected_at_commit(db: sqlite3.Connection) -> 
     db.rollback()
 
 
+@pytest.mark.unit
 def test_resource_without_file_is_rejected_at_commit(db: sqlite3.Connection) -> None:
     db.execute("BEGIN")
     db.execute(
@@ -103,6 +106,7 @@ def test_resource_without_file_is_rejected_at_commit(db: sqlite3.Connection) -> 
     db.rollback()
 
 
+@pytest.mark.unit
 def test_each_resource_requires_its_own_file(db: sqlite3.Connection) -> None:
     insert_chain(db)
     db.execute(
@@ -119,6 +123,7 @@ def test_each_resource_requires_its_own_file(db: sqlite3.Connection) -> None:
     db.rollback()
 
 
+@pytest.mark.unit
 def test_file_cannot_be_shared_by_two_resources(db: sqlite3.Connection) -> None:
     insert_chain(db)
     db.execute(
@@ -135,6 +140,7 @@ def test_file_cannot_be_shared_by_two_resources(db: sqlite3.Connection) -> None:
     db.rollback()
 
 
+@pytest.mark.unit
 def test_sha256_is_not_a_unique_identity(db: sqlite3.Connection) -> None:
     insert_chain(db)
     db.execute(

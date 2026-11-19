@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import sqlite3
 from urllib.parse import parse_qs, urlparse
 
@@ -75,6 +76,7 @@ def _settings(tmp_path) -> Settings:
     )
 
 
+@pytest.mark.unit
 def test_oidc_start_builds_a_pkce_authorize_url(tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.httpx.Client", FakeOidcClient)
     with TestClient(create_app(_settings(tmp_path))) as client:
@@ -88,6 +90,7 @@ def test_oidc_start_builds_a_pkce_authorize_url(tmp_path, monkeypatch):
     assert query["code_challenge"]
 
 
+@pytest.mark.unit
 def test_oidc_callback_exchanges_code_and_sets_refresh_cookie(tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.httpx.Client", FakeOidcClient)
     settings = _settings(tmp_path)
@@ -110,6 +113,7 @@ def test_oidc_callback_exchanges_code_and_sets_refresh_cookie(tmp_path, monkeypa
         assert conn.execute("SELECT COUNT(*) FROM oidc_states").fetchone()[0] == 0
 
 
+@pytest.mark.unit
 def test_oidc_callback_rejects_unknown_or_reused_state(tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.httpx.Client", FakeOidcClient)
     settings = _settings(tmp_path)

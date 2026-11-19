@@ -1,7 +1,7 @@
 """Migra los datos de Chorus de SQLite a MySQL/MariaDB conservando IDs.
 
 Uso:
-  python script/migrate_sqlite_to_mysql.py --sqlite var/chorus.sqlite3 \
+  python scripts/migrate_sqlite_to_mysql.py --sqlite var/chorus.sqlite3 \
       --url mysql+pymysql://user:pass@127.0.0.1:3306/osap_chorus
 
 Es una migración de una sola vez para desarrollo. Hace backup lógico del SQLite

@@ -30,7 +30,17 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.db import connect as db_connect
+from app.db import (
+    _verify_legacy_baseline,
+    _register_legacy_baseline_recognition,
+    _analyze_003_state,
+    _safe_execute_migration,
+    _is_migration_registered,
+    _register_migration,
+    _execute_sql_script,
+)
 from app.security import Principal
+from app.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -195,10 +205,6 @@ class MessageBody(BaseModel):
     subject: str = Field(min_length=1, max_length=160)
     body: str = Field(min_length=1, max_length=8000)
     recipient_subs: list[str] = Field(default_factory=list, max_length=200)
-
-
-def utcnow() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _roles(profile: dict[str, Any]) -> set[str]:
@@ -474,56 +480,177 @@ def _connect(settings: Settings):
     return db_connect(settings)
 
 
+def _has_application_tables(conn: Any) -> bool:
+    """Verifica si ya existen tablas de aplicación (instalación legacy).
+    Comprueba la EXISTENCIA de la tabla, no que contenga filas."""
+    try:
+        from app.db import _table_exists
+        return _table_exists(conn, "groups")
+    except Exception:
+        return False
+
+
 def initialise_database(settings: Settings) -> None:
     root = Path(__file__).resolve().parent.parent
+    migrations_dir = root / "migrations"
+
     with _connect(settings) as conn:
+        # Asegurar tabla de migraciones
         if settings.database_url:
-            conn.executescript((root / "migrations" / "mysql" / "001_schema.sql").read_text("utf-8"))
-            applied = conn.execute(
-                "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", ("mysql_schema_v1",)
-            ).fetchone()
-            if applied is None:
-                conn.execute(
-                    "INSERT INTO chorus_schema_migrations (name, applied_at) VALUES (?, ?)",
-                    ("mysql_schema_v1", utcnow()),
-                )
+            # MySQL/MariaDB
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS chorus_schema_migrations (
+                    name VARCHAR(191) PRIMARY KEY,
+                    applied_at VARCHAR(64) NOT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+        else:
+            # SQLite
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS event_targets "
-                "(event_id VARCHAR(191) NOT NULL, target_type VARCHAR(16) NOT NULL, "
-                "target_value VARCHAR(191) NOT NULL, PRIMARY KEY (event_id,target_type,target_value), "
-                "CONSTRAINT fk_event_target_event FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE)"
+                "CREATE TABLE IF NOT EXISTS chorus_schema_migrations "
+                "(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
             )
+
+        if not settings.database_url:
+            # SQLite: mantener comportamiento existente (15 migraciones incrementales)
+            sqlite_migrations = (
+                "001_v6_work_resource_file.sql",
+                "002_creation_drafts.sql",
+                "003_owner_and_library.sql",
+                "004_oidc_states.sql",
+                "005_local_draft_source.sql",
+                "006_groups_events.sql",
+                "007_entity_leads.sql",
+                "008_entity_lead_manager.sql",
+                "009_messages.sql",
+                "010_group_member_roles.sql",
+                "011_event_targets.sql",
+                "012_material_library.sql",
+                "013_material_groups.sql",
+                "014_agenda_recurrence.sql",
+                "015_group_articles.sql",
+            )
+            for name in sqlite_migrations:
+                applied = conn.execute(
+                    "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
+                ).fetchone()
+                if applied is None:
+                    script = (migrations_dir / "sqlite" / name).read_text("utf-8")
+                    conn.executescript("BEGIN IMMEDIATE;\n" + script + "\nCOMMIT;")
+                    conn.execute(
+                        "INSERT INTO chorus_schema_migrations (name, applied_at) VALUES (?, ?)",
+                        (name, utcnow()),
+                    )
             return
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS chorus_schema_migrations "
-            "(name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
-        )
-        for name in (
-            "001_v6_work_resource_file.sql",
-            "002_creation_drafts.sql",
-            "003_owner_and_library.sql",
-            "004_oidc_states.sql",
-            "005_local_draft_source.sql",
-            "006_groups_events.sql",
-            "007_entity_leads.sql",
-            "008_entity_lead_manager.sql",
-            "009_messages.sql",
-            "010_group_member_roles.sql",
-            "011_event_targets.sql",
-            "012_material_library.sql",
-            "013_material_groups.sql",
-            "014_agenda_recurrence.sql",
-            "015_group_articles.sql",
-        ):
-            applied = conn.execute(
-                "SELECT 1 FROM chorus_schema_migrations WHERE name = ?", (name,)
-            ).fetchone()
-            if applied is None:
-                conn.executescript("BEGIN IMMEDIATE;\n" + (root / "migrations" / "sqlite" / name).read_text("utf-8") + "\nCOMMIT;")
-                conn.execute(
-                    "INSERT INTO chorus_schema_migrations (name, applied_at) VALUES (?, ?)",
-                    (name, utcnow()),
-                )
+
+        # MySQL/MariaDB
+        is_new_install = not _has_application_tables(conn)
+
+        if is_new_install:
+            # --- INSTALACIÓN NUEVA ---
+            # 1. Ejecutar 001_schema.sql (esquema base completo)
+            script = (migrations_dir / "mysql" / "001_schema.sql").read_text("utf-8")
+            action = _safe_execute_migration(conn, "001_schema.sql", script)
+            if action == "EXECUTE":
+                _execute_sql_script(conn, script, is_mysql=True)
+                _register_migration(conn, "001_schema.sql")
+            # action SKIP or SKIP_EXISTED means already registered or objects exist
+
+            # 2. Ejecutar migraciones nuevas 004-007
+            new_migrations = [
+                "004_material_library.sql",
+                "005_material_groups.sql",
+                "006_group_articles_tables.sql",
+                "007_events_series_index.sql",
+            ]
+            for mig_name in new_migrations:
+                mig_path = migrations_dir / "mysql" / mig_name
+                if not mig_path.exists():
+                    raise RuntimeError(f"Migración no encontrada: {mig_path}")
+                script = mig_path.read_text("utf-8")
+                action = _safe_execute_migration(conn, mig_name, script)
+                if action == "EXECUTE":
+                    _execute_sql_script(conn, script, is_mysql=True)
+                    _register_migration(conn, mig_name)
+                # SKIP or SKIP_EXISTED handled by _safe_execute_migration
+
+            # NO ejecutar 009_legacy_baseline — no hay legacy que reconocer
+            return
+
+        # --- INSTALACIÓN HISTÓRICA (legacy) ---
+        # Primero, comprobar si ya está todo migrado (instalación nueva ya completada)
+        all_new_migrations = [
+            "004_material_library.sql",
+            "005_material_groups.sql",
+            "006_group_articles_tables.sql",
+            "007_events_series_index.sql",
+        ]
+        if all(_is_migration_registered(conn, m) for m in all_new_migrations):
+            # Ya está todo migrado, no hay nada que hacer
+            return
+
+        # Verificar baseline histórico
+        ok, errors = _verify_legacy_baseline(conn, settings)
+        if not ok:
+            raise RuntimeError(f"Baseline histórico incompatible: {'; '.join(errors)}")
+
+        # Registrar reconocimiento de baseline (operación Python)
+        _register_legacy_baseline_recognition(conn)
+
+        # Analizar estado de migraciones históricas 002 y 003
+        # 002_agenda_recurrence.sql: solo índice idx_events_series (columnas ya en 001)
+        # 003_group_articles.sql: 3 CREATE TABLE necesarios + ALTER TABLE redundantes
+        state_003 = _analyze_003_state(conn)
+
+        if state_003 in ("REGISTERED_TABLES_MISSING", "PARTIAL_TABLES"):
+            raise RuntimeError(
+                f"Estado contradictorio en 003_group_articles.sql: {state_003}. "
+                "Migración registrada pero tablas incompletas. ABORTAR."
+            )
+        if state_003 == "PARTIAL_TABLES_UNREGISTERED":
+            raise RuntimeError(
+                "Tablas de artículos parciales sin registro de migración 003_group_articles.sql. "
+                "Estado ambiguo. ABORTAR."
+            )
+
+        # Si 003 está OK (registrada+completa o tablas existen sin registro), saltamos 006
+        skip_006 = state_003 in ("COMPLETED_OK", "TABLES_EXIST_UNREGISTERED")
+
+        # Verificar 002_agenda_recurrence.sql (solo índice)
+        registered_002 = _is_migration_registered(conn, "002_agenda_recurrence.sql")
+        index_exists = False
+        try:
+            from app.db import _index_exists
+            index_exists = _index_exists(conn, "events", "idx_events_series")
+        except Exception:
+            pass
+        skip_007 = registered_002 or index_exists
+
+        # Ejecutar migraciones nuevas 004-007 según necesidad
+        new_migrations = [
+            ("004_material_library.sql", True),
+            ("005_material_groups.sql", True),
+            ("006_group_articles_tables.sql", not skip_006),
+            ("007_events_series_index.sql", not skip_007),
+        ]
+
+        for mig_name, should_execute in new_migrations:
+            if not should_execute:
+                continue
+            mig_path = migrations_dir / "mysql" / mig_name
+            if not mig_path.exists():
+                raise RuntimeError(f"Migración no encontrada: {mig_path}")
+            script = mig_path.read_text("utf-8")
+
+            # Usar ejecución segura que verifica objetos antes de ejecutar
+            action = _safe_execute_migration(conn, mig_name, script)
+            if action == "EXECUTE":
+                _execute_sql_script(conn, script, is_mysql=True)
+                _register_migration(conn, mig_name)
+            elif action == "SKIP_EXISTED":
+                # Objetos existen sin registro, ya se registraron en _safe_execute_migration
+                pass
+            # SKIP: ya registrada y completa
 
 
 def _safe_name(name: str | None) -> str:
@@ -2412,9 +2539,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=403, detail="Not a member of this group")
             conn.execute(
                 "INSERT INTO event_rsvps (event_id,user_sub,status,comment,updated_at) "
-                "VALUES (?,?,?,?,?) ON CONFLICT(event_id,user_sub) DO UPDATE SET "
-                "status = excluded.status, comment = excluded.comment, "
-                "updated_at = excluded.updated_at",
+                "VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE "
+                "status = VALUES(status), comment = VALUES(comment), "
+                "updated_at = VALUES(updated_at)",
                 (event_id, user_id, body.status, body.comment, utcnow()),
             )
         return {"event_id": event_id, "status": body.status}

@@ -24,6 +24,7 @@ def db() -> sqlite3.Connection:
     connection.close()
 
 
+@pytest.mark.unit
 def test_blank_draft_exists_without_creating_a_musical_work(db: sqlite3.Connection) -> None:
     db.execute(
         """
@@ -39,6 +40,7 @@ def test_blank_draft_exists_without_creating_a_musical_work(db: sqlite3.Connecti
     assert db.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
 
 
+@pytest.mark.unit
 def test_osap_draft_records_external_work_and_representation(db: sqlite3.Connection) -> None:
     db.execute(
         """
@@ -57,6 +59,7 @@ def test_osap_draft_records_external_work_and_representation(db: sqlite3.Connect
     assert db.execute("SELECT COUNT(*) FROM works").fetchone()[0] == 0
 
 
+@pytest.mark.unit
 def test_osap_draft_requires_both_external_identifiers(db: sqlite3.Connection) -> None:
     with pytest.raises(sqlite3.IntegrityError):
         db.execute(
@@ -69,6 +72,7 @@ def test_osap_draft_requires_both_external_identifiers(db: sqlite3.Connection) -
         )
 
 
+@pytest.mark.unit
 def test_blank_draft_cannot_smuggle_osap_identifiers(db: sqlite3.Connection) -> None:
     with pytest.raises(sqlite3.IntegrityError):
         db.execute(
@@ -82,6 +86,7 @@ def test_blank_draft_cannot_smuggle_osap_identifiers(db: sqlite3.Connection) -> 
         )
 
 
+@pytest.mark.unit
 def test_materialized_status_requires_a_work_id(db: sqlite3.Connection) -> None:
     with pytest.raises(sqlite3.IntegrityError):
         db.execute(
@@ -94,6 +99,7 @@ def test_materialized_status_requires_a_work_id(db: sqlite3.Connection) -> None:
         )
 
 
+@pytest.mark.unit
 def test_editor_source_token_is_scoped_to_a_draft_and_cascades(db: sqlite3.Connection) -> None:
     db.execute(
         """

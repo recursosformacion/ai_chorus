@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import sqlite3
 from io import BytesIO
 from pathlib import Path
@@ -188,6 +189,7 @@ def test_upload_creates_integrity_and_library_entry(tmp_path, monkeypatch):
         assert collections[0]["item_count"] == 1
 
 
+@pytest.mark.unit
 def test_uploads_are_separate_versions_and_keep_previous_files(tmp_path, monkeypatch):
     settings = _settings(tmp_path)
     with TestClient(create_app(settings)) as client:

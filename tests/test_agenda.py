@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+from fastapi.testclient import TestClient
+
 from app.config import Settings
 from app.main import create_app
-from fastapi.testclient import TestClient
 
 
 class FakeAuthResponse:
@@ -16,7 +18,7 @@ class FakeAuthResponse:
         return self._body
 
 
-def install_fake_auth(monkeypatch, profiles):
+def install_fake_auth(monkeypatch, profiles, auth_base_url="https://auth.test"):
     class FakeAuthClient:
         def __init__(self, timeout=None):
             self.timeout = timeout
@@ -28,11 +30,25 @@ def install_fake_auth(monkeypatch, profiles):
             return False
 
         def request(self, method, url, json=None, headers=None):
-            path = url.removeprefix("https://auth.test")
+            # Normalizar URL: quitar el auth_base_url configurado
+            path = url.removeprefix(auth_base_url.rstrip("/"))
             token = (headers or {}).get("Authorization", "").removeprefix("Bearer ")
-            if method == "GET" and path == "/auth/me":
+            if method == "GET" and path in ("/auth/me", "/auth/me/"):
                 profile = profiles.get(token)
                 return FakeAuthResponse(200, profile) if profile else FakeAuthResponse(401, {})
+            if method == "POST" and path in ("/auth/login", "/auth/login/"):
+                return FakeAuthResponse(200, {
+                    "access_token": f"token-{profiles.keys()}",
+                    "refresh_token": "refresh-token",
+                    "user_id": "test-user",
+                    "roles": ["user"],
+                    "email_verified": True,
+                })
+            if method == "POST" and path in ("/auth/refresh", "/auth/refresh/"):
+                return FakeAuthResponse(200, {
+                    "access_token": "new-access-token",
+                    "refresh_token": "new-refresh-token",
+                })
             return FakeAuthResponse(404, {})
 
     monkeypatch.setattr("app.main.httpx.Client", FakeAuthClient)
@@ -57,23 +73,15 @@ def _profile(user_id: str, *, representative: bool = False):
     }
 
 
-def _settings(tmp_path):
-    return Settings(
-        auth_base_url="https://auth.test",
-        database_path=str(tmp_path / "chorus.sqlite3"),
-        storage_root=str(tmp_path / "private"),
-        secure_cookies=False,
-    )
-
-
-def test_create_group_event_and_rsvp(tmp_path, monkeypatch):
+@pytest.mark.integration
+def test_create_group_event_and_rsvp(integration_settings, monkeypatch):
     profiles = {
         "token-rep": _profile("rep-1", representative=True),
         "token-other": _profile("other-1"),
         "token-third": _profile("third-1"),
     }
-    install_fake_auth(monkeypatch, profiles)
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    with TestClient(create_app(integration_settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         group = client.post(
             "/api/v1/groups",
@@ -147,15 +155,16 @@ def test_create_group_event_and_rsvp(tmp_path, monkeypatch):
         ).status_code == 403
 
 
-def test_note_does_not_take_rsvp(tmp_path, monkeypatch):
+@pytest.mark.integration
+def test_note_does_not_take_rsvp(integration_settings, monkeypatch):
     profiles = {"token-rep": _profile("rep-1", representative=True)}
-    install_fake_auth(monkeypatch, profiles)
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    with TestClient(create_app(integration_settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         group_id = client.post(
             "/api/v1/groups",
             headers=headers,
-            json={"entity_id": "entity-1", "name": "Coral Aurora"},
+            json={"entity_id": "entity-note-test", "name": "Coral Nota"},
         ).json()["id"]
         event_id = client.post(
             "/api/v1/events",
@@ -173,15 +182,17 @@ def test_note_does_not_take_rsvp(tmp_path, monkeypatch):
         )
         assert response.status_code == 400
 
-def test_recurring_series_edit_and_delete(tmp_path, monkeypatch):
+
+@pytest.mark.integration
+def test_recurring_series_edit_and_delete(integration_settings, monkeypatch):
     profiles = {"token-rep": _profile("rep-1", representative=True)}
-    install_fake_auth(monkeypatch, profiles)
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    with TestClient(create_app(integration_settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         group_id = client.post(
             "/api/v1/groups",
             headers=headers,
-            json={"entity_id": "entity-1", "name": "Coral Aurora"},
+            json={"entity_id": "entity-recurring", "name": "Coral Recurrente"},
         ).json()["id"]
 
         created = client.post(
@@ -242,10 +253,11 @@ def test_recurring_series_edit_and_delete(tmp_path, monkeypatch):
         assert all(item["series_id"] != first["series_id"] for item in agenda["events"])
 
 
-def test_personal_event_badge_and_single_delete(tmp_path, monkeypatch):
+@pytest.mark.integration
+def test_personal_event_badge_and_single_delete(integration_settings, monkeypatch):
     profiles = {"token-rep": _profile("rep-1", representative=True)}
-    install_fake_auth(monkeypatch, profiles)
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    with TestClient(create_app(integration_settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         created = client.post(
             "/api/v1/events",
@@ -265,4 +277,8 @@ def test_personal_event_badge_and_single_delete(tmp_path, monkeypatch):
         deleted = client.delete(f"/api/v1/events/{event['id']}", headers=headers)
         assert deleted.status_code == 200
         assert deleted.json()["deleted"] == 1
-        assert client.get("/api/v1/agenda", headers=headers).json()["events"] == []
+
+        # Verificar que el evento personal ya no aparece en la agenda
+        agenda = client.get("/api/v1/agenda", headers=headers).json()
+        personal_events = [e for e in agenda["events"] if e["id"] == event["id"]]
+        assert personal_events == []

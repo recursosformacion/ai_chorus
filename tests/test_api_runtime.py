@@ -23,16 +23,19 @@ def make_mxl(root_xml: str = '<score-partwise version="4.0"/>') -> bytes:
     return stream.getvalue()
 
 
+@pytest.mark.unit
 def test_valid_mxl_container_and_score_are_accepted():
     assert validate_mxl(make_mxl(), "ave-verum.mxl") == "score.xml"
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize("filename", ["score.xml", "score.pdf", "score.zip"])
 def test_only_mxl_extension_is_accepted(filename):
     with pytest.raises(ValueError, match="compressed MusicXML"):
         validate_mxl(make_mxl(), filename)
 
 
+@pytest.mark.unit
 def test_zip_without_container_is_rejected():
     stream = BytesIO()
     with ZipFile(stream, "w") as archive:
@@ -41,11 +44,13 @@ def test_zip_without_container_is_rejected():
         validate_mxl(stream.getvalue(), "score.mxl")
 
 
+@pytest.mark.unit
 def test_non_musicxml_root_is_rejected():
     with pytest.raises(ValueError, match="not a MusicXML score"):
         validate_mxl(make_mxl("<html/>"), "score.mxl")
 
 
+@pytest.mark.unit
 def test_path_traversal_inside_archive_is_rejected():
     stream = BytesIO()
     with ZipFile(stream, "w") as archive:
@@ -55,46 +60,6 @@ def test_path_traversal_inside_archive_is_rejected():
         archive.writestr("../score.xml", "<score-partwise/>")
     with pytest.raises(ValueError, match="Unsafe path"):
         validate_mxl(stream.getvalue(), "score.mxl")
-
-
-def test_database_migrations_are_repeatable(tmp_path):
-    settings = Settings(
-        database_path=str(tmp_path / "chorus.sqlite3"),
-        storage_root=str(tmp_path / "private"),
-    )
-    initialise_database(settings)
-    initialise_database(settings)
-    import sqlite3
-
-    with sqlite3.connect(settings.database_path) as conn:
-        tables = {
-            row[0] for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
-        assert {"works", "resources", "files", "creation_drafts", "editor_source_tokens", "library_items", "collections", "collection_items", "oidc_states", "groups", "group_members", "events", "event_rsvps", "entity_leads"} <= tables
-        applied = conn.execute("SELECT COUNT(*) FROM chorus_schema_migrations").fetchone()[0]
-        assert applied == 15
-
-
-def test_api_health_and_authentication_fail_closed(tmp_path):
-    settings = Settings(
-        database_path=str(tmp_path / "chorus.sqlite3"),
-        storage_root=str(tmp_path / "private"),
-    )
-    with TestClient(create_app(settings)) as client:
-        health = client.get("/health")
-        assert health.status_code == 200
-        assert health.json()["service"] == "chorus-api"
-
-        login = client.post(
-            "/api/v1/auth/login",
-            json={"email": "musician@example.org", "password": "not-a-real-password"},
-        )
-        assert login.status_code == 503
-
-        draft = client.post("/api/v1/drafts", json={"title": "Ave verum"})
-        assert draft.status_code == 401
 
 
 class FakeAuthResponse:
@@ -149,6 +114,28 @@ def install_fake_auth(monkeypatch, profiles):
     monkeypatch.setattr("app.main.httpx.Client", FakeAuthClient)
 
 
+@pytest.mark.unit
+def test_api_health_and_authentication_fail_closed(tmp_path):
+    settings = Settings(
+        database_path=str(tmp_path / "chorus.sqlite3"),
+        storage_root=str(tmp_path / "private"),
+    )
+    with TestClient(create_app(settings)) as client:
+        health = client.get("/health")
+        assert health.status_code == 200
+        assert health.json()["service"] == "chorus-api"
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"email": "musician@example.org", "password": "not-a-real-password"},
+        )
+        assert login.status_code == 503
+
+        draft = client.post("/api/v1/drafts", json={"title": "Ave verum"})
+        assert draft.status_code == 401
+
+
+@pytest.mark.unit
 def test_login_delegates_to_osap_auth_and_uses_auth_user_id_as_owner(tmp_path, monkeypatch):
     profile = {
         "user_id": "user-1", "roles": ["user"], "email_verified": True, "status": "active",
@@ -190,6 +177,7 @@ def test_login_delegates_to_osap_auth_and_uses_auth_user_id_as_owner(tmp_path, m
         assert denied.status_code == 404
 
 
+@pytest.mark.unit
 def test_onboarding_is_required_before_creating_drafts(tmp_path, monkeypatch):
     profile = {
         "user_id": "pending-user", "roles": ["user"], "email_verified": True, "status": "active",
@@ -222,3 +210,27 @@ def test_onboarding_is_required_before_creating_drafts(tmp_path, monkeypatch):
 
         allowed = client.post("/api/v1/drafts", headers=headers, json={"title": "Ave verum"})
         assert allowed.status_code == 201
+
+
+@pytest.mark.migrations
+def test_database_migrations_are_repeatable_mariadb(migration_settings):
+    """Test que las migraciones MySQL son idempotentes en MariaDB real."""
+    initialise_database(migration_settings)
+    initialise_database(migration_settings)
+    from app.db import connect as db_connect
+    from app.db import _get_table_names
+
+    with db_connect(migration_settings) as conn:
+        tables = set(_get_table_names(conn))
+        required = {
+            "works", "resources", "files", "creation_drafts", "editor_source_tokens",
+            "library_items", "collections", "collection_items", "oidc_states",
+            "groups", "group_members", "events", "event_groups", "event_rsvps",
+            "entity_leads", "messages", "event_targets", "message_recipients",
+            "group_sections", "group_articles", "group_article_media",
+            "chorus_schema_migrations",
+        }
+        assert required <= tables
+        applied = conn.execute("SELECT COUNT(*) AS cnt FROM chorus_schema_migrations").fetchone()["cnt"]
+        # 001_schema.sql + 004-007 = 5 migraciones
+        assert applied == 5

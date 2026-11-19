@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-chorus"
-version = "0.14.0"
+version = "0.15.0"
 description = "Chorus API and personal music workspace"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,11 +16,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8,<9"]
+test = ["pytest>=8,<9", "sqlparse>=0.5,<1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-m unit -ra"
+markers = [
+    "unit: tests sin base de datos (rápidos, default)",
+    "integration: tests que requieren MariaDB 10.4.32 real (osap_chorus_test)",
+    "migrations: tests de migraciones específicamente",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
