@@ -202,12 +202,30 @@
       </div>
     </div>
   </div>
-  <div id="group-admin-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
+<div id="group-admin-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
     <div class="inbox-panel group-admin-panel">
       <div class="card-head"><h2 id="ga-title">Grupo</h2><button id="ga-close" class="button button-quiet" type="button">Cerrar</button></div>
       <form id="ga-edit-form" class="mini-form">
-        <label>Nombre<input id="ga-name" maxlength="120" required></label>
-        <label>Zona horaria<input id="ga-timezone" maxlength="80" required></label>
+        <fieldset>
+          <legend>Datos básicos</legend>
+          <label>Nombre<input id="ga-name" maxlength="120" required></label>
+          <label>Zona horaria<input id="ga-timezone" maxlength="80" required></label>
+        </fieldset>
+        <fieldset>
+          <legend>Datos corales</legend>
+          <label>Fecha de fundación<input id="ga-foundation-date" type="date"></label>
+          <label>Fecha de disolución<input id="ga-dissolution-date" type="date"></label>
+          <label>Localidad<input id="ga-locality" maxlength="160"></label>
+          <label>Región/Provincia<input id="ga-region" maxlength="160"></label>
+          <label>Código país (ISO 2)<input id="ga-country-code" maxlength="2" placeholder="ES"></label>
+          <label>Lugar principal<input id="ga-venue" maxlength="255" placeholder="Sede principal, auditorio, iglesia..."></label>
+          <label>Tipo de formación<input id="ga-formation-type" maxlength="48" placeholder="mixta, femenina, masculina, infantil..."></label>
+          <label>Nº de miembros<input id="ga-member-count" type="number" min="0" step="1"></label>
+          <label>Email público<input id="ga-public-email" type="email" maxlength="254" placeholder="coro@ejemplo.es"></label>
+          <label>Idiomas (códigos ISO, separados por comas)<input id="ga-language" type="text" placeholder="ca, es, en"></label>
+          <label>Repertorio (uno por línea, formato: valor|posición)<textarea id="ga-repertoire" rows="3" placeholder="Música sacra|1&#10;Música popular|2"></textarea></label>
+          <label>Lugares habituales (uno por línea, formato: valor|posición)<textarea id="ga-venues" rows="3" placeholder="Auditorio municipal|1&#10;Iglesia parroquial|2"></textarea></label>
+        </fieldset>
         <button class="button button-primary button-small" type="submit">Guardar datos</button>
       </form>
       <h3 class="ga-subtitle">Miembros</h3>

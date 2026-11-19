@@ -95,6 +95,18 @@ class GroupBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     timezone: str = Field(default="Europe/Madrid", max_length=80)
     kind: str = Field(default="grupo", max_length=32)
+    foundation_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    dissolution_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    locality: str | None = Field(default=None, max_length=160)
+    region: str | None = Field(default=None, max_length=160)
+    country_code: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    venue: str | None = Field(default=None, max_length=255)
+    formation_type: str | None = Field(default=None, max_length=48)
+    member_count: int | None = Field(default=None, ge=0)
+    public_email: str | None = Field(default=None, max_length=254)
+    language: list[str] | None = Field(default=None)
+    repertoire: list[dict[str, Any]] | None = Field(default=None)
+    venues: list[dict[str, Any]] | None = Field(default=None)
 
 
 class ArticleMediaBody(BaseModel):
@@ -133,6 +145,18 @@ class ArticleReviewBody(BaseModel):
 class GroupUpdateBody(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     timezone: str | None = Field(default=None, max_length=80)
+    foundation_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    dissolution_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    locality: str | None = Field(default=None, max_length=160)
+    region: str | None = Field(default=None, max_length=160)
+    country_code: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    venue: str | None = Field(default=None, max_length=255)
+    formation_type: str | None = Field(default=None, max_length=48)
+    member_count: int | None = Field(default=None, ge=0)
+    public_email: str | None = Field(default=None, max_length=254)
+    language: list[str] | None = Field(default=None)
+    repertoire: list[dict[str, Any]] | None = Field(default=None)
+    venues: list[dict[str, Any]] | None = Field(default=None)
 
 
 class JoinGroupBody(BaseModel):
@@ -358,6 +382,14 @@ def _can_manage_event(conn, event, user_id: str, profile: dict[str, Any]) -> boo
     return False
 
 def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
+    def _parse_json(value: str | None):
+        if value is None:
+            return None
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+
     return {
         "id": row["id"],
         "entity_id": row["entity_id"],
@@ -366,6 +398,18 @@ def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
         "join_code": row["join_code"],
         "role": role,
         "can_manage": can_manage,
+        "foundation_date": row["foundation_date"],
+        "dissolution_date": row["dissolution_date"],
+        "locality": row["locality"],
+        "region": row["region"],
+        "country_code": row["country_code"],
+        "venue": row["venue"],
+        "formation_type": row["formation_type"],
+        "member_count": row["member_count"],
+        "public_email": row["public_email"],
+        "language": _parse_json(row["language"]),
+        "repertoire": _parse_json(row["repertoire"]),
+        "venues": _parse_json(row["venues"]),
     }
 
 
@@ -1584,15 +1628,70 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "SELECT 1 FROM groups WHERE join_code = ?", (join_code,)
             ).fetchone() is not None:
                 join_code = _join_code()
+            # Serializar JSON
+            language_json = json.dumps(body.language, ensure_ascii=False) if body.language else None
+            repertoire_json = json.dumps(body.repertoire, ensure_ascii=False) if body.repertoire else None
+            venues_json = json.dumps(body.venues, ensure_ascii=False) if body.venues else None
+
+            # Paso 1: insertar con columnas básicas (compatibles con esquema original)
             conn.execute(
                 "INSERT INTO groups "
-                "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at,kind,slug) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "(id,entity_id,name,timezone,created_by,join_code,created_at,updated_at,kind,slug,status,editorial_mode) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     group_id, entity_id, name, body.timezone.strip(),
                     user_id, join_code, now, now, body.kind.strip() or "grupo", group_id,
+                    "active", "moderated",
                 ),
             )
+
+            # Paso 2: actualizar campos corales si hay datos
+            coral_fields = []
+            coral_values = []
+            if body.foundation_date is not None:
+                coral_fields.append("foundation_date=?")
+                coral_values.append(body.foundation_date)
+            if body.dissolution_date is not None:
+                coral_fields.append("dissolution_date=?")
+                coral_values.append(body.dissolution_date)
+            if body.locality is not None:
+                coral_fields.append("locality=?")
+                coral_values.append(body.locality)
+            if body.region is not None:
+                coral_fields.append("region=?")
+                coral_values.append(body.region)
+            if body.country_code is not None:
+                coral_fields.append("country_code=?")
+                coral_values.append(body.country_code)
+            if body.venue is not None:
+                coral_fields.append("venue=?")
+                coral_values.append(body.venue)
+            if body.formation_type is not None:
+                coral_fields.append("formation_type=?")
+                coral_values.append(body.formation_type)
+            if body.member_count is not None:
+                coral_fields.append("member_count=?")
+                coral_values.append(body.member_count)
+            if body.public_email is not None:
+                coral_fields.append("public_email=?")
+                coral_values.append(body.public_email)
+            if language_json is not None:
+                coral_fields.append("language=?")
+                coral_values.append(language_json)
+            if repertoire_json is not None:
+                coral_fields.append("repertoire=?")
+                coral_values.append(repertoire_json)
+            if venues_json is not None:
+                coral_fields.append("venues=?")
+                coral_values.append(venues_json)
+
+            if coral_fields:
+                coral_values.append(group_id)
+                conn.execute(
+                    f"UPDATE groups SET {', '.join(coral_fields)} WHERE id = ?",
+                    tuple(coral_values),
+                )
+
             conn.execute(
                 "INSERT INTO group_members "
                 "(id,group_id,user_sub,role,status,display_name,joined_at,updated_at) "
@@ -1694,7 +1793,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body: GroupUpdateBody,
         request: Request,
         profile: dict[str, Any] = Depends(current_profile),
-    ) -> dict[str, Any]:
+) -> dict[str, Any]:
         user_id = str(profile["user_id"])
         admin = _is_admin(profile)
         with _connect(cfg) as conn:
@@ -1712,9 +1811,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             timezone = (body.timezone or group["timezone"]).strip()
             if not name or not timezone:
                 raise HTTPException(status_code=400, detail="Name and timezone are required")
+
+            # Serializar JSON
+            language_json = json.dumps(body.language, ensure_ascii=False) if body.language else None
+            repertoire_json = json.dumps(body.repertoire, ensure_ascii=False) if body.repertoire else None
+            venues_json = json.dumps(body.venues, ensure_ascii=False) if body.venues else None
+
             conn.execute(
-                "UPDATE groups SET name = ?, timezone = ?, updated_at = ? WHERE id = ?",
-                (name, timezone, utcnow(), group_id),
+                "UPDATE groups SET "
+                "name = ?, timezone = ?, updated_at = ?, "
+                "foundation_date = ?, dissolution_date = ?, locality = ?, region = ?, "
+                "country_code = ?, venue = ?, formation_type = ?, member_count = ?, "
+                "public_email = ?, language = ?, repertoire = ?, venues = ? "
+                "WHERE id = ?",
+                (
+                    name, timezone, utcnow(),
+                    body.foundation_date, body.dissolution_date, body.locality, body.region,
+                    body.country_code, body.venue, body.formation_type, body.member_count,
+                    body.public_email, language_json, repertoire_json, venues_json,
+                    group_id,
+                ),
             )
             row = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
         return _group_dto(row, "manager", True)

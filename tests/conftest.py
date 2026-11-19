@@ -51,6 +51,23 @@ def integration_settings():
     return _verify_integration_db()
 
 
+@pytest.fixture(autouse=True)
+def _clean_groups_for_integration(request):
+    """Limpia la tabla groups antes de cada test de integración/migraciones."""
+    # Solo se ejecuta para tests con marcador integration o migrations
+    marker = request.node.get_closest_marker("integration") or request.node.get_closest_marker("migrations")
+    if marker:
+        # Verificar que CHORUS_DATABASE_URL está definido
+        if not os.getenv("CHORUS_DATABASE_URL"):
+            pytest.skip("CHORUS_DATABASE_URL no definido, saltando limpieza")
+        settings = Settings.load()
+        with db_connect(settings) as conn:
+            # Eliminar en orden inverso por FK
+            conn.execute("DELETE FROM group_members")
+            conn.execute("DELETE FROM groups")
+            conn.commit()
+
+
 @pytest.fixture
 def migration_settings(integration_settings):
     """Solo para @pytest.mark.migrations."""

@@ -23,6 +23,7 @@ MIGRATIONS = [
     "005_material_groups.sql",
     "006_group_articles_tables.sql",
     "007_events_series_index.sql",
+    "016_coral_group_fields.sql",
     # 009_legacy_baseline NO se ejecuta en reconstrucción desde cero
 ]
 

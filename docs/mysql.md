@@ -22,7 +22,7 @@ Si `database_url` está vacío, se usa `database_path` (SQLite) para la suite de
 
 ## Esquema y migraciones
 
-### Migraciones MySQL (7 archivos)
+### Migraciones MySQL (8 archivos)
 
 | Archivo | Descripción |
 |---------|-------------|
@@ -33,8 +33,16 @@ Si `database_url` está vacío, se usa `database_path` (SQLite) para la suite de
 | `migrations/mysql/005_material_groups.sql` | **Nueva** (desde SQLite 013): columnas group_id, group_section_id en resources + índice. |
 | `migrations/mysql/006_group_articles_tables.sql` | **Nueva** (desde SQLite 015 parte CREATE): 3 tablas group_sections, group_articles, group_article_media. |
 | `migrations/mysql/007_events_series_index.sql` | **Nueva** (índice faltante de SQLite 014): CREATE INDEX idx_events_series. |
+| `migrations/mysql/016_coral_group_fields.sql` | **Nueva (Fase 2)**: 12 columnas corales en `groups` (foundation_date, dissolution_date, locality, region, country_code, venue, formation_type, member_count, public_email, language JSON, repertoire JSON, venues JSON). |
 
 **NOTA:** No existe `009_legacy_baseline.sql` como archivo SQL. El reconocimiento de instalaciones legacy es una operación Python (`_register_legacy_baseline_recognition` en `app/db.py`).
+
+### Datos corales (Fase 2)
+
+- Migración `016_coral_group_fields.sql` añade 12 columnas nullables a `groups`.
+- API: `POST /api/v1/groups` y `PATCH /api/v1/groups/{id}` aceptan y devuelven los 12 campos; `language`/`repertoire`/`venues` se serializan como JSON (lista / lista de `{value,position}`) y se devuelven como objetos, no cadenas.
+- Conversión heredada: `scripts/migrate_coral_data.py` lee `osap_api.amigos_coral_details` + `amigos_coral_attributes` (facets `language`, `repertoire`, `place`) y rellena **solo columnas NULL** de grupos existentes (no crea grupos, no sobrescribe, idempotente).
+- Mapeo: `details.*` → columnas directas; `attributes facet=language` → `language[]`; `facet=repertoire` → `repertoire[{value,position}]`; `facet=place` → `venues[{value,position}]`. Orden y posiciones originales preservados.
 
 ### Ejecutor SQL compartido
 

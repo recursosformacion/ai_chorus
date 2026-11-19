@@ -1237,12 +1237,25 @@
     return fragment;
   }
 
-  async function openGroupAdmin(item) {
+async function openGroupAdmin(item) {
     groupAdminState.group = item;
     $("group-admin-modal").classList.remove("hidden");
     $("ga-title").textContent = item.name;
     $("ga-name").value = item.name;
     $("ga-timezone").value = item.timezone || "Europe/Madrid";
+    // Campos corales
+    $("ga-foundation-date").value = item.foundation_date || "";
+    $("ga-dissolution-date").value = item.dissolution_date || "";
+    $("ga-locality").value = item.locality || "";
+    $("ga-region").value = item.region || "";
+    $("ga-country-code").value = item.country_code || "";
+    $("ga-venue").value = item.venue || "";
+    $("ga-formation-type").value = item.formation_type || "";
+    $("ga-member-count").value = item.member_count !== null && item.member_count !== undefined ? item.member_count : "";
+    $("ga-public-email").value = item.public_email || "";
+    $("ga-language").value = Array.isArray(item.language) ? item.language.join(", ") : (item.language || "");
+    $("ga-repertoire").value = Array.isArray(item.repertoire) ? item.repertoire.map(r => `${r.value || ""}|${r.position || ""}`).join("\n") : "";
+    $("ga-venues").value = Array.isArray(item.venues) ? item.venues.map(v => `${v.value || ""}|${v.position || ""}`).join("\n") : "";
     try {
       const [catalog, members] = await Promise.all([
         request(`/api/v1/groups/${encodeURIComponent(item.id)}/catalog`).catch(() => ({
@@ -1321,15 +1334,43 @@
     });
   }
 
-  async function saveGroupData(event) {
+async function saveGroupData(event) {
     event.preventDefault();
     if (!groupAdminState.group) return;
     try {
+      // Serializar JSON
+      const language = $("ga-language").value.trim();
+      const languageArray = language ? language.split(",").map(s => s.trim()).filter(Boolean) : null;
+      
+      const repertoireText = $("ga-repertoire").value.trim();
+      const repertoire = repertoireText ? repertoireText.split("\n").map(line => {
+        const [value, position] = line.split("|").map(s => s.trim());
+        return { value, position: parseInt(position, 10) || 0 };
+      }).filter(r => r.value) : null;
+      
+      const venuesText = $("ga-venues").value.trim();
+      const venues = venuesText ? venuesText.split("\n").map(line => {
+        const [value, position] = line.split("|").map(s => s.trim());
+        return { value, position: parseInt(position, 10) || 0 };
+      }).filter(r => r.value) : null;
+
       await request(`/api/v1/groups/${encodeURIComponent(groupAdminState.group.id)}`, {
         method: "PATCH",
         body: JSON.stringify({
           name: $("ga-name").value.trim(),
           timezone: $("ga-timezone").value.trim(),
+          foundation_date: $("ga-foundation-date").value || null,
+          dissolution_date: $("ga-dissolution-date").value || null,
+          locality: $("ga-locality").value.trim() || null,
+          region: $("ga-region").value.trim() || null,
+          country_code: $("ga-country-code").value.trim().toUpperCase() || null,
+          venue: $("ga-venue").value.trim() || null,
+          formation_type: $("ga-formation-type").value.trim() || null,
+          member_count: $("ga-member-count").value ? parseInt($("ga-member-count").value, 10) : null,
+          public_email: $("ga-public-email").value.trim() || null,
+          language: languageArray,
+          repertoire: repertoire,
+          venues: venues,
         }),
       });
       showMessage("ga-message", "Datos del grupo guardados.", "success");
