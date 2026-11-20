@@ -43,6 +43,7 @@ MIGRATIONS = [
     "033_add_group_role_refs_to_members.sql",
     "034_unify_group_member_roles.sql",
     "035_preparation_works.sql",
+    "036_add_notification_preferences.sql",
     # 009_legacy_baseline NO se ejecuta en reconstrucción desde cero
 ]
 

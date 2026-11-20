@@ -218,6 +218,26 @@ class MemberUpdateBody(BaseModel):
     section_id: str | None = None
     status: Literal["active", "removed"] | None = None
 
+
+class MemberSelfUpdateBody(BaseModel):
+    voice_code: str | None = Field(default=None, max_length=32)
+    voice_label: str | None = Field(default=None, max_length=64)
+    section_id: str | None = Field(default=None, max_length=191)
+    notify_email: bool | None = None
+    notify_osap: bool | None = None
+    notify_whatsapp: bool | None = None
+    notify_sms: bool | None = None
+
+
+class MemberCreateBody(BaseModel):
+    user_sub: str = Field(min_length=1, max_length=191)
+    role: Literal["manager", "member"] = "member"
+    admin_role_id: str | None = Field(default=None, max_length=191)
+    musical_role_id: str | None = Field(default=None, max_length=191)
+    section_id: str | None = Field(default=None, max_length=191)
+    display_name: str | None = Field(default=None, max_length=255)
+
+
 class GroupRoleBody(BaseModel):
     scope: Literal["admin", "musical"]
     code: str = Field(min_length=1, max_length=64)
@@ -248,6 +268,11 @@ class SocialLinkUpdateBody(BaseModel):
     label: str | None = Field(default=None, max_length=160)
     url: str | None = Field(default=None, min_length=1, max_length=1024)
     position: int | None = Field(default=None, ge=0)
+
+
+class PerformanceGroupBody(BaseModel):
+    group_id: str | None = Field(default=None, max_length=191)
+    role: Literal["participant", "organizer", "guest"] = "participant"
 
 
 class PreparationWorkBody(BaseModel):
@@ -637,6 +662,61 @@ def _activity_log_dto(row: dict[str, Any]) -> dict[str, Any]:
         "detail_json": detail,
         "created_at": row["created_at"],
     }
+
+def _performance_groups_dto(conn: Any, performance_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT pg.group_id, pg.role, g.name AS group_name, g.slug AS group_slug "
+        "FROM performance_groups pg LEFT JOIN groups g ON g.id = pg.group_id "
+        "WHERE pg.performance_id = ? ORDER BY g.name, pg.group_id",
+        (performance_id,),
+    ).fetchall()
+    return [
+        {
+            "group_id": row["group_id"],
+            "group_name": row["group_name"],
+            "group_slug": row["group_slug"],
+            "role": row["role"],
+        }
+        for row in rows
+    ]
+
+
+def _performance_dto(row: Any, groups: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """DTO de lectura de una actuacion. No expone datos internos de contacto."""
+    return {
+        "id": row["id"],
+        "slug": row["slug"],
+        "title": row["title"],
+        "summary": row["summary"],
+        "description": row["description"],
+        "image_url": row["image_url"],
+        "kind": row["kind"],
+        "modality": row["modality"],
+        "event_status": row["event_status"],
+        "editorial_status": row["editorial_status"],
+        "starts_on": row["starts_on"],
+        "starts_at": row["starts_at"],
+        "ends_at": row["ends_at"],
+        "venue_address": row["venue_address"],
+        "latitude": str(row["latitude"]) if row["latitude"] is not None else None,
+        "longitude": str(row["longitude"]) if row["longitude"] is not None else None,
+        "map_url": row["map_url"],
+        "organizer_name": row["organizer_name"],
+        "organizer_website": row["organizer_website"],
+        "event_url": row["event_url"],
+        "tickets_url": row["tickets_url"],
+        "price": row["price"],
+        "access_info": row["access_info"],
+        "public_contact": row["public_contact"],
+        "registration_deadline": row["registration_deadline"],
+        "views": row["views"],
+        "published_at": row["published_at"],
+        "cancelled_at": row["cancelled_at"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "groups": groups or [],
+    }
+
 
 def _connect(settings: Settings):
     return db_connect(settings)
@@ -1152,6 +1232,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/v1/auth/me")
     def me(authorization: str | None = Header(default=None)) -> Any:
         return local_avatar(profile_from_authorization(authorization))
+
+    @app.patch("/api/v1/auth/me")
+    def update_my_profile(
+        body: dict[str, Any],
+        authorization: str | None = Header(default=None),
+    ) -> Any:
+        """Proxy to osap-auth for updating user's own profile (name, email, etc.)."""
+        profile_from_authorization(authorization)
+        token = authorization[7:].strip() if authorization else ""
+        status_code, document = auth_call(
+            "PATCH", "/auth/me", token=token, payload=body
+        )
+        if status_code != 200:
+            detail = document.get("detail") if isinstance(document, dict) else None
+            raise HTTPException(
+                status_code=status_code if status_code < 500 else 502,
+                detail=detail or "No se pudo actualizar el perfil",
+            )
+        return local_avatar(document) if isinstance(document, dict) else document
 
     @app.get("/api/v1/auth/users/{user_id}/avatar")
     def user_avatar(user_id: str) -> Response:
@@ -1879,6 +1978,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             })
         return result
 
+    @app.patch("/api/v1/groups/{group_id}/members/@me")
+    def update_own_membership(
+        group_id: str,
+        body: MemberSelfUpdateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Allow a user to update their own membership profile (voice, section, notifications)."""
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = conn.execute(
+                "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+                (group_id, user_id),
+            ).fetchone()
+            if member is None:
+                raise HTTPException(status_code=403, detail="Not an active member of this group")
+            # Validate section_id if provided
+            if body.section_id is not None:
+                section = conn.execute(
+                    "SELECT 1 FROM group_sections WHERE id = ? AND group_id = ? AND active = 1",
+                    (body.section_id, group_id),
+                ).fetchone()
+                if section is None:
+                    raise HTTPException(status_code=400, detail="Section not found in this group")
+            updates = []
+            values: list[Any] = []
+            for column in ("voice_code", "voice_label", "section_id", "notify_email", "notify_osap", "notify_whatsapp", "notify_sms"):
+                value = getattr(body, column)
+                if value is not None:
+                    updates.append(f"{column}=?")
+                    values.append(value)
+            if not updates:
+                return {"ok": True, "message": "No changes"}
+            values.append(now)
+            values.extend([group_id, user_id])
+            conn.execute(
+                f"UPDATE group_members SET {', '.join(updates)}, updated_at=? WHERE group_id=? AND user_sub=?",
+                tuple(values),
+            )
+            # Activity log
+            conn.execute(
+                "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (f"mem-{user_id[:8]}-{int(time.time())}", group_id, "member_self_update", user_id, None, None, None, now),
+            )
+            updated = conn.execute(
+                "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?", (group_id, user_id)
+            ).fetchone()
+        return dict(updated)
+
     @app.patch("/api/v1/groups/{group_id}/members/{user_sub}")
     def update_group_member(
         group_id: str,
@@ -2124,6 +2276,85 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             }
             for row in rows
         ]
+
+    @app.post("/api/v1/groups/{group_id}/members", status_code=201)
+    def add_group_member(
+        group_id: str,
+        body: MemberCreateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Manager adds/invites a member directly to the group."""
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        now = utcnow()
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = conn.execute(
+                "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+                (group_id, user_id),
+            ).fetchone()
+            if not admin and (member is None or member["role"] != "manager"):
+                raise HTTPException(status_code=403, detail="Only group managers can add members")
+            # Check if user is already a member
+            existing = conn.execute(
+                "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?",
+                (group_id, body.user_sub),
+            ).fetchone()
+            if existing:
+                raise HTTPException(status_code=409, detail="User is already a member of this group")
+            # Validate section_id if provided
+            if body.section_id is not None:
+                section = conn.execute(
+                    "SELECT 1 FROM group_sections WHERE id = ? AND group_id = ? AND active = 1",
+                    (body.section_id, group_id),
+                ).fetchone()
+                if section is None:
+                    raise HTTPException(status_code=400, detail="Section not found in this group")
+            # Validate admin_role_id if provided
+            if body.admin_role_id is not None:
+                role = conn.execute(
+                    "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
+                    (body.admin_role_id, group_id),
+                ).fetchone()
+                if role is None:
+                    raise HTTPException(status_code=400, detail="Admin role not found in this group")
+                if role["scope"] != "admin":
+                    raise HTTPException(status_code=400, detail="Admin role must have scope 'admin'")
+            # Validate musical_role_id if provided
+            if body.musical_role_id is not None:
+                role = conn.execute(
+                    "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
+                    (body.musical_role_id, group_id),
+                ).fetchone()
+                if role is None:
+                    raise HTTPException(status_code=400, detail="Musical role not found in this group")
+                if role["scope"] != "musical":
+                    raise HTTPException(status_code=400, detail="Musical role must have scope 'musical'")
+            # Create member
+            member_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO group_members "
+                "(id, group_id, user_sub, role, status, display_name, admin_role_id, musical_role_id, section_id, granted_by, joined_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    member_id, group_id, body.user_sub, body.role, "active",
+                    body.display_name or "", body.admin_role_id, body.musical_role_id,
+                    body.section_id, user_id, now, now,
+                ),
+            )
+            # Activity log
+            conn.execute(
+                "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (f"mem-{body.user_sub[:8]}-{int(time.time())}", group_id, "member_added", user_id, None, "active",
+                 f'{{"role":"{body.role}","admin_role_id":{body.admin_role_id or "null"},"musical_role_id":{body.musical_role_id or "null"},"section_id":{body.section_id or "null"}}}', now),
+            )
+            new_member = conn.execute(
+                "SELECT * FROM group_members WHERE id = ?", (member_id,)
+            ).fetchone()
+        return dict(new_member)
 
     # ===== group_roles CRUD =====
     @app.get("/api/v1/groups/{group_id}/roles")
@@ -2607,6 +2838,241 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 tuple(params + [limit, offset]),
             ).fetchall()
         return [_activity_log_dto(row) for row in rows]
+
+    # ===== performances (actuaciones) =====
+    # Etapa 1 de la clasificacion de `performances` (plan AutoFree): lectura publica
+    # de las actuaciones con `editorial_status = 'published'` y participacion de grupos.
+    # La escritura editorial (POST/PATCH/DELETE desde admin) queda para la etapa 2.
+
+    def _active_group_member(conn: Any, group_id: str, user_id: str) -> Any:
+        return conn.execute(
+            "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+            (group_id, user_id),
+        ).fetchone()
+
+    @app.get("/api/v1/performances")
+    def list_performances(
+        group_id: str | None = None,
+        kind: str | None = None,
+        modality: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        q: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        """Actuaciones visibles para el usuario.
+
+        Publicadas para todo usuario autenticado; los borradores solo para admin o
+        para miembros activos de alguno de los grupos participantes. `group_id`
+        restringe el resultado a la participacion de ese grupo (403 si no es miembro).
+        """
+        if limit < 1 or limit > 200 or offset < 0:
+            raise HTTPException(status_code=422, detail="limit debe estar entre 1 y 200")
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        clauses = ["1=1"]
+        params: list[Any] = []
+        if kind:
+            clauses.append("p.kind = ?")
+            params.append(kind)
+        if modality:
+            clauses.append("p.modality = ?")
+            params.append(modality)
+        if date_from:
+            clauses.append("p.starts_on >= ?")
+            params.append(date_from)
+        if date_to:
+            clauses.append("p.starts_on <= ?")
+            params.append(date_to)
+        if q:
+            clauses.append("(p.title LIKE ? OR p.summary LIKE ?)")
+            params.extend([f"%{q.strip()}%", f"%{q.strip()}%"])
+        if group_id is not None:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM performance_groups pg WHERE pg.performance_id = p.id "
+                "AND pg.group_id = ?)"
+            )
+            params.append(group_id)
+            if not admin:
+                with _connect(cfg) as conn:
+                    group = conn.execute(
+                        "SELECT 1 FROM groups WHERE id = ?", (group_id,)
+                    ).fetchone()
+                    if group is None:
+                        raise HTTPException(status_code=404, detail="Group not found")
+                    member = conn.execute(
+                        "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? "
+                        "AND status = 'active'",
+                        (group_id, user_id),
+                    ).fetchone()
+                if member is None:
+                    raise HTTPException(status_code=403, detail="Not a member of this group")
+        if not admin:
+            clauses.append(
+                "(p.editorial_status = 'published' OR EXISTS ("
+                "SELECT 1 FROM performance_groups pg "
+                "JOIN group_members gm ON gm.group_id = pg.group_id "
+                "WHERE pg.performance_id = p.id AND gm.user_sub = ? AND gm.status = 'active'"
+                "))"
+            )
+            params.append(user_id)
+        where_clause = " AND ".join(clauses)
+        with _connect(cfg) as conn:
+            rows = conn.execute(
+                f"SELECT p.* FROM performances p WHERE {where_clause} "
+                "ORDER BY p.starts_on DESC, p.starts_at DESC LIMIT ? OFFSET ?",
+                tuple(params + [limit, offset]),
+            ).fetchall()
+            return [
+                _performance_dto(row, _performance_groups_dto(conn, row["id"])) for row in rows
+            ]
+
+    @app.get("/api/v1/performances/{performance_id}")
+    def get_performance(
+        performance_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            row = conn.execute(
+                "SELECT * FROM performances WHERE id = ?", (performance_id,)
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Performance not found")
+            groups = _performance_groups_dto(conn, row["id"])
+            if row["editorial_status"] != "published" and not admin:
+                allowed = False
+                for item in groups:
+                    member = _active_group_member(conn, item["group_id"], user_id)
+                    if member is not None:
+                        allowed = True
+                        break
+                if not allowed:
+                    raise HTTPException(status_code=404, detail="Performance not found")
+        return _performance_dto(row, groups)
+
+    @app.get("/api/v1/groups/{group_id}/performances")
+    def list_group_performances(
+        group_id: str,
+        include_drafts: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        if limit < 1 or limit > 200 or offset < 0:
+            raise HTTPException(status_code=422, detail="limit debe estar entre 1 y 200")
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = _active_group_member(conn, group_id, user_id)
+            if not admin and member is None:
+                raise HTTPException(status_code=403, detail="Not a member of this group")
+            manager = admin or (member is not None and member["role"] == "manager")
+            show_drafts = include_drafts and manager
+            clauses = ["pg.group_id = ?"]
+            params: list[Any] = [group_id]
+            if not show_drafts:
+                clauses.append("p.editorial_status = 'published'")
+            rows = conn.execute(
+                "SELECT p.* FROM performances p "
+                "JOIN performance_groups pg ON pg.performance_id = p.id "
+                f"WHERE {' AND '.join(clauses)} "
+                "ORDER BY p.starts_on DESC, p.starts_at DESC LIMIT ? OFFSET ?",
+                tuple(params + [limit, offset]),
+            ).fetchall()
+            result = [
+                _performance_dto(row, _performance_groups_dto(conn, row["id"])) for row in rows
+            ]
+        return result
+
+    @app.get("/api/v1/groups/{group_id}/performances/candidates")
+    def list_group_performance_candidates(
+        group_id: str, profile: dict[str, Any] = Depends(current_profile)
+    ) -> list[dict[str, Any]]:
+        """Actuaciones no vinculadas disponibles para que el gestor las asocie al grupo."""
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = _active_group_member(conn, group_id, user_id)
+            if not admin and (member is None or member["role"] != "manager"):
+                raise HTTPException(status_code=403, detail="Only group managers can link performances")
+            rows = conn.execute(
+                "SELECT * FROM performances p WHERE NOT EXISTS ("
+                "SELECT 1 FROM performance_groups pg WHERE pg.performance_id = p.id AND pg.group_id = ?"
+                ") ORDER BY starts_on DESC, starts_at DESC LIMIT 200",
+                (group_id,),
+            ).fetchall()
+        return [_performance_dto(row) for row in rows]
+
+    @app.post("/api/v1/groups/{group_id}/performances/{performance_id}", status_code=201)
+    def link_group_performance(
+        group_id: str,
+        performance_id: str,
+        body: PerformanceGroupBody | None = None,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        if body is not None and body.group_id is not None and body.group_id != group_id:
+            raise HTTPException(status_code=400, detail="group_id del cuerpo no coincide con la ruta")
+        role = body.role if body is not None else "participant"
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = _active_group_member(conn, group_id, user_id)
+            if not admin and (member is None or member["role"] != "manager"):
+                raise HTTPException(status_code=403, detail="Only group managers can link performances")
+            performance = conn.execute(
+                "SELECT 1 FROM performances WHERE id = ?", (performance_id,)
+            ).fetchone()
+            if performance is None:
+                raise HTTPException(status_code=404, detail="Performance not found")
+            exists = conn.execute(
+                "SELECT 1 FROM performance_groups WHERE performance_id = ? AND group_id = ?",
+                (performance_id, group_id),
+            ).fetchone()
+            if exists is not None:
+                raise HTTPException(status_code=409, detail="Performance already linked to this group")
+            conn.execute(
+                "INSERT INTO performance_groups (performance_id, group_id, role) VALUES (?,?,?)",
+                (performance_id, group_id, role),
+            )
+            groups = _performance_groups_dto(conn, performance_id)
+        return {"performance_id": performance_id, "group_id": group_id, "role": role, "groups": groups}
+
+
+
+    @app.delete("/api/v1/groups/{group_id}/performances/{performance_id}")
+    def unlink_group_performance(
+        group_id: str,
+        performance_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            member = _active_group_member(conn, group_id, user_id)
+            if not admin and (member is None or member["role"] != "manager"):
+                raise HTTPException(status_code=403, detail="Only group managers can unlink performances")
+            cursor = conn.execute(
+                "DELETE FROM performance_groups WHERE performance_id = ? AND group_id = ?",
+                (performance_id, group_id),
+            )
+            if getattr(cursor, "rowcount", 0) == 0:
+                raise HTTPException(status_code=404, detail="Participation not found")
+        return {"ok": True}
 
     @app.get("/api/v1/messages/unread-count")
     def unread_messages(profile: dict[str, Any] = Depends(current_profile)) -> dict[str, int]:
