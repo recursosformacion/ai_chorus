@@ -249,6 +249,31 @@ class SocialLinkUpdateBody(BaseModel):
     url: str | None = Field(default=None, min_length=1, max_length=1024)
     position: int | None = Field(default=None, ge=0)
 
+
+class PreparationWorkBody(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    composer: str | None = Field(default=None, max_length=500)
+    destination_type: Literal["repertoire", "program"] = "repertoire"
+    event_name: str | None = Field(default=None, max_length=500)
+    event_date: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+class PreparationWorkUpdateBody(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    composer: str | None = Field(default=None, max_length=500)
+    destination_type: Literal["repertoire", "program"] | None = None
+    event_name: str | None = Field(default=None, max_length=500)
+    event_date: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=5000)
+    status: Literal["preparing", "ready", "published", "archived"] | None = None
+
+
+class PreparationFileBody(BaseModel):
+    part_label: str | None = Field(default=None, max_length=191)
+    purpose: Literal["score", "part", "midi", "audio", "video", "reference", "other"] | None = None
+
+
 class MessageReplyBody(BaseModel):
     body: str = Field(min_length=1, max_length=8000)
     all: bool = False
