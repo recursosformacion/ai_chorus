@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import pytest
-import sqlite3
 from io import BytesIO
-from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
-
-from fastapi.testclient import TestClient
+import pytest
 
 from app.config import Settings
+from app.db import connect as db_connect
 from app.main import create_app
+from fastapi.testclient import TestClient
+from zipfile import ZIP_DEFLATED, ZipFile
 
 
 def make_mxl(root_xml: str = '<score-partwise version="4.0"/>') -> bytes:
@@ -78,15 +76,29 @@ def _profiles():
     }
 
 
-def _settings(tmp_path) -> Settings:
+@pytest.fixture
+def settings(integration_settings: Settings, tmp_path):
+    """Settings con MariaDB de integración y storage_root en tmp_path."""
     return Settings(
         auth_base_url="https://auth.test",
         osap_api_base_url="http://osap.test",
-        public_base_url="http://chorus.test",
         editor_base_url="http://editor.test",
         editor_origin="http://editor.test",
-        database_path=str(tmp_path / "chorus.sqlite3"),
+        public_base_url="http://chorus.test",
+        database_url=integration_settings.database_url,
         storage_root=str(tmp_path / "private"),
+        cors_origins=integration_settings.cors_origins,
+        max_upload_bytes=integration_settings.max_upload_bytes,
+        source_token_ttl_seconds=integration_settings.source_token_ttl_seconds,
+        oidc_issuer="https://auth.test",
+        oidc_authorize_url="https://auth.test/auth/authorize",
+        oidc_token_url="https://auth.test/oauth/token",
+        oidc_client_id="chorus-web",
+        oidc_client_secret="secret",
+        oidc_redirect_uri="http://chorus.test/api/v1/auth/oidc/callback",
+        oidc_scope="openid profile email",
+        auth_timeout_seconds=15.0,
+        osap_timeout_seconds=45.0,
         secure_cookies=False,
     )
 
@@ -116,18 +128,19 @@ def _upload(client: TestClient, title: str) -> dict:
     return uploaded.json()
 
 
-def _pointer(settings: Settings, file_id: str) -> Path:
-    with sqlite3.connect(settings.database_path) as conn:
+def _pointer(settings: Settings, file_id: str):
+    with db_connect(settings) as conn:
         pointer = conn.execute(
-            "SELECT storage_pointer FROM files WHERE id = ?", (file_id,)
-        ).fetchone()[0]
+            "SELECT storage_pointer FROM files WHERE id = %s", (file_id,)
+        ).fetchone()["storage_pointer"]
+    from pathlib import Path
     return Path(settings.storage_root) / pointer
 
 
-def test_upload_creates_integrity_and_library_entry(tmp_path, monkeypatch):
-    settings = _settings(tmp_path)
+@pytest.mark.db
+def test_upload_creates_integrity_and_library_entry(settings, tmp_path, monkeypatch):
+    install_fake_auth(monkeypatch, _profiles())
     with TestClient(create_app(settings)) as client:
-        install_fake_auth(monkeypatch, _profiles())
         result = _upload(client, "Ave verum")
 
         integrity = client.get(
@@ -189,11 +202,10 @@ def test_upload_creates_integrity_and_library_entry(tmp_path, monkeypatch):
         assert collections[0]["item_count"] == 1
 
 
-@pytest.mark.unit
-def test_uploads_are_separate_versions_and_keep_previous_files(tmp_path, monkeypatch):
-    settings = _settings(tmp_path)
+@pytest.mark.db
+def test_uploads_are_separate_versions_and_keep_previous_files(settings, tmp_path, monkeypatch):
+    install_fake_auth(monkeypatch, _profiles())
     with TestClient(create_app(settings)) as client:
-        install_fake_auth(monkeypatch, _profiles())
         first = _upload(client, "Primera versión")
         second = _upload(client, "Segunda versión")
 
@@ -209,10 +221,10 @@ def test_uploads_are_separate_versions_and_keep_previous_files(tmp_path, monkeyp
         assert len([item for item in library if item["kind"] == "local_work"]) == 2
 
 
-def test_integrity_reports_missing_and_corrupted_files(tmp_path, monkeypatch):
-    settings = _settings(tmp_path)
+@pytest.mark.db
+def test_integrity_reports_missing_and_corrupted_files(settings, tmp_path, monkeypatch):
+    install_fake_auth(monkeypatch, _profiles())
     with TestClient(create_app(settings)) as client:
-        install_fake_auth(monkeypatch, _profiles())
         result = _upload(client, "Integridad")
         path = _pointer(settings, result["file_id"])
 
@@ -230,10 +242,10 @@ def test_integrity_reports_missing_and_corrupted_files(tmp_path, monkeypatch):
         assert corrupted.json()["actual_sha256"] != result["sha256"]
 
 
-def test_library_items_are_scoped_to_the_authenticated_user(tmp_path, monkeypatch):
-    settings = _settings(tmp_path)
+@pytest.mark.db
+def test_library_items_are_scoped_to_the_authenticated_user(settings, tmp_path, monkeypatch):
+    install_fake_auth(monkeypatch, _profiles())
     with TestClient(create_app(settings)) as client:
-        install_fake_auth(monkeypatch, _profiles())
         result = _upload(client, "Privada")
 
         hidden = client.get(
@@ -246,10 +258,10 @@ def test_library_items_are_scoped_to_the_authenticated_user(tmp_path, monkeypatc
         assert other_library == []
 
 
-def test_library_can_be_searched_by_title(tmp_path, monkeypatch):
-    settings = _settings(tmp_path)
+@pytest.mark.db
+def test_library_can_be_searched_by_title(settings, tmp_path, monkeypatch):
+    install_fake_auth(monkeypatch, _profiles())
     with TestClient(create_app(settings)) as client:
-        install_fake_auth(monkeypatch, _profiles())
         _upload(client, "Benedictus")
         _upload(client, "Ave verum")
 
@@ -311,8 +323,8 @@ class FakeCombinedClient:
         return FakeHttpResponse(404, {})
 
 
-def test_source_accepts_index_work_id_different_from_representation(tmp_path, monkeypatch):
-    settings = _settings(tmp_path)
+@pytest.mark.db
+def test_source_accepts_index_work_id_different_from_representation(settings, tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.httpx.Client", FakeCombinedClient)
     with TestClient(create_app(settings)) as client:
         created = client.post("/api/v1/drafts", headers=_headers(), json={"title": "Obra"})
@@ -328,10 +340,10 @@ def test_source_accepts_index_work_id_different_from_representation(tmp_path, mo
         assert response.json()["source_kind"] == "osap"
 
 
-def test_library_item_can_open_and_download_a_local_work(tmp_path, monkeypatch):
-    settings = _settings(tmp_path)
+@pytest.mark.db
+def test_library_item_can_open_and_download_a_local_work(settings, tmp_path, monkeypatch):
+    install_fake_auth(monkeypatch, _profiles())
     with TestClient(create_app(settings)) as client:
-        install_fake_auth(monkeypatch, _profiles())
         _upload(client, "Obra local")
         items = client.get("/api/v1/library", headers=_headers()).json()["items"]
         item_id = items[0]["id"]

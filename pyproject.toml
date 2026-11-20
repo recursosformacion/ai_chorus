@@ -20,11 +20,12 @@ test = ["pytest>=8,<9", "sqlparse>=0.5,<1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m unit -ra"
+addopts = "-ra"
 markers = [
-    "unit: tests sin base de datos (rápidos, default)",
+    "unit: tests sin base de datos (rápidos)",
     "integration: tests que requieren MariaDB 10.4.32 real (osap_chorus_test)",
-    "migrations: tests de migraciones específicamente",
+    "migrations: tests de migraciones que requieren MariaDB real",
+    "db: tests que usan MariaDB con transacción aislada (unit_db)",
 ]
 
 [tool.setuptools.packages.find]

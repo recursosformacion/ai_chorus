@@ -15,7 +15,6 @@ class Settings:
     editor_base_url: str = ""
     editor_origin: str = ""
     public_base_url: str = ""
-    database_path: str = "var/chorus.sqlite3"
     database_url: str = ""
     storage_root: str = "var/private"
     cors_origins: tuple[str, ...] = ()
@@ -76,7 +75,6 @@ class Settings:
             oidc_client_secret=value("CHORUS_OIDC_CLIENT_SECRET", auth, "oidc_client_secret"),
             oidc_redirect_uri=oidc_redirect,
             oidc_scope=value("CHORUS_OIDC_SCOPE", auth, "oidc_scope", "openid profile email"),
-            database_path=value("CHORUS_DATABASE_PATH", storage, "database_path", "var/chorus.sqlite3"),
             database_url=value("CHORUS_DATABASE_URL", storage, "database_url"),
             storage_root=value("CHORUS_STORAGE_ROOT", storage, "root", "var/private"),
             cors_origins=cors,
@@ -94,4 +92,11 @@ class Settings:
         missing = [name for name, val in (("auth.base_url", self.auth_base_url),) if not val]
         if missing:
             raise RuntimeError("Chorus authentication is not configured: " + ", ".join(missing))
+
+    def validate_database(self) -> None:
+        if not self.database_url:
+            raise RuntimeError(
+                "Chorus database is not configured: CHORUS_DATABASE_URL must be set "
+                "(e.g., mysql+pymysql://user:pass@host:3306/dbname)"
+            )
 

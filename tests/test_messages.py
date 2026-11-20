@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.config import Settings
 from app.main import create_app
 from fastapi.testclient import TestClient
@@ -9,23 +11,42 @@ from fastapi.testclient import TestClient
 from tests.test_agenda import _profile, install_fake_auth
 
 
-def _settings(tmp_path):
+@pytest.fixture
+def settings(integration_settings: Settings, tmp_path):
+    """Settings con MariaDB de integración y storage_root en tmp_path."""
     return Settings(
         auth_base_url="https://auth.test",
-        database_path=str(tmp_path / "chorus.sqlite3"),
+        osap_api_base_url="http://osap.test",
+        editor_base_url="http://editor.test",
+        editor_origin="http://editor.test",
+        public_base_url="http://chorus.test",
+        database_url=integration_settings.database_url,
         storage_root=str(tmp_path / "private"),
+        cors_origins=integration_settings.cors_origins,
+        max_upload_bytes=integration_settings.max_upload_bytes,
+        source_token_ttl_seconds=integration_settings.source_token_ttl_seconds,
+        oidc_issuer="https://auth.test",
+        oidc_authorize_url="https://auth.test/auth/authorize",
+        oidc_token_url="https://auth.test/oauth/token",
+        oidc_client_id="chorus-web",
+        oidc_client_secret="secret",
+        oidc_redirect_uri="http://chorus.test/api/v1/auth/oidc/callback",
+        oidc_scope="openid profile email",
+        auth_timeout_seconds=15.0,
+        osap_timeout_seconds=45.0,
         secure_cookies=False,
     )
 
 
-def test_group_messages_and_recipients(tmp_path, monkeypatch):
+@pytest.mark.db
+def test_group_messages_and_recipients(settings, tmp_path, monkeypatch):
     profiles = {
         "token-manager": _profile("manager-1", representative=True),
         "token-member": _profile("member-1"),
         "token-outsider": _profile("outsider-1"),
     }
     install_fake_auth(monkeypatch, profiles)
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    with TestClient(create_app(settings)) as client:
         manager = {"Authorization": "Bearer token-manager"}
         member = {"Authorization": "Bearer token-member"}
         outsider = {"Authorization": "Bearer token-outsider"}
@@ -103,4 +124,3 @@ def test_group_messages_and_recipients(tmp_path, monkeypatch):
         )
         assert managers.status_code == 201
         assert managers.json()["recipient_count"] == 1
-

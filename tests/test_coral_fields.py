@@ -39,10 +39,10 @@ def install_fake_auth(monkeypatch, profiles, auth_base_url="https://auth.test"):
     monkeypatch.setattr("app.main.httpx.Client", FakeAuthClient)
 
 
-def _profile(user_id: str):
+def _profile(user_id: str, roles=None):
     return {
         "user_id": user_id,
-        "roles": ["user"],
+        "roles": roles if roles is not None else ["user"],
         "email_verified": True,
         "status": "active",
         "onboarding": {"required": False},

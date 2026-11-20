@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.config import Settings
 from app.main import create_app
 from fastapi.testclient import TestClient
@@ -38,11 +40,29 @@ def install_fake_auth(monkeypatch, profiles):
     monkeypatch.setattr("app.main.httpx.Client", FakeAuthClient)
 
 
-def _settings(tmp_path):
+@pytest.fixture
+def settings(integration_settings: Settings, tmp_path):
+    """Settings con MariaDB de integración y storage_root en tmp_path."""
     return Settings(
         auth_base_url="https://auth.test",
-        database_path=str(tmp_path / "chorus.sqlite3"),
+        osap_api_base_url="http://osap.test",
+        editor_base_url="http://editor.test",
+        editor_origin="http://editor.test",
+        public_base_url="http://chorus.test",
+        database_url=integration_settings.database_url,
         storage_root=str(tmp_path / "private"),
+        cors_origins=integration_settings.cors_origins,
+        max_upload_bytes=integration_settings.max_upload_bytes,
+        source_token_ttl_seconds=integration_settings.source_token_ttl_seconds,
+        oidc_issuer="https://auth.test",
+        oidc_authorize_url="https://auth.test/auth/authorize",
+        oidc_token_url="https://auth.test/oauth/token",
+        oidc_client_id="chorus-web",
+        oidc_client_secret="secret",
+        oidc_redirect_uri="http://chorus.test/api/v1/auth/oidc/callback",
+        oidc_scope="openid profile email",
+        auth_timeout_seconds=15.0,
+        osap_timeout_seconds=45.0,
         secure_cookies=False,
     )
 
@@ -66,7 +86,8 @@ PAYLOAD = {
 }
 
 
-def test_alta_publica_y_listado_admin(tmp_path, monkeypatch):
+@pytest.mark.db
+def test_alta_publica_y_listado_admin(settings, tmp_path, monkeypatch):
     profiles = {
         "token-admin": {"user_id": "admin-1", "roles": ["admin"], "email_verified": True,
                         "status": "active", "onboarding": {"required": False}},
@@ -74,7 +95,7 @@ def test_alta_publica_y_listado_admin(tmp_path, monkeypatch):
                        "status": "active", "onboarding": {"required": False}},
     }
     install_fake_auth(monkeypatch, profiles)
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    with TestClient(create_app(settings)) as client:
         created = client.post("/api/v1/entity-leads", json=PAYLOAD)
         assert created.status_code == 201
         assert created.json()["status"] == "received"
@@ -96,12 +117,12 @@ def test_alta_publica_y_listado_admin(tmp_path, monkeypatch):
         assert leads.json()[0]["interests"] == ["subscription", "whatsapp"]
 
 
-def test_honeypot_no_guarda(tmp_path, monkeypatch):
+@pytest.mark.db
+def test_honeypot_no_guarda(settings, tmp_path, monkeypatch):
     install_fake_auth(monkeypatch, {})
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    with TestClient(create_app(settings)) as client:
         response = client.post(
             "/api/v1/entity-leads", json={**PAYLOAD, "company_website": "spam"}
         )
         assert response.status_code == 201
         assert response.json()["id"] == ""
-

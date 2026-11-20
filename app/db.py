@@ -1,12 +1,9 @@
-"""Conexión de Chorus: SQLite para tests, MySQL/MariaDB para desarrollo y producción.
+"""Conexión de Chorus: MySQL/MariaDB para desarrollo, tests y producción.
 
-SQLite se conserva para la suite rápida. El servicio real usa `CHORUS_DATABASE_URL`
-con `mysql+pymysql://...`. El adaptador traduce el subconjunto de SQL que Chorus
-comparte con SQLite; no pretende ser un ORM.
+El servicio real usa `CHORUS_DATABASE_URL` con `mysql+pymysql://...`.
 """
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -137,51 +134,33 @@ def _translate_mysql(sql: str) -> str:
 
 def _get_table_names(conn: Any) -> list[str]:
     """Obtiene lista de nombres de tablas en la base de datos actual."""
-    if hasattr(conn, '_connection'):  # _MySQLConnection
-        rows = conn.execute("SHOW TABLES").fetchall()
-        # SHOW TABLES devuelve dict con clave 'Tables_in_<dbname>'
-        for row in rows:
-            for key, val in row.items():
-                if key.startswith("Tables_in_"):
-                    yield val
-                    break
-    else:  # sqlite3.Connection
-        rows = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-        ).fetchall()
-        for row in rows:
-            yield row[0]
+    rows = conn.execute("SHOW TABLES").fetchall()
+    # SHOW TABLES devuelve dict con clave 'Tables_in_<dbname>'
+    for row in rows:
+        for key, val in row.items():
+            if key.startswith("Tables_in_"):
+                yield val
+                break
 
 
 def _get_column_names(conn: Any, table: str) -> set[str]:
     """Obtiene conjunto de nombres de columnas de una tabla."""
-    if hasattr(conn, '_connection'):  # _MySQLConnection
-        rows = conn.execute(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
-            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
-            (table,)
-        ).fetchall()
-        return {row["COLUMN_NAME"] for row in rows}
-    else:  # sqlite3.Connection
-        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-        return {row[1] for row in rows}
+    rows = conn.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+        (table,)
+    ).fetchall()
+    return {row["COLUMN_NAME"] for row in rows}
 
 
 def _get_column_type(conn: Any, table: str, column: str) -> str | None:
     """Obtiene el tipo de una columna."""
-    if hasattr(conn, '_connection'):  # _MySQLConnection
-        row = conn.execute(
-            "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
-            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
-            (table, column)
-        ).fetchone()
-        return row["COLUMN_TYPE"] if row else None
-    else:  # sqlite3.Connection
-        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-        for row in rows:
-            if row[1] == column:
-                return row[2]
-        return None
+    row = conn.execute(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+        (table, column)
+    ).fetchone()
+    return row["COLUMN_TYPE"] if row else None
 
 
 def _table_exists(conn: Any, table: str) -> bool:
@@ -192,39 +171,27 @@ def _table_exists(conn: Any, table: str) -> bool:
 
 def _index_exists(conn: Any, table: str, index_name: str) -> bool:
     """Verifica si un índice existe en una tabla."""
-    if hasattr(conn, '_connection'):  # _MySQLConnection
-        row = conn.execute(
-            "SELECT 1 FROM information_schema.STATISTICS "
-            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?",
-            (table, index_name)
-        ).fetchone()
-        return row is not None
-    else:  # sqlite3.Connection
-        rows = conn.execute(f"PRAGMA index_list({table})").fetchall()
-        for row in rows:
-            if row[1] == index_name:
-                return True
-        return False
+    row = conn.execute(
+        "SELECT 1 FROM information_schema.STATISTICS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?",
+        (table, index_name)
+    ).fetchone()
+    return row is not None
 
 
 def _count_foreign_keys(conn: Any) -> int:
     """Cuenta claves foráneas en tablas de la aplicación."""
-    if hasattr(conn, '_connection'):  # _MySQLConnection
-        row = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM information_schema.TABLE_CONSTRAINTS "
-            "WHERE CONSTRAINT_SCHEMA = DATABASE() "
-            "AND CONSTRAINT_TYPE = 'FOREIGN KEY' "
-            "AND TABLE_NAME IN ('works','resources','files','creation_drafts',"
-            "'editor_source_tokens','library_items','collections','collection_items',"
-            "'oidc_states','groups','group_members','events','event_groups',"
-            "'event_rsvps','entity_leads','messages','event_targets','message_recipients',"
-            "'group_sections','group_articles','group_article_media')"
-        ).fetchone()
-        return int(row["cnt"]) if row else 0
-    else:  # sqlite3.Connection
-        # En SQLite, FKs se definen inline, contamos referencias en CREATE TABLE
-        # Para simplificar, devolvemos 0 (no usado en tests SQLite)
-        return 0
+    row = conn.execute(
+        "SELECT COUNT(*) AS cnt FROM information_schema.TABLE_CONSTRAINTS "
+        "WHERE CONSTRAINT_SCHEMA = DATABASE() "
+        "AND CONSTRAINT_TYPE = 'FOREIGN KEY' "
+        "AND TABLE_NAME IN ('works','resources','files','creation_drafts',"
+        "'editor_source_tokens','library_items','collections','collection_items',"
+        "'oidc_states','groups','group_members','events','event_groups',"
+        "'event_rsvps','entity_leads','messages','event_targets','message_recipients',"
+        "'group_sections','group_articles','group_article_media')"
+    ).fetchone()
+    return int(row["cnt"]) if row else 0
 
 
 def _verify_legacy_baseline(conn: Any, settings: Settings) -> tuple[bool, list[str]]:
@@ -482,11 +449,5 @@ def _safe_execute_migration(conn: Any, mig_name: str, mig_script: str) -> str:
 
 
 def connect(settings: Settings):
-    if settings.database_url:
-        return _MySQLConnection(settings.database_url)
-    path = Path(settings.database_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    settings.validate_database()
+    return _MySQLConnection(settings.database_url)

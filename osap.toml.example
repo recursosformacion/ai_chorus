@@ -1,27 +1,30 @@
-# Configuración propia de Chorus. Nunca incluir contraseñas ni secretos.
+# Chorus configuration — copy to osap.toml and fill in values
+# This file is NOT committed (see .gitignore)
+
 [auth]
-# URL pública de osap-auth (sin /auth al final).
-base_url = ""
-timeout_seconds = 15
+# Base URL of osap-auth service (required for login, /auth/me, etc.)
+base_url = "http://osap-auth/auth-api"
+# OIDC settings (optional, for browser login flow)
+# oidc_issuer = "https://auth.example.com/auth-api"
+# oidc_client_id = "chorus-web"
+# oidc_client_secret = "secret-from-auth-registration"
+# oidc_redirect_uri = "http://chorus-app/api/v1/auth/oidc/callback"
 
 [osap]
-# URL pública real de osap-api.
-api_base_url = ""
-timeout_seconds = 45
+# Base URL of osap-api (for catalog searches, downloads)
+base_url = "http://osap-api"
 
 [editor]
-# Completar con la URL y el origen exactos de la instancia desplegada de MuseEncore.
-base_url = ""
-origin = ""
-source_token_ttl_seconds = 300
-
-[storage]
-database_path = "var/chorus.sqlite3"
-root = "var/private"
-max_upload_bytes = 52428800
+# MuseEncore editor URL (for editor source tokens)
+base_url = "http://chorus-app:9601"
+origin = "http://chorus-app:9601"
 
 [app]
-# Orígenes de la web Chorus; el origen MuseEncore se añade para el endpoint temporal de fuente.
-cors_origins = []
-public_base_url = ""
-secure_cookies = true
+# Public base URL of Chorus (for redirects, CORS)
+public_base_url = "http://chorus-app"
+
+[storage]
+# Private file storage root (local filesystem)
+root = "var/private"
+# Database URL is set via CHORUS_DATABASE_URL env var (required)
+# database_url = "mysql+pymysql://user:pass@127.0.0.1:3306/osap_chorus"

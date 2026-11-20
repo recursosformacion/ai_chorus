@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import pytest
-import sqlite3
 from urllib.parse import parse_qs, urlparse
 
-from fastapi.testclient import TestClient
-
 from app.config import Settings
+from app.db import connect as db_connect
 from app.main import create_app
+from fastapi.testclient import TestClient
 
 
 class FakeResponse:
@@ -62,24 +61,37 @@ class FakeOidcClient:
         return self.request("POST", url, **kwargs)
 
 
-def _settings(tmp_path) -> Settings:
+@pytest.fixture
+def settings(integration_settings: Settings, tmp_path):
+    """Settings con MariaDB de integración y storage_root en tmp_path."""
     return Settings(
         auth_base_url="https://auth.test",
+        osap_api_base_url="http://osap.test",
+        editor_base_url="http://editor.test",
+        editor_origin="http://editor.test",
         public_base_url="http://chorus.test",
-        database_path=str(tmp_path / "chorus.sqlite3"),
+        database_url=integration_settings.database_url,
         storage_root=str(tmp_path / "private"),
-        secure_cookies=False,
+        cors_origins=integration_settings.cors_origins,
+        max_upload_bytes=integration_settings.max_upload_bytes,
+        source_token_ttl_seconds=integration_settings.source_token_ttl_seconds,
         oidc_issuer="https://auth.test",
+        oidc_authorize_url="https://auth.test/auth/authorize",
+        oidc_token_url="https://auth.test/oauth/token",
         oidc_client_id="chorus-web",
         oidc_client_secret="secret",
         oidc_redirect_uri="http://chorus.test/api/v1/auth/oidc/callback",
+        oidc_scope="openid profile email",
+        auth_timeout_seconds=15.0,
+        osap_timeout_seconds=45.0,
+        secure_cookies=False,
     )
 
 
-@pytest.mark.unit
-def test_oidc_start_builds_a_pkce_authorize_url(tmp_path, monkeypatch):
+@pytest.mark.db
+def test_oidc_start_builds_a_pkce_authorize_url(settings, monkeypatch):
     monkeypatch.setattr("app.main.httpx.Client", FakeOidcClient)
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    with TestClient(create_app(settings)) as client:
         response = client.get("/api/v1/auth/oidc/start")
     assert response.status_code == 200, response.text
     authorize = urlparse(response.json()["authorize_url"])
@@ -90,14 +102,13 @@ def test_oidc_start_builds_a_pkce_authorize_url(tmp_path, monkeypatch):
     assert query["code_challenge"]
 
 
-@pytest.mark.unit
-def test_oidc_callback_exchanges_code_and_sets_refresh_cookie(tmp_path, monkeypatch):
+@pytest.mark.db
+def test_oidc_callback_exchanges_code_and_sets_refresh_cookie(settings, monkeypatch):
     monkeypatch.setattr("app.main.httpx.Client", FakeOidcClient)
-    settings = _settings(tmp_path)
     with TestClient(create_app(settings)) as client:
         client.get("/api/v1/auth/oidc/start")
-        with sqlite3.connect(settings.database_path) as conn:
-            state = conn.execute("SELECT state FROM oidc_states").fetchone()[0]
+        with db_connect(settings) as conn:
+            state = conn.execute("SELECT state FROM oidc_states").fetchone()["state"]
         response = client.get(
             "/api/v1/auth/oidc/callback",
             params={"code": "code-1", "state": state},
@@ -109,14 +120,14 @@ def test_oidc_callback_exchanges_code_and_sets_refresh_cookie(tmp_path, monkeypa
     )
     assert "chorus_refresh=refresh-1" in response.headers.get("set-cookie", "")
 
-    with sqlite3.connect(settings.database_path) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM oidc_states").fetchone()[0] == 0
+    with db_connect(settings) as conn:
+        count = conn.execute("SELECT COUNT(*) AS cnt FROM oidc_states").fetchone()["cnt"]
+    assert count == 0
 
 
-@pytest.mark.unit
-def test_oidc_callback_rejects_unknown_or_reused_state(tmp_path, monkeypatch):
+@pytest.mark.db
+def test_oidc_callback_rejects_unknown_or_reused_state(settings, monkeypatch):
     monkeypatch.setattr("app.main.httpx.Client", FakeOidcClient)
-    settings = _settings(tmp_path)
     with TestClient(create_app(settings)) as client:
         invalid = client.get(
             "/api/v1/auth/oidc/callback",
@@ -126,8 +137,8 @@ def test_oidc_callback_rejects_unknown_or_reused_state(tmp_path, monkeypatch):
         assert invalid.status_code == 400
 
         client.get("/api/v1/auth/oidc/start")
-        with sqlite3.connect(settings.database_path) as conn:
-            state = conn.execute("SELECT state FROM oidc_states").fetchone()[0]
+        with db_connect(settings) as conn:
+            state = conn.execute("SELECT state FROM oidc_states").fetchone()["state"]
         first = client.get(
             "/api/v1/auth/oidc/callback",
             params={"code": "code-1", "state": state},

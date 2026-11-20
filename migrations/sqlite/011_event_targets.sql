@@ -1,1 +1,0 @@
-CREATE TABLE IF NOT EXISTS event_targets (event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE, target_type TEXT NOT NULL CHECK (target_type IN ('section','user')), target_value TEXT NOT NULL, PRIMARY KEY (event_id,target_type,target_value));
