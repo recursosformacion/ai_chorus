@@ -265,9 +265,11 @@ def test_database_migrations_are_repeatable_mariadb(migration_settings):
             "groups", "group_members", "events", "event_groups", "event_rsvps",
             "entity_leads", "messages", "event_targets", "message_recipients",
             "group_sections", "group_articles", "group_article_media",
+            "group_roles", "group_social_links", "legacy_uploads", "activity_log",
+            "performances", "performance_groups",
             "chorus_schema_migrations",
         }
         assert required <= tables
         applied = conn.execute("SELECT COUNT(*) AS cnt FROM chorus_schema_migrations").fetchone()["cnt"]
-        # 001_schema.sql + 004-007 + 016 + 017 = 7 migraciones
-        assert applied == 7
+        # 001_schema.sql + 004-007 + 016 + 017 + 033 + 034 = 9 migraciones
+        assert applied == 9

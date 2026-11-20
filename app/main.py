@@ -1808,14 +1808,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchone()
             if member is None and not _is_admin(profile):
                 raise HTTPException(status_code=403, detail="Active member required")
-            rows = conn.execute(
+            # Fetch sections
+            section_rows = conn.execute(
                 "SELECT * FROM group_sections WHERE group_id=? AND active=1 "
                 "ORDER BY scope, sort_order, name", (group_id,)
             ).fetchall()
+            # Fetch roles from group_roles
+            admin_roles = conn.execute(
+                "SELECT * FROM group_roles WHERE group_id=? AND scope='admin' AND active=1 "
+                "ORDER BY sort_order, name", (group_id,)
+            ).fetchall()
+            musical_roles = conn.execute(
+                "SELECT * FROM group_roles WHERE group_id=? AND scope='musical' AND active=1 "
+                "ORDER BY sort_order, name", (group_id,)
+            ).fetchall()
         result: dict[str, list[dict[str, Any]]] = {"admin": [], "musical": [], "section": []}
-        for row in rows:
+        for row in section_rows:
             scope = str(row["scope"] or "section")
             result.setdefault(scope, []).append({
+                "id": row["id"], "code": row["code"], "name": row["name"],
+                "parent_id": row["parent_id"], "sort_order": row["sort_order"],
+            })
+        for row in admin_roles:
+            result["admin"].append({
+                "id": row["id"], "code": row["code"], "name": row["name"],
+                "parent_id": row["parent_id"], "sort_order": row["sort_order"],
+            })
+        for row in musical_roles:
+            result["musical"].append({
                 "id": row["id"], "code": row["code"], "name": row["name"],
                 "parent_id": row["parent_id"], "sort_order": row["sort_order"],
             })
