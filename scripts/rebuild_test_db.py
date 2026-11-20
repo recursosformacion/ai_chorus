@@ -25,6 +25,24 @@ MIGRATIONS = [
     "017_fix_group_articles_fk.sql",
     "007_events_series_index.sql",
     "016_coral_group_fields.sql",
+    "018_group_types.sql",
+    "019_groups_type_code.sql",
+    "020_group_members_granted_by.sql",
+    "021_group_history.sql",
+    "022_group_articles_scope.sql",
+    "023_section_templates.sql",
+    "024_role_templates.sql",
+    "025_authorizations.sql",
+    "026_performances.sql",
+    "027_performance_groups.sql",
+    "028_fix_group_articles_group_id_nullable.sql",
+    "029_create_group_roles.sql",
+    "030_create_group_social_links.sql",
+    "031_create_legacy_uploads.sql",
+    "032_create_activity_log.sql",
+    "033_add_group_role_refs_to_members.sql",
+    "034_unify_group_member_roles.sql",
+    "035_preparation_works.sql",
     # 009_legacy_baseline NO se ejecuta en reconstrucción desde cero
 ]
 
@@ -104,6 +122,10 @@ def main():
                 "editor_source_tokens", "creation_drafts",
                 "files", "resources", "works",
                 "oidc_states", "group_article_media", "group_articles", "group_sections",
+                "group_roles", "group_social_links", "legacy_uploads", "activity_log",
+                "section_templates", "role_templates", "authorizations", "performances",
+                "performance_groups", "group_types", "group_history",
+                "preparation_works",
                 "chorus_schema_migrations",
             ]
             for table in drop_order:
@@ -146,7 +168,11 @@ def main():
             from app.db import _get_table_names
             tables = set(_get_table_names(conn))
             required = {'works', 'resources', 'files', 'groups', 'group_members', 'events',
-                       'group_sections', 'group_articles', 'group_article_media'}
+                       'group_sections', 'group_articles', 'group_article_media',
+                       'group_roles', 'group_social_links', 'legacy_uploads', 'activity_log',
+                       'section_templates', 'role_templates', 'authorizations', 'performances',
+                       'performance_groups', 'group_types', 'group_history',
+                       'preparation_works'}
             missing = required - tables
             if missing:
                 print(f"VERIFICACIÓN FALLIDA: Tablas faltantes {missing}", file=sys.stderr)

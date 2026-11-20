@@ -13,7 +13,11 @@ ALTER TABLE group_members ADD CONSTRAINT fk_group_members_musical_role FOREIGN K
 ALTER TABLE group_members ADD INDEX idx_group_members_admin_role (admin_role_id);
 ALTER TABLE group_members ADD INDEX idx_group_members_musical_role (musical_role_id);
 
--- Drop duplicate columns from migration 033 if they exist
+-- Drop duplicate columns from migration 033 if they exist (drop FKs first)
+ALTER TABLE group_members DROP FOREIGN KEY IF EXISTS fk_group_members_group_admin_role;
+ALTER TABLE group_members DROP FOREIGN KEY IF EXISTS fk_group_members_group_musical_role;
+ALTER TABLE group_members DROP INDEX IF EXISTS idx_group_members_group_admin_role;
+ALTER TABLE group_members DROP INDEX IF EXISTS idx_group_members_group_musical_role;
 ALTER TABLE group_members DROP COLUMN IF EXISTS group_admin_role_id;
 ALTER TABLE group_members DROP COLUMN IF EXISTS group_musical_role_id;
 

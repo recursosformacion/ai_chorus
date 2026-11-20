@@ -231,6 +231,49 @@
       <h3 class="ga-subtitle">Miembros</h3>
       <div id="ga-members"></div>
       <p id="ga-message" class="message" role="status"></p>
+</div>
+  </div>
+<div id="preparation-work-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="prep-work-title">
+    <div class="inbox-panel prep-work-panel">
+      <div class="card-head messages-head prep-work-head">
+        <div class="modal-heading">
+          <p class="modal-eyebrow">Nueva obra</p>
+          <h2 id="prep-work-title">Añadir obra a la preparación</h2>
+          <p>Indica los datos de la obra y selecciona sus archivos.</p>
+        </div>
+        <button id="prep-work-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <form id="prep-work-form" class="prep-work-form">
+        <div class="prep-work-fields">
+          <label>Título de la obra<input id="prep-work-title-input" type="text" maxlength="500" placeholder="Ave verum corpus" required></label>
+          <label>Compositor / Autor<input id="prep-work-composer" type="text" maxlength="500" placeholder="W. A. Mozart"></label>
+          <label>Destino<select id="prep-work-destination" required>
+            <option value="repertoire">Repertorio</option>
+            <option value="program">Programa / Concierto</option>
+          </select></label>
+          <label id="prep-work-event-wrap" class="hidden">
+            <span>Evento</span>
+            <input id="prep-work-event-name" type="text" maxlength="500" placeholder="Concierto de Navidad, Auditorio Municipal...">
+          </label>
+          <label id="prep-work-date-wrap" class="hidden">
+            <span>Fecha prevista</span>
+            <input id="prep-work-event-date" type="date">
+          </label>
+          <label>Observaciones<textarea id="prep-work-notes" rows="3" maxlength="5000" placeholder="Notas internas, indicaciones de ensayo..."></textarea></label>
+        </div>
+        <fieldset class="prep-work-files">
+          <legend>Archivos de la obra</legend>
+          <div id="prep-work-files-list"></div>
+          <label class="button button-outline file-button" for="prep-work-files">Añadir archivos</label>
+          <input id="prep-work-files" type="file" multiple hidden accept=".pdf,.mxl,.musicxml,.xml,.mid,.midi,.mp3,.wav,.ogg,.mp4,.mov,.webm">
+          <p class="muted small">Formatos: PDF, MusicXML/MXL, MIDI, MP3, WAV, OGG, MP4, MOV, WebM. Máx. 50 MB por archivo.</p>
+        </fieldset>
+        <div class="event-actions">
+          <button id="prep-work-cancel" class="button button-quiet" type="button">Cancelar</button>
+          <button id="prep-work-save" class="button button-primary" type="submit">Añadir obra</button>
+        </div>
+        <p id="prep-work-message" class="message" role="status"></p>
+      </form>
     </div>
   </div>
   <main class="shell">

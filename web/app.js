@@ -234,6 +234,7 @@
     updateActiveGroupUi();
     renderAgenda();
     renderGroupCard();
+    void loadPreparationWorks();
     if (messageState.groupId !== groupId) {
       messageState.groupId = groupId;
       if (reloadMessages) void loadMessages();
@@ -2696,6 +2697,26 @@ async function saveGroupData(event) {
   });
   $("open-agenda").addEventListener("click", openAgendaModal);
   $("agenda-close").addEventListener("click",()=>{$("agenda-modal").classList.add("hidden");});
+  $("prep-work-close").addEventListener("click", closePrepWorkModal);
+  $("prep-work-cancel").addEventListener("click", closePrepWorkModal);
+  $("prep-work-modal").addEventListener("click", (event) => { if (event.target === $("prep-work-modal")) closePrepWorkModal(); });
+  $("prep-work-form").addEventListener("submit", savePreparationWork);
+  $("prep-work-destination").addEventListener("change", () => {
+    const isProgram = $("prep-work-destination").value === "program";
+    $("prep-work-event-wrap").classList.toggle("hidden", !isProgram);
+    $("prep-work-date-wrap").classList.toggle("hidden", !isProgram);
+  });
+  $("prep-work-files").addEventListener("change", (event) => {
+    const files = Array.from(event.target.files || []);
+    files.forEach((file) => {
+      const purpose = detectFileType(file);
+      prepWorkFiles.push({file, name: file.name, part_label: null, purpose});
+    });
+    renderPrepWorkFiles();
+    event.target.value = "";
+  });
+  $("repertoire-add").addEventListener("click", openPrepWorkModal);
+
   $("agenda-prev").addEventListener("click",()=>{
     agendaCursor = new Date(agendaCursor.getFullYear(), agendaCursor.getMonth() - 1, 1);
     agendaSelected = new Date(agendaCursor.getFullYear(), agendaCursor.getMonth(), 1);
@@ -2808,6 +2829,229 @@ async function saveGroupData(event) {
       showMessage("avatar-message", error.message, "error");
     }
   });
+
+  // ===== Preparation Work Modal =====
+  let prepWorkFiles = [];
+
+  function openPrepWorkModal() {
+    const group = activeGroup();
+    if (!group) {
+      openGroupPicker();
+      return;
+    }
+    if (!group.can_manage) {
+      showMessage("dash-event-message", "Solo el gestor o el director musical pueden añadir obras.", "error");
+      return;
+    }
+    prepWorkFiles = [];
+    $("prep-work-form").reset();
+    $("prep-work-files-list").replaceChildren();
+    $("prep-work-event-wrap").classList.add("hidden");
+    $("prep-work-date-wrap").classList.add("hidden");
+    $("prep-work-destination").value = "repertoire";
+    $("prep-work-message").textContent = "";
+    $("prep-work-modal").classList.remove("hidden");
+    $("prep-work-title-input").focus();
+  }
+
+  function closePrepWorkModal() {
+    $("prep-work-modal").classList.add("hidden");
+  }
+
+  function renderPrepWorkFileEntry(file, index) {
+    const div = document.createElement("div");
+    div.className = "prep-work-file-entry";
+    const name = document.createElement("span");
+    name.className = "prep-work-file-name";
+    name.textContent = file.name;
+    const partSelect = document.createElement("select");
+    partSelect.className = "prep-work-file-part";
+    partSelect.innerHTML = '<option value="">— Voz/Instrumento —</option>';
+    if (file.part_label) partSelect.value = file.part_label;
+    const purposeSelect = document.createElement("select");
+    purposeSelect.className = "prep-work-file-purpose";
+    purposeSelect.innerHTML = 
+      '<option value="">— Tipo —</option>' +
+      '<option value="score">Partitura completa</option>' +
+      '<option value="part">Voz/Parte individual</option>' +
+      '<option value="midi">MIDI</option>' +
+      '<option value="audio">Audio</option>' +
+      '<option value="video">Vídeo</option>' +
+      '<option value="reference">Referencia</option>' +
+      '<option value="other">Otro</option>';
+    if (file.purpose) purposeSelect.value = file.purpose;
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "button button-quiet button-small prep-work-file-remove";
+    removeBtn.textContent = "Eliminar";
+    removeBtn.addEventListener("click", () => {
+      prepWorkFiles = prepWorkFiles.filter((_, i) => i !== index);
+      renderPrepWorkFiles();
+    });
+    div.append(name, partSelect, purposeSelect, removeBtn);
+    return div;
+  }
+
+  function renderPrepWorkFiles() {
+    const container = $("prep-work-files-list");
+    container.replaceChildren();
+    prepWorkFiles.forEach((file, index) => {
+      container.append(renderPrepWorkFileEntry(file, index));
+    });
+  }
+
+  function detectFileType(file) {
+    const ext = file.name.toLowerCase().split(".").pop();
+    if (["pdf"].includes(ext)) return "score";
+    if (["mxl", "musicxml", "xml"].includes(ext)) return "score";
+    if (["mid", "midi"].includes(ext)) return "midi";
+    if (["mp3", "wav", "ogg", "flac", "m4a"].includes(ext)) return "audio";
+    if (["mp4", "mov", "webm", "mkv"].includes(ext)) return "video";
+    return "other";
+  }
+
+  async function savePreparationWork(event) {
+    event.preventDefault();
+    const group = activeGroup();
+    if (!group) return;
+    
+    const title = $("prep-work-title-input").value.trim();
+    if (!title) {
+      showMessage("prep-work-message", "El título es obligatorio.", "error");
+      return;
+    }
+    
+    const composer = $("prep-work-composer").value.trim() || null;
+    const destination_type = $("prep-work-destination").value;
+    const event_name = destination_type === "program" ? $("prep-work-event-name").value.trim() || null : null;
+    const event_date = destination_type === "program" ? $("prep-work-event-date").value || null : null;
+    const notes = $("prep-work-notes").value.trim() || null;
+    
+    const entries = $("prep-work-files-list").querySelectorAll(".prep-work-file-entry");
+    const filesMetadata = [];
+    entries.forEach((entry, index) => {
+      const part = entry.querySelector(".prep-work-file-part").value || null;
+      const purpose = entry.querySelector(".prep-work-file-purpose").value || null;
+      if (prepWorkFiles[index]) {
+        filesMetadata.push({part_label: part, purpose: purpose});
+      }
+    });
+    
+    const btn = $("prep-work-save");
+    setBusy(btn, true, "Guardando…");
+    
+    try {
+      const work = await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works`, {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          composer,
+          destination_type,
+          event_name,
+          event_date,
+          notes,
+        }),
+      });
+      
+      if (prepWorkFiles.length > 0) {
+        const form = new FormData();
+        prepWorkFiles.forEach((f) => form.append("files", f.file));
+        form.append("parts", JSON.stringify(filesMetadata));
+        await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works/${encodeURIComponent(work.id)}/files`, {
+          method: "POST",
+          body: form,
+        });
+      }
+      
+      showMessage("prep-work-message", "Obra añadida correctamente.", "success");
+      closePrepWorkModal();
+      await loadPreparationWorks();
+    } catch (error) {
+      showMessage("prep-work-message", error.message, "error");
+    } finally {
+      setBusy(btn, false);
+    }
+  }
+
+  async function loadPreparationWorks() {
+    const group = activeGroup();
+    if (!group) return;
+    try {
+      const works = await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works`);
+      renderPreparationWorks(works);
+    } catch (error) {
+      showMessage("dash-event-message", error.message, "error");
+    }
+  }
+
+  function renderPreparationWorks(works) {
+    const container = $("#dashboard-repertorio");
+    if (!container) return;
+    const emptyState = container.querySelector(".empty-state");
+    let list = container.querySelector(".preparation-works-list");
+    if (!list) {
+      list = document.createElement("div");
+      list.className = "preparation-works-list";
+      if (emptyState) emptyState.replaceWith(list);
+      else container.append(list);
+    }
+    list.replaceChildren();
+    
+    if (!works.length) {
+      if (emptyState) emptyState.classList.remove("hidden");
+      return;
+    }
+    if (emptyState) emptyState.classList.add("hidden");
+    
+    works.forEach((work) => {
+      const card = document.createElement("article");
+      card.className = "preparation-work-card";
+      
+      const destLabel = work.destination_type === "program"
+        ? `Programa: ${work.event_name || "Sin nombre"}${work.event_date ? ` (${work.event_date})` : ""}`
+        : "Repertorio";
+      const destClass = work.destination_type === "program" ? "badge-gold" : "badge-green";
+      
+      card.innerHTML = `
+        <div class="prep-work-card-head">
+          <h3>${work.title}</h3>
+          ${work.composer ? `<p class="prep-work-composer">${work.composer}</p>` : ""}
+          <span class="badge ${destClass}">${destLabel}</span>
+        </div>
+        <p class="prep-work-status">Estado: ${work.status}</p>
+        ${work.notes ? `<p class="prep-work-notes">${work.notes}</p>` : ""}
+        <div class="prep-work-actions">
+          <button class="button button-outline button-small prep-work-view" data-work-id="${work.id}">Ver materiales</button>
+          ${group.can_manage ? `<button class="button button-primary button-small prep-work-edit" data-work-id="${work.id}">Editar</button>` : ""}
+        </div>
+      `;
+      list.append(card);
+    });
+    
+    list.querySelectorAll(".prep-work-view").forEach(btn => {
+      btn.addEventListener("click", () => openPrepWorkDetail(btn.dataset.workId));
+    });
+    list.querySelectorAll(".prep-work-edit").forEach(btn => {
+      btn.addEventListener("click", () => openPrepWorkEdit(btn.dataset.workId));
+    });
+  }
+
+  async function openPrepWorkDetail(workId) {
+    const group = activeGroup();
+    if (!group) return;
+    try {
+      const files = await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works/${encodeURIComponent(workId)}/files`);
+      alert("Materiales: " + JSON.stringify(files, null, 2));
+    } catch (error) {
+      showMessage("dash-event-message", error.message, "error");
+    }
+  }
+
+  function openPrepWorkEdit(workId) {
+    alert("Editar obra: " + workId);
+  }
+
+
   $("logout-button").addEventListener("click",async()=>{
     try{if(accessToken)await request("/api/v1/auth/logout",{method:"POST"},false);}catch(_){}
     accessToken=null;currentDraft=null;showLogin();

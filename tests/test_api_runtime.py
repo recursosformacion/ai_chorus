@@ -271,5 +271,5 @@ def test_database_migrations_are_repeatable_mariadb(migration_settings):
         }
         assert required <= tables
         applied = conn.execute("SELECT COUNT(*) AS cnt FROM chorus_schema_migrations").fetchone()["cnt"]
-        # 001_schema.sql + 004-007 + 016 + 017 + 033 + 034 = 9 migraciones
-        assert applied == 9
+        # 001_schema.sql + 004-007 + 016 + 017 + 018-035 = 25 migraciones
+        assert applied == 25
