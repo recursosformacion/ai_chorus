@@ -1,0 +1,637 @@
+{
+  "amigos_groups": {
+    "count": 3,
+    "ddl": "CREATE TABLE `amigos_groups` (\n  `id` char(32) NOT NULL,\n  `slug` varchar(96) NOT NULL,\n  `name` varchar(255) NOT NULL,\n  `kind` varchar(32) NOT NULL DEFAULT 'coral',\n  `description` text DEFAULT NULL,\n  `image_url` varchar(1024) DEFAULT NULL,\n  `website` varchar(1024) DEFAULT NULL,\n  `email` varchar(254) DEFAULT NULL,\n  `logo_url` varchar(1024) DEFAULT NULL,\n  `status` varchar(16) NOT NULL DEFAULT 'active',\n  `editorial_mode` varchar(16) NOT NULL DEFAULT 'moderated',\n  `created_by` char(36) DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  `updated_at` datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),\n  `technical_description` text DEFAULT NULL,\n  `admin_roles_json` text DEFAULT NULL,\n  `musical_roles_json` text DEFAULT NULL,\n  `join_code` varchar(16) DEFAULT NULL,\n  `join_code_expires_at` varchar(64) DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `uq_amigos_group_slug` (`slug`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": "1809b94b243a5f46",
+        "slug": "pr",
+        "name": "Prueba",
+        "kind": "coral",
+        "description": "Una banda",
+        "image_url": null,
+        "website": null,
+        "email": null,
+        "logo_url": null,
+        "status": "active",
+        "editorial_mode": "moderated",
+        "created_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-11-16T12:24:39.475962",
+        "updated_at": "2026-11-17T12:28:22.416451",
+        "technical_description": "Dos trompetas, bajo, violin....",
+        "admin_roles_json": "[\"Presidencia\", \"Secretaría\", \"Tesorería\", \"Vocalía\"]",
+        "musical_roles_json": "[\"Dirección\", \"Subdirección\", \"Preparación vocal\", \"Sopranos\", \"Contraltos\", \"Tenores\", \"Bajos\"]",
+        "join_code": "6RUHAM2S",
+        "join_code_expires_at": "2026-11-24T11:28:22.412582+00:00"
+      },
+      {
+        "id": "719c3051fab035e1",
+        "slug": "coral-lo-rosinyol",
+        "name": "Coral Lo Rossinyol",
+        "kind": "coral",
+        "description": "La coral Lo Rossinyol de Sant Antoni de Vilamajor va iniciar la seva activitat a finals del segle XIX i l'any 1900 va fer oficial la seva existència quan es va inscriure en el cens de la Federació de Cors de Clavé amb el primer director, el Sr. Ramon Bordas. Es conserva un reglament de la Coral (1921) i uns estatuts (1932) que defineixen l'objectiu de l'agrupació amb les següents paraules: \"La Sociedad Coral El Rossinyol tiene por objeto propagar una de las más bellas manifestaciones del sentimiento humano, que es el canto\" Els anys de la dictadura franquista van significar un període de greus afectacions a l'activitat habitual de la Coral. Tot i que aquesta va arribar a esdevenir un dels pocs espais on es podia mantenir l'esperit de les tradicions i la cultura catalanes, A banda de complir el seu objectiu artístic de \"propagar el cant\", la coral Lo Rossinyol de Sant Antoni de Vilamajor es va convertir, com tantes altres, en un refugi cultural i social imprescindible. Durant els anys més durs de la dictadura franquista, davant la repressió i la prohibició de manifestacions públiques en català, aquestes societats van ser espais clau de resistència pacífica per a mantenir vius l'esperit, la llengua i les tradicions catalanes en l'àmbit comunitari.",
+        "image_url": "https://app.openmusicrepository.com/api/v1/amigos/media/254661",
+        "website": null,
+        "email": "lorossinyol@gmail.com",
+        "logo_url": "https://app.openmusicrepository.com/api/v1/amigos/media/254660",
+        "status": "active",
+        "editorial_mode": "direct",
+        "created_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-12T09:01:26.405262",
+        "updated_at": "2026-11-17T12:28:22.404207",
+        "technical_description": "Coro mixto a cuatro voces, con sección infantil.",
+        "admin_roles_json": "[\"Presidencia\", \"Secretaría\", \"Tesorería\", \"Vocalía\"]",
+        "musical_roles_json": "[\"Dirección\", \"Subdirección\", \"Preparación vocal\", \"Sopranos\", \"Contraltos\", \"Tenores\", \"Bajos\"]",
+        "join_code": "ACA64YVB",
+        "join_code_expires_at": "2026-11-24T11:28:22.400579+00:00"
+      },
+      {
+        "id": "df72ae26985011a4",
+        "slug": "coral-turo-del-vent",
+        "name": "Coral Turo del vent",
+        "kind": "coral",
+        "description": "La Coral Turó del Vent es un coro mixto de cuatro voces de Llinars del Vallès (Barcelona) fundado en el otoño de 1984. La agrupación cuenta actualmente con una veintena de cantantes y forma parte de la Federación Catalana d'Entitats Corals.",
+        "image_url": null,
+        "website": null,
+        "email": "man2001cat@yahoo.com",
+        "logo_url": "https://app.openmusicrepository.com/api/v1/amigos/media/254659",
+        "status": "inactive",
+        "editorial_mode": "direct",
+        "created_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-11T18:11:27.453161",
+        "updated_at": "2026-11-17T17:47:27.793071",
+        "technical_description": null,
+        "admin_roles_json": "[\"Presidencia\", \"Secretaría\", \"Tesorería\", \"Vocalía\"]",
+        "musical_roles_json": "[\"Dirección\", \"Subdirección\", \"Preparación vocal\", \"Sopranos\", \"Contraltos\", \"Tenores\", \"Bajos\"]",
+        "join_code": "KU76HCWV",
+        "join_code_expires_at": "2026-11-24T16:47:27.786295+00:00"
+      }
+    ],
+    "target_exists": true
+  },
+  "amigos_members": {
+    "count": 3,
+    "ddl": "CREATE TABLE `amigos_members` (\n  `group_id` char(32) NOT NULL,\n  `user_id` char(36) NOT NULL,\n  `role` varchar(16) NOT NULL DEFAULT 'collaborator',\n  `status` varchar(16) NOT NULL DEFAULT 'active',\n  `granted_by` char(36) DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  `updated_at` datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),\n  `admin_role_id` char(32) DEFAULT NULL,\n  `musical_role_id` char(32) DEFAULT NULL,\n  `section_id` char(32) DEFAULT NULL,\n  PRIMARY KEY (`group_id`,`user_id`),\n  KEY `idx_amigos_member_user` (`user_id`),\n  CONSTRAINT `fk_amigos_member_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_groups` (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "group_id": "1809b94b243a5f46",
+        "user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "role": "collaborator",
+        "status": "pending",
+        "granted_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-11-19T10:58:09.967802",
+        "updated_at": "2026-11-19T10:58:09.967802",
+        "admin_role_id": "81ae44393b1dfe537eaa24d924393410",
+        "musical_role_id": "a90be0660f27752ffa088369ab642e71",
+        "section_id": "8b362ad9ebc3e3a3cf9577a79a4c0a7a"
+      },
+      {
+        "group_id": "719c3051fab035e1",
+        "user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "role": "admin",
+        "status": "active",
+        "granted_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-12T09:10:55.853287",
+        "updated_at": "2026-10-12T09:10:55.853287",
+        "admin_role_id": null,
+        "musical_role_id": null,
+        "section_id": null
+      },
+      {
+        "group_id": "df72ae26985011a4",
+        "user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "role": "admin",
+        "status": "revoked",
+        "granted_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-11T18:15:02.602576",
+        "updated_at": "2026-11-16T12:22:35.003750",
+        "admin_role_id": null,
+        "musical_role_id": null,
+        "section_id": null
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_group_history": {
+    "count": 6,
+    "ddl": "CREATE TABLE `amigos_group_history` (\n  `id` char(32) NOT NULL,\n  `group_id` char(32) NOT NULL,\n  `event_type` varchar(32) NOT NULL,\n  `member_user_id` char(36) DEFAULT NULL,\n  `person_name` varchar(255) DEFAULT NULL,\n  `role` varchar(16) DEFAULT NULL,\n  `start_date` date DEFAULT NULL,\n  `end_date` date DEFAULT NULL,\n  `notes` text DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  PRIMARY KEY (`id`),\n  KEY `idx_amigos_history_group` (`group_id`,`start_date`),\n  CONSTRAINT `fk_amigos_history_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_groups` (`id`) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": "1f3fd39255d759cf47d3a24bb7942627",
+        "group_id": "719c3051fab035e1",
+        "event_type": "director_join",
+        "member_user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "person_name": null,
+        "role": "admin",
+        "start_date": "2026-11-16",
+        "end_date": null,
+        "notes": null,
+        "created_at": "2026-11-16T18:42:05.870589"
+      },
+      {
+        "id": "45b0777d9e6ac22d2da194f2c0756f9d",
+        "group_id": "719c3051fab035e1",
+        "event_type": "director_join",
+        "member_user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "person_name": null,
+        "role": "admin",
+        "start_date": "2026-11-16",
+        "end_date": null,
+        "notes": null,
+        "created_at": "2026-11-16T18:39:07.871482"
+      },
+      {
+        "id": "5015f7e4fd08cf602fa677e7858bd7e6",
+        "group_id": "719c3051fab035e1",
+        "event_type": "director_join",
+        "member_user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "person_name": null,
+        "role": "admin",
+        "start_date": "2026-11-16",
+        "end_date": null,
+        "notes": null,
+        "created_at": "2026-11-16T18:39:16.043228"
+      }
+    ],
+    "target_exists": true
+  },
+  "amigos_group_catalog": {
+    "count": 24,
+    "ddl": "CREATE TABLE `amigos_group_catalog` (\n  `id` char(32) NOT NULL,\n  `group_id` char(32) NOT NULL,\n  `scope` varchar(16) NOT NULL,\n  `code` varchar(64) NOT NULL,\n  `name` varchar(120) NOT NULL,\n  `parent_id` char(32) DEFAULT NULL,\n  `sort_order` int(11) NOT NULL DEFAULT 0,\n  `active` tinyint(1) NOT NULL DEFAULT 1,\n  PRIMARY KEY (`id`),\n  KEY `idx_amigos_catalog_group` (`group_id`,`scope`,`sort_order`),\n  CONSTRAINT `fk_amigos_catalog_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_groups` (`id`) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": "0b7479b1d56627f6c739eb19342c57c8",
+        "group_id": "719c3051fab035e1",
+        "scope": "admin",
+        "code": "board_member",
+        "name": "Vocalía",
+        "parent_id": null,
+        "sort_order": 3,
+        "active": 1
+      },
+      {
+        "id": "0d905fffb83aa6a5acef5e73a1291d49",
+        "group_id": "719c3051fab035e1",
+        "scope": "section",
+        "code": "soprano",
+        "name": "Soprano",
+        "parent_id": null,
+        "sort_order": 8,
+        "active": 1
+      },
+      {
+        "id": "0e71b99e99904e57329b9f82ea3b8ad6",
+        "group_id": "1809b94b243a5f46",
+        "scope": "musical",
+        "code": "vocal_coach",
+        "name": "Preparación vocal",
+        "parent_id": null,
+        "sort_order": 6,
+        "active": 1
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_group_links": {
+    "count": 1,
+    "ddl": "CREATE TABLE `amigos_group_links` (\n  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,\n  `group_id` char(32) NOT NULL,\n  `kind` varchar(32) NOT NULL COMMENT 'facebook|instagram|other',\n  `label` varchar(64) DEFAULT NULL,\n  `url` varchar(1024) NOT NULL,\n  `position` int(11) NOT NULL DEFAULT 0,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  PRIMARY KEY (`id`),\n  KEY `idx_amigos_group_link` (`group_id`,`position`),\n  CONSTRAINT `fk_amigos_group_link_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_groups` (`id`) ON DELETE CASCADE\n) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": 3,
+        "group_id": "719c3051fab035e1",
+        "kind": "instagram",
+        "label": null,
+        "url": "https://www.instagram.com/coral.lorossinyol/",
+        "position": 0,
+        "created_at": "2026-10-12T09:05:47.195887"
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_group_types": {
+    "count": 48,
+    "ddl": "CREATE TABLE `amigos_group_types` (\n  `code` varchar(64) NOT NULL,\n  `parent_code` varchar(64) DEFAULT NULL,\n  `name` varchar(160) NOT NULL,\n  `kind` varchar(32) NOT NULL,\n  `sort_order` int(11) NOT NULL DEFAULT 0,\n  PRIMARY KEY (`code`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "code": "agrupacion_musical",
+        "parent_code": "bandas",
+        "name": "Agrupación Musical (Procesional)",
+        "kind": "banda",
+        "sort_order": 22
+      },
+      {
+        "code": "banda_gaitas",
+        "parent_code": "tradicional",
+        "name": "Banda de Gaitas",
+        "kind": "banda",
+        "sort_order": 43
+      },
+      {
+        "code": "banda_militar",
+        "parent_code": "bandas",
+        "name": "Banda Militar",
+        "kind": "banda",
+        "sort_order": 21
+      }
+    ],
+    "target_exists": true
+  },
+  "amigos_section_templates": {
+    "count": 273,
+    "ddl": "CREATE TABLE `amigos_section_templates` (\n  `id` char(32) NOT NULL,\n  `type_code` varchar(64) NOT NULL,\n  `code` varchar(64) NOT NULL,\n  `name` varchar(160) NOT NULL,\n  `sort_order` int(11) NOT NULL DEFAULT 0,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": "0049bb6c4d3b30d09593159f5207dffc",
+        "type_code": "orquesta_filarmonica",
+        "code": "trumpet",
+        "name": "Trompeta",
+        "sort_order": 88
+      },
+      {
+        "id": "00763ed0d1c75bda192b3c1d9c582d3c",
+        "type_code": "orquesta_camara",
+        "code": "tuba",
+        "name": "Tuba",
+        "sort_order": 105
+      },
+      {
+        "id": "00aca45df153efeec8c052eccaa01ada",
+        "type_code": "banda_militar",
+        "code": "trombone",
+        "name": "Trombón",
+        "sort_order": 197
+      }
+    ],
+    "target_exists": true
+  },
+  "amigos_role_templates": {
+    "count": 409,
+    "ddl": "CREATE TABLE `amigos_role_templates` (\n  `id` char(32) NOT NULL,\n  `type_code` varchar(64) NOT NULL,\n  `scope` varchar(16) NOT NULL,\n  `code` varchar(64) NOT NULL,\n  `name` varchar(160) NOT NULL,\n  `sort_order` int(11) NOT NULL DEFAULT 0,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": "00631e8d9ebcfe34f02238e910d3a03f",
+        "type_code": "cuarteto_cuerdas",
+        "scope": "admin",
+        "code": "secretary",
+        "name": "Secretaría",
+        "sort_order": 273
+      },
+      {
+        "id": "0190b320d286048f823cabfb673c96fd",
+        "type_code": "bandas",
+        "scope": "musical",
+        "code": "assistant_director",
+        "name": "Subdirección",
+        "sort_order": 165
+      },
+      {
+        "id": "03106f1460ff2c610e8ce955bee857cf",
+        "type_code": "bandas",
+        "scope": "musical",
+        "code": "music_director",
+        "name": "Dirección",
+        "sort_order": 164
+      }
+    ],
+    "target_exists": true
+  },
+  "amigos_articles": {
+    "count": 18,
+    "ddl": "CREATE TABLE `amigos_articles` (\n  `id` char(32) NOT NULL,\n  `group_id` char(32) DEFAULT NULL,\n  `title` varchar(512) NOT NULL,\n  `slug` varchar(200) NOT NULL,\n  `event_date` date NOT NULL,\n  `summary` text DEFAULT NULL,\n  `body` longtext DEFAULT NULL,\n  `cover_url` varchar(1024) DEFAULT NULL,\n  `author_user_id` char(36) NOT NULL,\n  `status` varchar(16) NOT NULL DEFAULT 'draft',\n  `published_at` datetime(6) DEFAULT NULL,\n  `reviewed_by` char(36) DEFAULT NULL,\n  `reviewed_at` datetime(6) DEFAULT NULL,\n  `review_note` varchar(512) DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  `updated_at` datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),\n  `scope` varchar(16) NOT NULL DEFAULT 'group',\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `uq_amigos_article_slug` (`group_id`,`slug`),\n  KEY `idx_amigos_article_status` (`status`),\n  KEY `idx_amigos_article_author` (`author_user_id`),\n  KEY `idx_amigos_article_event` (`group_id`,`event_date`),\n  CONSTRAINT `fk_amigos_article_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_groups` (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": "1390c1967a480330",
+        "group_id": null,
+        "title": "Qué es el MusicXML y cómo Open Music Repository te puede ayudar",
+        "slug": "que-es-el-musicxml-y-como-open-music-repository-te-puede-ayudar",
+        "event_date": "2026-10-14",
+        "summary": null,
+        "body": "<style>\r\n    .articulo-osap h2 {\r\n        font-size: 2rem;\r\n        font-weight: 600;\r\n        margin-top: 1.8em;\r\n        margin-bottom: 0.6em;\r\n        color: #1f1f1f;\r\n        border-bottom: 2px solid #eaeaea;\r\n        padding-bottom: 0.3em;\r\n    }\r\n    .articulo-osap h3 {\r\n        font-size: 1.5rem;\r\n        font-weight: 600;\r\n        margin-top: 1.5em;\r\n        margin-bottom: 0.4em;\r\n        color: #2b2b2b;\r\n    }\r\n    .articulo-osap p {\r\n        font-size: 20px;\r\n        margin-bottom: 1.5em;\r\n        line-height: 1.7;\r\n        color: #1a1a1a;\r\n    }\r\n    .articulo-osap blockquote {\r\n        font-size: 20px;\r\n        margin: 1.8em 0;\r\n        padding-left: 1.5em;\r\n        border-left: 4px solid #1a73e8;\r\n        color: #2c3e50;\r\n        font-style: italic;\r\n        background-color: #f8f9fa;\r\n        padding: 1em 1.5em;\r\n        border-radius: 0 8px 8px 0;\r\n    }\r\n    .articulo-osap blockquote p {\r\n        margin-bottom: 0;\r\n    }\r\n    .articulo-osap ul, .articulo-osap ol {\r\n        font-size: 20px;\r\n        margin-bottom: 1.5em;\r\n        padding-left: 1.8em;\r\n    }\r\n    .articulo-osap li {\r\n        margin-bottom: 0.5em;\r\n    }\r\n    .articulo-osap .highlight-box {\r\n        background-color: #f1f5f9;\r\n        border-radius: 12px;\r\n        padding: 1.8em 2em;\r\n        margin: 2em 0;\r\n        border-left: 6px solid #0b5c8a;\r\n    }\r\n    .articulo-osap .highlight-box p {\r\n        margin-bottom: 0.5em;\r\n    }\r\n    .articulo-osap .highlight-box p:last-child {\r\n        margin-bottom: 0;\r\n    }\r\n    .articulo-osap .highlight-box strong {\r\n        color: #0b3b5e;\r\n    }\r\n    .articulo-osap .cta-box {\r\n        background-color: #e8f0fe;\r\n        border-radius: 12px;\r\n        padding: 1.8em 2em;\r\n        margin: 2.5em 0 1.5em;\r\n        text-align: center;\r\n        border: 1px solid #d2e3fc;\r\n    }\r\n    .articulo-osap .cta-box p {\r\n        font-size: 20px;\r\n        margin-bottom: 0.8em;\r\n    }\r\n    .articulo-osap .cta-box p:last-child {\r\n        margin-bottom: 0;\r\n    }\r\n    .articulo-osap .meta-info {\r\n        font-size: 0.9rem;\r\n        color: #6b7280;\r\n        border-top: 1px solid #e5e7eb;\r\n        padding-top: 1.5em;\r\n        margin-top: 2.5em;\r\n        text-align: center;\r\n    }\r\n    @media (max-width: 600px) {\r\n        .articulo-osap h2 { font-size: 1.6rem; }\r\n        .articulo-osap h3 { font-size: 1.3rem; }\r\n        .articulo-osap p { font-size: 20px; }\r\n        .articulo-osap .highlight-box { padding: 1.2em 1.2em; }\r\n        .articulo-osap .cta-box { padding: 1.2em 1.2em; }\r\n    }\r\n</style><p>Si eres músico, profesor o director de coro, seguramente has vivido esta situación: encuentras una partitura que necesitas, pero está en PDF. La puedes leer, la puedes imprimir, pero no la puedes editar. No puedes cambiarla de tono, no puedes separar las voces, no puedes adaptarla.</p><p>Esto pasa porque el PDF es una foto de la música. El <strong>MusicXML</strong>, en cambio, es la música misma.</p><p>En este artículo te explicamos qué es el MusicXML, por qué es tan importante para los músicos, y cómo <strong>Open Music Repository</strong> te ayuda a encontrarlo.</p><h2>¿Qué es el MusicXML?</h2><p>El MusicXML es un <strong>formato de archivo</strong> que describe una partitura de manera estructurada. En lugar de ser una imagen, es un conjunto de datos que dicen: \"aquí hay una negra, aquí hay un silencio, aquí hay una indicación de tempo\".</p><p>Es el estándar que utilizan los programas de notación musical como <strong>MuseScore, Sibelius, Dorico o Finale</strong> para intercambiar partituras. Cuando abres un archivo MusicXML en cualquiera de estos programas, ves la partitura completa, con todas sus notas, y la puedes modificar.</p><h3>¿Por qué es mejor que un PDF?</h3><ul><li><strong>PDF:</strong> es una imagen. No se puede editar, ni transportar, ni separar por voces, ni reproducir. Es universal (cualquiera lo puede ver).</li><li><strong>MusicXML:</strong> es un conjunto de datos. Se puede editar, transportar, separar por voces y reproducir. Requiere un programa de notación.</li></ul><h3>¿Qué puedes hacer con un MusicXML?</h3><ul><li><strong>Editarla:</strong> cambiar notas, añadir dinámicas, corregir errores.</li><li><strong>Transportarla:</strong> cambiarla de tono para adaptarla a la voz o instrumento.</li><li><strong>Separar voces:</strong> extraer la parte de cada voz (soprano, contralto, tenor, bajo).</li><li><strong>Reproducirla:</strong> escucharla con sonido para ensayar.</li><li><strong>Adaptarla:</strong> hacer arreglos, reducciones, versiones.</li></ul><div class=\"highlight-box\"><p><strong>En resumen:</strong> el MusicXML es el formato que te permite trabajar con la música, no solo leerla.</p></div><h2>El problema: el MusicXML es difícil de encontrar</h2><p>Aunque el MusicXML es el formato ideal, no siempre es fácil encontrarlo. La mayoría de repositorios de partituras (IMSLP, por ejemplo) ofrecen principalmente <strong>PDF</strong>. El MusicXML existe, pero está disperso en diferentes lugares:</p><ul><li><strong>MuseScore:</strong> tiene MusicXML, pero la calidad es variable y la búsqueda no siempre es fácil.</li><li><strong>CPDL:</strong> tiene música coral, pero en PDF y algunos MusicXML.</li><li><strong>PDMX:</strong> es un dataset académico con más de 250.000 MusicXML, pero está pensado para programadores, no para músicos.</li><li><strong>Otras fuentes:</strong> cada una tiene su propio formato y su propia búsqueda.</li></ul><p>El resultado es que, para encontrar una partitura en MusicXML, a menudo tienes que consultar varias webs, comparar versiones y, muchas veces, acabar sin encontrar lo que buscabas.</p><h2>La solución: Open Music Repository</h2><p><strong>Open Music Repository</strong> es un buscador unificado que reúne partituras de diversas fuentes en un solo lugar. Su misión es facilitarte la búsqueda de MusicXML y PDF, ahorrándote tiempo y complicaciones.</p><h3>¿Qué hace Open Music Repository por ti?</h3><ul><li><strong>Búsqueda unificada:</strong> busca una obra o un compositor y encuentra resultados de IMSLP, MuseScore, CPDL, Mutopia y nuestro propio repositorio.</li><li><strong>Formato claro:</strong> te dice si una obra está disponible en <strong>MusicXML</strong> (editable) o en <strong>PDF</strong> (imprimible).</li><li><strong>Acceso directo:</strong> te lleva a la fuente original para descargar la partitura.</li><li><strong>Gratuito y sin registro:</strong> no hace falta crear una cuenta para consultar el catálogo.</li></ul><h3>El \"tesoro\" del MusicXML: PDMX</h3><p>Uno de los recursos más valiosos que hemos integrado es el <strong>PDMX</strong>, un dataset académico con más de <strong>250.000 partituras en MusicXML</strong> de dominio público. Hasta ahora, este recurso estaba pensado para investigadores y programadores, y era prácticamente inaccesible para músicos.</p><p>En Open Music Repository, lo hemos descargado, procesado e integrado para que cualquier músico pueda acceder a él con una simple búsqueda.</p><h3>¿Cómo funciona?</h3><ol><li><strong>Busca:</strong> escribe el nombre de una obra o de un compositor.</li><li><strong>Consulta:</strong> mira los resultados y comprueba en qué formato está disponible.</li><li><strong>Descarga:</strong> haz clic y te llevará a la fuente original para descargar la partitura.</li></ol><h2>Ejemplos prácticos</h2><h3>Ejemplo 1: Una obra coral</h3><p>Eres director de coro y necesitas el <em>Ave Verum Corpus</em> de Mozart para el próximo concierto. Quieres poder adaptarla a las voces de tu coro.</p><ol><li>Buscas \"Ave Verum Corpus Mozart\" en Open Music Repository.</li><li>Ves que está disponible en <strong>MusicXML</strong> (entre otros formatos).</li><li>Descargas el MusicXML y lo abres en MuseScore.</li><li>Puedes transportarla, separar las voces y adaptarla.</li></ol><h3>Ejemplo 2: Una obra para clase</h3><p>Eres profesor de música y quieres trabajar una pieza de Bach con tus alumnos.</p><ol><li>Buscas \"Bach\" en Open Music Repository.</li><li>Encuentras diversas obras, algunas en MusicXML.</li><li>Descargas la que te interesa y la utilizas en clase.</li><li>Los alumnos pueden ver la partitura, escucharla e incluso modificarla.</li></ol><h2>¿Por qué es importante?</h2><p>Open Music Repository no es solo una herramienta. Es una <strong>infraestructura abierta</strong> para el conocimiento musical. Nuestra misión es preservar y difundir el patrimonio musical, haciéndolo accesible a todos.</p><ul><li><strong>Para los músicos:</strong> ahorra tiempo y facilita el acceso a partituras editables.</li><li><strong>Para los educadores:</strong> proporciona recursos para el aula.</li><li><strong>Para los investigadores:</strong> ofrece datos estructurados para el análisis.</li><li><strong>Para la comunidad:</strong> construye un catálogo abierto y colaborativo.</li></ul><div class=\"cta-box\"><p><strong>Prueba Open Music Repository ahora</strong></p><p>Encuentra la partitura que necesitas en MusicXML o PDF en un solo lugar.</p><p>👉 <a href=\"https://app.openmusicrepository.com\" rel=\"nofollow noopener\">https://app.openmusicrepository.com</a></p><p>Es gratuito y no hace falta registrarse.</p></div><h2>Conclusión</h2><p>El MusicXML es el formato que te permite trabajar con la música de verdad. Open Music Repository es la herramienta que te ayuda a encontrarlo.</p><p>Si eres músico, profesor o director de coro, te invitamos a probarlo. Y si echas en falta alguna obra o alguna fuente, dínoslo. Estamos construyendo este proyecto entre todos.</p><div class=\"meta-info\"><p>📌 Publicado en <strong>Recursos para la Formación</strong> · Categoría: Open Music Repository</p><</p></div>",
+        "cover_url": "https://app.openmusicrepository.com/api/v1/amigos/media/254671",
+        "author_user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "status": "published",
+        "published_at": "2026-10-14T16:34:17.578960",
+        "reviewed_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "reviewed_at": "2026-10-14T18:34:17.579729",
+        "review_note": null,
+        "created_at": "2026-10-14T18:34:17.573895",
+        "updated_at": "2026-10-15T13:15:33.503109",
+        "scope": "general"
+      },
+      {
+        "id": "25bce448cdab5f17",
+        "group_id": "719c3051fab035e1",
+        "title": "Concert Nadal Llum i Misteri",
+        "slug": "concert-nadal-llum-i-misteri-2",
+        "event_date": "2023-01-08",
+        "summary": "Concert Nadal Llum i Misteri a Llinars del Valles (8 de gener de 2023)",
+        "body": "Concert del dia 7 de gener de 2023 a Llinars del Valles: Nadal, llum i misteri. Per les Corals Lo Rossinyol de Sant Antoni de Vilamajor i Turo del Vent de Llinars del Valles amb la col.laboracio especial com a rapsode de Joan Massotkleiner.",
+        "cover_url": "https://app.openmusicrepository.com/api/v1/amigos/media/254663",
+        "author_user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "status": "published",
+        "published_at": "2026-10-12T07:31:56.850753",
+        "reviewed_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "reviewed_at": "2026-10-12T09:31:56.851295",
+        "review_note": null,
+        "created_at": "2026-10-12T09:31:56.843746",
+        "updated_at": "2026-10-12T09:31:56.851295",
+        "scope": "group"
+      },
+      {
+        "id": "2bd56bd10fa5fecc",
+        "group_id": "df72ae26985011a4",
+        "title": "INSALATA ITALIANA",
+        "slug": "teatre-auditori-de-llinars-del-valles",
+        "event_date": "2007-11-17",
+        "summary": "IGLESIA -SAN JUAN BAUTISTA- ELIZA\nINSALATA ITALIANA interpreta la coral TURÓ DEL VENT de Llinars del Vallès Barcelona",
+        "body": "Hace unos pocos años....\n\nTodos los años por la Primavera, se celebra una concentración de coros en nuestra región, interpretan INSALATA ITALIANA la coral TURÓ DEL VENT, de Llinars del Vallès. Barcelona",
+        "cover_url": null,
+        "author_user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "status": "withdrawn",
+        "published_at": null,
+        "reviewed_by": null,
+        "reviewed_at": null,
+        "review_note": null,
+        "created_at": "2026-10-11T18:18:07.749780",
+        "updated_at": "2026-10-13T15:38:36.220646",
+        "scope": "group"
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_media": {
+    "count": 16,
+    "ddl": "CREATE TABLE `amigos_media` (\n  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,\n  `article_id` char(32) NOT NULL,\n  `kind` varchar(16) NOT NULL,\n  `url` varchar(1024) NOT NULL,\n  `provider` varchar(32) DEFAULT NULL,\n  `video_id` varchar(64) DEFAULT NULL,\n  `caption` varchar(512) DEFAULT NULL,\n  `credit` varchar(512) DEFAULT NULL,\n  `position` int(11) NOT NULL DEFAULT 0,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  PRIMARY KEY (`id`),\n  KEY `idx_amigos_media_article` (`article_id`,`position`),\n  CONSTRAINT `fk_amigos_media_article` FOREIGN KEY (`article_id`) REFERENCES `amigos_articles` (`id`) ON DELETE CASCADE\n) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": 2,
+        "article_id": "e044145143a298af",
+        "kind": "video",
+        "url": "https://www.youtube.com/watch?v=TooL_V0quzg&list=RDTooL_V0quzg&start_radio=1",
+        "provider": "youtube",
+        "video_id": "TooL_V0quzg",
+        "caption": null,
+        "credit": "55 SUBTÍTULOS CC",
+        "position": 0,
+        "created_at": "2026-10-11T18:24:09.350615"
+      },
+      {
+        "id": 3,
+        "article_id": "2bd56bd10fa5fecc",
+        "kind": "video",
+        "url": "https://www.youtube.com/watch?v=TooL_V0quzg&list=RDTooL_V0quzg&start_radio=1",
+        "provider": "youtube",
+        "video_id": "TooL_V0quzg",
+        "caption": null,
+        "credit": "55 SUBTÍTULOS CC",
+        "position": 0,
+        "created_at": "2026-10-11T19:17:32.622174"
+      },
+      {
+        "id": 5,
+        "article_id": "5289bee2f1fa890b",
+        "kind": "video",
+        "url": "https://www.youtube.com/watch?v=Tvo8-xYiZ18",
+        "provider": "youtube",
+        "video_id": "Tvo8-xYiZ18",
+        "caption": null,
+        "credit": null,
+        "position": 0,
+        "created_at": "2026-10-12T09:16:33.069527"
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_coral_details": {
+    "count": 2,
+    "ddl": "CREATE TABLE `amigos_coral_details` (\n  `group_id` char(32) NOT NULL,\n  `foundation_date` date DEFAULT NULL,\n  `dissolution_date` date DEFAULT NULL,\n  `locality` varchar(160) DEFAULT NULL,\n  `region` varchar(160) DEFAULT NULL,\n  `country_code` char(2) DEFAULT NULL,\n  `venue` varchar(255) DEFAULT NULL,\n  `formation_type` varchar(48) DEFAULT NULL,\n  `member_count` int(11) DEFAULT NULL,\n  `website` varchar(1024) DEFAULT NULL,\n  `public_email` varchar(254) DEFAULT NULL,\n  `director_person_id` varchar(64) DEFAULT NULL,\n  `director_label` varchar(255) DEFAULT NULL,\n  `linked_entity` varchar(255) DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  `updated_at` datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),\n  PRIMARY KEY (`group_id`),\n  CONSTRAINT `fk_amigos_coral_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_groups` (`id`) ON DELETE CASCADE\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "group_id": "719c3051fab035e1",
+        "foundation_date": "1900-01-01",
+        "dissolution_date": null,
+        "locality": "Sant Antoni de Vilamajor",
+        "region": "Barcelona",
+        "country_code": "ES",
+        "venue": "Escplas Velles/El Patronat",
+        "formation_type": "mixed",
+        "member_count": 20,
+        "website": null,
+        "public_email": null,
+        "director_person_id": null,
+        "director_label": "Jordi Piccorelli Lopez",
+        "linked_entity": null,
+        "created_at": "2026-10-12T09:10:42.454580",
+        "updated_at": "2026-10-12T09:10:42.456547"
+      },
+      {
+        "group_id": "df72ae26985011a4",
+        "foundation_date": "1984-09-01",
+        "dissolution_date": null,
+        "locality": "Llinars del valles",
+        "region": "Barcelona",
+        "country_code": "ES",
+        "venue": "Mas Baga",
+        "formation_type": "mixed",
+        "member_count": 30,
+        "website": null,
+        "public_email": null,
+        "director_person_id": null,
+        "director_label": "Emili Fortea",
+        "linked_entity": null,
+        "created_at": "2026-10-11T18:13:57.034209",
+        "updated_at": "2026-10-11T18:13:57.036501"
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_coral_attributes": {
+    "count": 6,
+    "ddl": "CREATE TABLE `amigos_coral_attributes` (\n  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,\n  `group_id` char(32) NOT NULL,\n  `facet` varchar(32) NOT NULL COMMENT 'repertoire|language',\n  `value` varchar(120) NOT NULL,\n  `position` int(11) NOT NULL DEFAULT 0,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `uq_amigos_coral_attr` (`group_id`,`facet`,`value`),\n  KEY `idx_amigos_coral_attr` (`group_id`,`facet`,`position`),\n  CONSTRAINT `fk_amigos_coral_attr_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_coral_details` (`group_id`) ON DELETE CASCADE\n) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": 1,
+        "group_id": "df72ae26985011a4",
+        "facet": "repertoire",
+        "value": "Abarca una amplia variedad de estilos musicales y han realizado espectáculos en colaboración con otras entidades cultura",
+        "position": 0,
+        "created_at": "2026-10-11T18:13:57.042156"
+      },
+      {
+        "id": 2,
+        "group_id": "df72ae26985011a4",
+        "facet": "repertoire",
+        "value": "centrado en los 60 años de la Nova Cançó.",
+        "position": 1,
+        "created_at": "2026-10-11T18:13:57.042684"
+      },
+      {
+        "id": 3,
+        "group_id": "df72ae26985011a4",
+        "facet": "place",
+        "value": "Teatre Auditori de Llinars del Vallès",
+        "position": 2,
+        "created_at": "2026-10-11T18:13:57.042877"
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_authorizations": {
+    "count": 2,
+    "ddl": "CREATE TABLE `amigos_authorizations` (\n  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,\n  `user_id` char(36) NOT NULL,\n  `scope` varchar(32) NOT NULL,\n  `direct_publish` tinyint(1) NOT NULL DEFAULT 0,\n  `granted_by` char(36) DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  `updated_at` datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `uq_amigos_auth` (`scope`,`user_id`)\n) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": 1,
+        "user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "scope": "blog",
+        "direct_publish": 1,
+        "granted_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-13T10:12:24.429604",
+        "updated_at": "2026-10-13T10:12:24.429604"
+      },
+      {
+        "id": 2,
+        "user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "scope": "events",
+        "direct_publish": 1,
+        "granted_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-13T10:12:39.832924",
+        "updated_at": "2026-10-13T10:12:39.832924"
+      }
+    ],
+    "target_exists": true
+  },
+  "amigos_uploads": {
+    "count": 13,
+    "ddl": "CREATE TABLE `amigos_uploads` (\n  `file_id` bigint(20) unsigned NOT NULL,\n  `group_id` char(32) NOT NULL,\n  `mime_type` varchar(64) DEFAULT NULL,\n  `size_bytes` bigint(20) unsigned DEFAULT NULL,\n  `created_by` char(36) DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  PRIMARY KEY (`file_id`),\n  KEY `idx_amigos_upload_group` (`group_id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "file_id": 254659,
+        "group_id": "df72ae26985011a4",
+        "mime_type": "image/png",
+        "size_bytes": 56857,
+        "created_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-11T18:55:03.399373"
+      },
+      {
+        "file_id": 254660,
+        "group_id": "719c3051fab035e1",
+        "mime_type": "image/png",
+        "size_bytes": 88227,
+        "created_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-12T09:01:27.238537"
+      },
+      {
+        "file_id": 254661,
+        "group_id": "719c3051fab035e1",
+        "mime_type": "image/png",
+        "size_bytes": 224804,
+        "created_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "created_at": "2026-10-12T09:05:42.625247"
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_actuaciones": {
+    "count": 1,
+    "ddl": "CREATE TABLE `amigos_actuaciones` (\n  `id` char(32) NOT NULL,\n  `slug` varchar(200) NOT NULL,\n  `title` varchar(512) NOT NULL,\n  `summary` text DEFAULT NULL,\n  `description` longtext DEFAULT NULL,\n  `image_url` varchar(1024) DEFAULT NULL,\n  `kind` varchar(32) NOT NULL DEFAULT 'concert',\n  `modality` varchar(16) NOT NULL DEFAULT 'onsite',\n  `event_status` varchar(16) NOT NULL DEFAULT 'scheduled',\n  `editorial_status` varchar(16) NOT NULL DEFAULT 'draft',\n  `starts_on` date NOT NULL,\n  `starts_at` time DEFAULT NULL,\n  `ends_on` date DEFAULT NULL,\n  `ends_at` time DEFAULT NULL,\n  `timezone` varchar(64) DEFAULT NULL,\n  `registration_deadline` date DEFAULT NULL,\n  `venue_name` varchar(255) DEFAULT NULL,\n  `venue_address` varchar(512) DEFAULT NULL,\n  `locality` varchar(160) DEFAULT NULL,\n  `region` varchar(160) DEFAULT NULL,\n  `country_code` char(2) DEFAULT NULL,\n  `latitude` decimal(9,6) DEFAULT NULL,\n  `longitude` decimal(9,6) DEFAULT NULL,\n  `map_url` varchar(1024) DEFAULT NULL,\n  `organizer_name` varchar(255) DEFAULT NULL,\n  `organizer_website` varchar(1024) DEFAULT NULL,\n  `event_url` varchar(1024) DEFAULT NULL,\n  `tickets_url` varchar(1024) DEFAULT NULL,\n  `price` varchar(120) DEFAULT NULL,\n  `access_info` text DEFAULT NULL,\n  `public_contact` varchar(254) DEFAULT NULL,\n  `organizer_group_id` char(32) DEFAULT NULL,\n  `author_user_id` char(36) NOT NULL,\n  `last_verified_on` date DEFAULT NULL,\n  `internal_notes` text DEFAULT NULL,\n  `published_at` datetime(6) DEFAULT NULL,\n  `reviewed_by` char(36) DEFAULT NULL,\n  `reviewed_at` datetime(6) DEFAULT NULL,\n  `review_note` varchar(512) DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  `updated_at` datetime(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),\n  `weight` tinyint(4) NOT NULL DEFAULT 5,\n  `views` int(10) unsigned NOT NULL DEFAULT 0,\n  `expands` int(10) unsigned NOT NULL DEFAULT 0,\n  `buys` int(10) unsigned NOT NULL DEFAULT 0,\n  `source_email` varchar(254) DEFAULT NULL,\n  `source_note` varchar(255) DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  UNIQUE KEY `uq_amigos_actuacion_slug` (`slug`),\n  KEY `idx_amigos_actuacion_date` (`starts_on`),\n  KEY `idx_amigos_actuacion_status` (`editorial_status`),\n  KEY `fk_amigos_actuacion_org` (`organizer_group_id`),\n  CONSTRAINT `fk_amigos_actuacion_org` FOREIGN KEY (`organizer_group_id`) REFERENCES `amigos_groups` (`id`) ON DELETE SET NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": "c45e9881376976f2",
+        "slug": "osimun-quartet-passi-odesfigurada",
+        "title": "Osimun Quartet - Passió desfigurada",
+        "summary": "Un quartet de saxófons que s'esta consolidant rápidament com un dels conjunts de cambra joves mes singulars d'Europa",
+        "description": null,
+        "image_url": "https://app.openmusicrepository.com/api/v1/amigos/media/254670",
+        "kind": "concert",
+        "modality": "onsite",
+        "event_status": "scheduled",
+        "editorial_status": "published",
+        "starts_on": "2026-11-17",
+        "starts_at": "19:00:00",
+        "ends_on": null,
+        "ends_at": null,
+        "timezone": null,
+        "registration_deadline": null,
+        "venue_name": "Patronat",
+        "venue_address": null,
+        "locality": "Sant Antoni de vilamajor",
+        "region": null,
+        "country_code": "ES",
+        "latitude": null,
+        "longitude": null,
+        "map_url": null,
+        "organizer_name": "APOC. Associació Popular de Concerts - Joventuts Musicals Baix Montseny",
+        "organizer_website": null,
+        "event_url": null,
+        "tickets_url": "https://www.entrapolis.com/entradas/osimun-quartet-passio-desfigurada",
+        "price": null,
+        "access_info": null,
+        "public_contact": null,
+        "organizer_group_id": null,
+        "author_user_id": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "last_verified_on": null,
+        "internal_notes": null,
+        "published_at": "2026-10-14T07:32:56.103194",
+        "reviewed_by": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "reviewed_at": "2026-10-14T09:32:56.103968",
+        "review_note": null,
+        "created_at": "2026-10-14T09:32:56.091661",
+        "updated_at": "2026-10-22T19:29:46.380010",
+        "weight": 5,
+        "views": 24,
+        "expands": 4,
+        "buys": 1,
+        "source_email": null,
+        "source_note": null
+      }
+    ],
+    "target_exists": false
+  },
+  "amigos_actuacion_groups": {
+    "count": 0,
+    "ddl": "CREATE TABLE `amigos_actuacion_groups` (\n  `actuacion_id` char(32) NOT NULL,\n  `group_id` char(32) NOT NULL,\n  `role` varchar(16) NOT NULL DEFAULT 'participant',\n  PRIMARY KEY (`actuacion_id`,`group_id`),\n  KEY `idx_amigos_ag_group` (`group_id`),\n  CONSTRAINT `fk_amigos_ag_actuacion` FOREIGN KEY (`actuacion_id`) REFERENCES `amigos_actuaciones` (`id`) ON DELETE CASCADE,\n  CONSTRAINT `fk_amigos_ag_group` FOREIGN KEY (`group_id`) REFERENCES `amigos_groups` (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [],
+    "target_exists": false
+  },
+  "amigos_events": {
+    "count": 57,
+    "ddl": "CREATE TABLE `amigos_events` (\n  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,\n  `group_id` char(32) DEFAULT NULL,\n  `article_id` char(32) DEFAULT NULL,\n  `event_type` varchar(48) NOT NULL,\n  `actor` char(36) DEFAULT NULL,\n  `from_status` varchar(16) DEFAULT NULL,\n  `to_status` varchar(16) DEFAULT NULL,\n  `detail_json` longtext DEFAULT NULL,\n  `created_at` datetime(6) NOT NULL DEFAULT current_timestamp(6),\n  PRIMARY KEY (`id`),\n  KEY `idx_amigos_event_group` (`group_id`,`created_at`),\n  KEY `idx_amigos_event_article` (`article_id`,`created_at`)\n) ENGINE=InnoDB AUTO_INCREMENT=58 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "samples": [
+      {
+        "id": 1,
+        "group_id": "df72ae26985011a4",
+        "article_id": null,
+        "event_type": "coral_details_updated",
+        "actor": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "from_status": null,
+        "to_status": null,
+        "detail_json": null,
+        "created_at": "2026-10-11T18:13:57.044419"
+      },
+      {
+        "id": 2,
+        "group_id": "df72ae26985011a4",
+        "article_id": null,
+        "event_type": "member_granted",
+        "actor": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "from_status": null,
+        "to_status": null,
+        "detail_json": "{\"user_id\": \"138ce0ad-2a53-4294-be7d-7e8656087ae0\", \"role\": \"admin\"}",
+        "created_at": "2026-10-11T18:15:02.605429"
+      },
+      {
+        "id": 3,
+        "group_id": "df72ae26985011a4",
+        "article_id": "2bd56bd10fa5fecc",
+        "event_type": "article_created",
+        "actor": "138ce0ad-2a53-4294-be7d-7e8656087ae0",
+        "from_status": "published",
+        "to_status": "published",
+        "detail_json": null,
+        "created_at": "2026-10-11T18:18:07.757818"
+      }
+    ],
+    "target_exists": true
+  }
+}
