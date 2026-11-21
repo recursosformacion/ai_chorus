@@ -72,6 +72,7 @@ python scripts/runners/run_core_tests.py       # grupos, artículos y auditoría
 - [Modelo de dominio](docs/domain-model.md)
 - [Roadmap](docs/roadmap.md)
 - [Decisiones de diseño](docs/decisions.md)
+- [Espacios de trabajo y trabajos de preparación](docs/workspaces-and-preparation.md)
 - [Esquema piloto V6 y pruebas de integridad](docs/v6-pilot-schema.md)
 - [Flujo API de creación y edición con OSAP y MuseEncore](docs/work-creation-api.md)
 - [Módulo de estudio coral](docs/study-module.md)

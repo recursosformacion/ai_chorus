@@ -78,6 +78,13 @@ def _clean_groups_for_integration(request):
         settings = Settings.load()
         with db_connect(settings) as conn:
             # Eliminar en orden inverso por FK
+            # Primero eliminar preparation_works que referencian spaces
+            conn.execute("DELETE FROM preparation_work_items")
+            conn.execute("DELETE FROM preparation_work_files")
+            conn.execute("DELETE FROM preparation_works")
+            # Luego eliminar spaces que referencian groups
+            conn.execute("DELETE FROM spaces")
+            # Luego eliminar group_members y groups
             conn.execute("DELETE FROM group_members")
             conn.execute("DELETE FROM groups")
             conn.commit()

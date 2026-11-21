@@ -44,6 +44,10 @@ MIGRATIONS = [
     "034_unify_group_member_roles.sql",
     "035_preparation_works.sql",
     "036_add_notification_preferences.sql",
+    "037_spaces.sql",
+    "038_preparation_work_items.sql",
+    "039_preparation_work_files.sql",
+    "040_migrate_preparation_works_to_spaces.sql",
     # 009_legacy_baseline NO se ejecuta en reconstrucción desde cero
 ]
 

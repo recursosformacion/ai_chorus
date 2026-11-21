@@ -311,6 +311,52 @@ class MessageBody(BaseModel):
     recipient_subs: list[str] = Field(default_factory=list, max_length=200)
 
 
+# ===== Spaces models =====
+class SpaceCreateBody(BaseModel):
+    space_type: Literal["personal", "group", "project"]
+    group_id: str | None = Field(default=None, max_length=191)
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class SpaceUpdateBody(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+class SpaceConvertBody(BaseModel):
+    target_type: Literal["group", "project"]
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+
+
+# ===== Preparation work items models =====
+class PreparationWorkItemBody(BaseModel):
+    work_id: str = Field(min_length=1, max_length=191)
+    resource_id: str = Field(min_length=1, max_length=191)
+    voice_label: str | None = Field(default=None, max_length=64)
+    instrument: str | None = Field(default=None, max_length=64)
+    custom_title: str | None = Field(default=None, max_length=200)
+    sort_order: int = Field(default=0, ge=0)
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+class PreparationWorkItemUpdateBody(BaseModel):
+    voice_label: str | None = Field(default=None, max_length=64)
+    instrument: str | None = Field(default=None, max_length=64)
+    custom_title: str | None = Field(default=None, max_length=200)
+    sort_order: int | None = Field(default=None, ge=0)
+    status: Literal["pending", "rehearsing", "ready", "archived"] | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+# ===== Preparation work files models =====
+class PreparationWorkFileBody(BaseModel):
+    file_id: str = Field(min_length=1, max_length=191)
+    purpose: Literal["score", "part", "audio", "video", "other"] = "other"
+    sort_order: int = Field(default=0, ge=0)
+
+
 def _roles(profile: dict[str, Any]) -> set[str]:
     roles = profile.get("roles")
     return {str(role) for role in roles} if isinstance(roles, list) else set()
@@ -336,6 +382,71 @@ def _is_representative(profile: dict[str, Any], entity_id: str) -> bool:
         and membership.get("is_representative") is True
         for membership in _approved_memberships(profile)
     )
+
+
+# ===== Spaces helpers =====
+def _is_space_owner(conn, space_id: str, user_id: str) -> bool:
+    """Check if user is the owner of a space."""
+    space = conn.execute(
+        "SELECT owner_sub FROM spaces WHERE id = ?", (space_id,)
+    ).fetchone()
+    return space is not None and space["owner_sub"] == user_id
+
+
+def _can_manage_space(conn, space_id: str, user_id: str, profile: dict[str, Any]) -> bool:
+    """Check if user can manage a space (create/update preparation works, etc.).
+    Returns True for:
+    - Platform admin
+    - Space owner
+    - Group manager (if space is group/project)
+    """
+    admin = _is_admin(profile)
+    if admin:
+        return True
+    space = conn.execute(
+        "SELECT space_type, group_id, owner_sub FROM spaces WHERE id = ?", (space_id,)
+    ).fetchone()
+    if space is None:
+        return False
+    if space["owner_sub"] == user_id:
+        return True
+    if space["group_id"]:
+        member = conn.execute(
+            "SELECT role FROM group_members "
+            "WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+            (space["group_id"], user_id),
+        ).fetchone()
+        if member and member["role"] == "manager":
+            return True
+    return False
+
+
+def _can_view_space(conn, space_id: str, user_id: str, profile: dict[str, Any]) -> bool:
+    """Check if user can view a space.
+    Returns True for:
+    - Platform admin
+    - Space owner
+    - Any active member of the group/project (if space is group/project)
+    """
+    admin = _is_admin(profile)
+    if admin:
+        return True
+    space = conn.execute(
+        "SELECT space_type, group_id, owner_sub FROM spaces WHERE id = ?", (space_id,)
+    ).fetchone()
+    if space is None:
+        return False
+    if space["owner_sub"] == user_id:
+        return True
+    if space["group_id"]:
+        member = conn.execute(
+            "SELECT 1 FROM group_members "
+            "WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+            (space["group_id"], user_id),
+        ).fetchone()
+        if member:
+            return True
+    return False
 
 
 def _normalise_iso(value: str) -> str:
@@ -4670,6 +4781,208 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return dict(updated)
 
 
+    # ===== spaces endpoints =====
+    @app.get("/api/v1/spaces")
+    def list_spaces(
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        """List all spaces accessible to the current user."""
+        user_id = str(profile["user_id"])
+        admin = _is_admin(profile)
+        with _connect(cfg) as conn:
+            if admin:
+                rows = conn.execute(
+                    "SELECT * FROM spaces ORDER BY created_at DESC"
+                ).fetchall()
+            else:
+                # Personal spaces owned by user
+                # Group/project spaces where user is owner or member
+                rows = conn.execute(
+                    """
+                    SELECT s.* FROM spaces s
+                    WHERE s.owner_sub = ?
+                       OR (s.group_id IS NOT NULL AND EXISTS (
+                           SELECT 1 FROM group_members gm
+                           WHERE gm.group_id = s.group_id AND gm.user_sub = ? AND gm.status = 'active'
+                       ))
+                    ORDER BY s.created_at DESC
+                    """,
+                    (user_id, user_id),
+                ).fetchall()
+        return [_space_dto(row) for row in rows]
+
+    @app.post("/api/v1/spaces", status_code=201)
+    def create_space(
+        body: SpaceCreateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Create a new space."""
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        space_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            # Validate group_id if provided
+            if body.group_id:
+                group = conn.execute(
+                    "SELECT 1 FROM groups WHERE id = ?", (body.group_id,)
+                ).fetchone()
+                if group is None:
+                    raise HTTPException(status_code=404, detail="Group not found")
+            # Validate space_type constraints
+            if body.space_type == "personal" and body.group_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Personal spaces cannot have a group_id"
+                )
+            if body.space_type in ("group", "project") and not body.group_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{body.space_type} spaces must have a group_id"
+                )
+            conn.execute(
+                "INSERT INTO spaces "
+                "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    space_id, body.space_type, user_id, body.group_id,
+                    body.name.strip(), body.description, now, now,
+                ),
+            )
+            row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
+        return _space_dto(row)
+
+    @app.get("/api/v1/spaces/{space_id}")
+    def get_space(
+        space_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Get a space by ID."""
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            if not _can_view_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Space not found")
+        return _space_dto(row)
+
+    @app.patch("/api/v1/spaces/{space_id}")
+    def update_space(
+        space_id: str,
+        body: SpaceUpdateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Update a space."""
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        with _connect(cfg) as conn:
+            if not _can_manage_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            updates = []
+            values: list[Any] = []
+            if body.name is not None:
+                updates.append("name = ?")
+                values.append(body.name.strip())
+            if body.description is not None:
+                updates.append("description = ?")
+                values.append(body.description)
+            if not updates:
+                row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Space not found")
+                return _space_dto(row)
+            updates.append("updated_at = ?")
+            values.append(now)
+            values.append(space_id)
+            conn.execute(
+                f"UPDATE spaces SET {', '.join(updates)} WHERE id = ?",
+                tuple(values),
+            )
+            row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
+        return _space_dto(row)
+
+    @app.post("/api/v1/spaces/{space_id}/convert", status_code=201)
+    def convert_space(
+        space_id: str,
+        body: SpaceConvertBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Convert a personal space to a group or project space.
+        This is a transactional operation."""
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        with _connect(cfg) as conn:
+            space = conn.execute(
+                "SELECT * FROM spaces WHERE id = ? AND space_type = 'personal'", (space_id,)
+            ).fetchone()
+            if space is None:
+                raise HTTPException(status_code=404, detail="Personal space not found")
+            if space["owner_sub"] != user_id:
+                raise HTTPException(status_code=403, detail="Only the owner can convert their space")
+
+            # Validate target_type
+            if body.target_type not in ("group", "project"):
+                raise HTTPException(status_code=400, detail="target_type must be 'group' or 'project'")
+
+            # Create group or project
+            group_id = uuid.uuid4().hex
+            group_name = body.name or space["name"]
+            group_description = body.description or space["description"] or ""
+
+            conn.execute(
+                "INSERT INTO groups "
+                "(id, entity_id, name, timezone, created_by, join_code, created_at, updated_at, kind, description) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    group_id, user_id, group_name, "Europe/Madrid", user_id,
+                    secrets.token_urlsafe(8).upper()[:12], now, now,
+                    "project" if body.target_type == "project" else "grupo",
+                    group_description,
+                ),
+            )
+
+            # Create membership for owner
+            member_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO group_members "
+                "(id, group_id, user_sub, role, status, display_name, joined_at, updated_at) "
+                "VALUES (?,?,?, 'manager', 'active', ?, ?, ?)",
+                (member_id, group_id, user_id, "", now, now),
+            )
+
+            # Update space
+            conn.execute(
+                "UPDATE spaces SET space_type = ?, group_id = ?, updated_at = ? WHERE id = ?",
+                (body.target_type, group_id, now, space_id),
+            )
+
+            # Activity log
+            conn.execute(
+                "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    f"conv-{user_id[:8]}-{int(time.time())}",
+                    group_id, "space_converted", user_id, "personal", body.target_type,
+                    json.dumps({"space_id": space_id, "target_type": body.target_type}),
+                    now,
+                ),
+            )
+
+            row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
+        return _space_dto(row)
+
+    def _space_dto(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "space_type": row["space_type"],
+            "owner_sub": row["owner_sub"],
+            "group_id": row["group_id"],
+            "name": row["name"],
+            "description": row["description"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
     # ===== preparation_works helpers =====
     def _can_manage_preparation_work(conn, group_id: str, user_id: str, profile: dict[str, Any]) -> bool:
         """Check if user can manage preparation works in a group.
@@ -4722,7 +5035,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def _preparation_work_dto(row: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": row["id"],
-            "group_id": row["group_id"],
+            "space_id": row["space_id"],
             "title": row["title"],
             "composer": row["composer"],
             "folder_path": row["folder_path"],
@@ -4750,9 +5063,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_view_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Not a member of this group")
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            space_id = space["id"]
             work = conn.execute(
-                "SELECT * FROM preparation_works WHERE id = ? AND group_id = ?",
-                (work_id, group_id),
+                "SELECT * FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
             ).fetchone()
             if work is None:
                 raise HTTPException(status_code=404, detail="Preparation work not found")
@@ -4772,8 +5093,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_view_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Not a member of this group")
-            where = ["group_id = ?"]
-            params: list[Any] = [group_id]
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                return []
+            space_id = space["id"]
+            where = ["space_id = ?"]
+            params: list[Any] = [space_id]
             if status:
                 where.append("status = ?")
                 params.append(status)
@@ -4795,21 +5124,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
-            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            group = conn.execute("SELECT id, name FROM groups WHERE id = ?", (group_id,)).fetchone()
             if group is None:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_manage_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Only group managers or musical directors can create preparation works")
+            # Find or create space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                # Create space for this group
+                space_id = uuid.uuid4().hex
+                now = utcnow()
+                conn.execute(
+                    "INSERT INTO spaces "
+                    "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (space_id, 'group', user_id, group_id, group["name"], None, now, now),
+                )
+            else:
+                space_id = space["id"]
             now = utcnow()
             work_id = uuid.uuid4().hex
-            # Create folder path: preparation/{group_id}/{work_id}
-            folder_path = f"preparation/{group_id}/{work_id}"
+            # Create folder path: preparation/{space_id}/{work_id}
+            folder_path = f"preparation/{space_id}/{work_id}"
             conn.execute(
                 "INSERT INTO preparation_works "
-                "(id, group_id, title, composer, folder_path, status, destination_type, event_name, event_date, notes, created_by, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "(id, space_id, group_id, title, composer, folder_path, status, destination_type, event_name, event_date, notes, created_by, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    work_id, group_id, body.title.strip(), body.composer, folder_path,
+                    work_id, space_id, group_id, body.title.strip(), body.composer, folder_path,
                     "preparing", body.destination_type, body.event_name, body.event_date, body.notes,
                     user_id, now, now,
                 ),
@@ -4832,9 +5178,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_manage_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Only group managers or musical directors can update preparation works")
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                raise HTTPException(status_code=404, detail="Space not found for this group")
+            space_id = space["id"]
             work = conn.execute(
-                "SELECT * FROM preparation_works WHERE id = ? AND group_id = ?",
-                (work_id, group_id),
+                "SELECT * FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
             ).fetchone()
             if work is None:
                 raise HTTPException(status_code=404, detail="Preparation work not found")
@@ -4871,9 +5225,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_manage_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Only group managers or musical directors can delete preparation works")
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                raise HTTPException(status_code=404, detail="Space not found for this group")
+            space_id = space["id"]
             work = conn.execute(
-                "SELECT * FROM preparation_works WHERE id = ? AND group_id = ?",
-                (work_id, group_id),
+                "SELECT * FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
             ).fetchone()
             if work is None:
                 raise HTTPException(status_code=404, detail="Preparation work not found")
@@ -4909,9 +5271,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_manage_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Only group managers or musical directors can upload files")
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                raise HTTPException(status_code=404, detail="Space not found for this group")
+            space_id = space["id"]
             work = conn.execute(
-                "SELECT * FROM preparation_works WHERE id = ? AND group_id = ?",
-                (work_id, group_id),
+                "SELECT * FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
             ).fetchone()
             if work is None:
                 raise HTTPException(status_code=404, detail="Preparation work not found")
@@ -4955,9 +5325,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_view_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Not a member of this group")
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                return []
+            space_id = space["id"]
             work = conn.execute(
-                "SELECT folder_path FROM preparation_works WHERE id = ? AND group_id = ?",
-                (work_id, group_id),
+                "SELECT folder_path FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
             ).fetchone()
             if work is None:
                 raise HTTPException(status_code=404, detail="Preparation work not found")
@@ -4997,9 +5375,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_view_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Not a member of this group")
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                raise HTTPException(status_code=404, detail="Space not found for this group")
+            space_id = space["id"]
             work = conn.execute(
-                "SELECT folder_path FROM preparation_works WHERE id = ? AND group_id = ?",
-                (work_id, group_id),
+                "SELECT folder_path FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
             ).fetchone()
             if work is None:
                 raise HTTPException(status_code=404, detail="Preparation work not found")
@@ -5035,9 +5421,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_manage_preparation_work(conn, group_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Only group managers or musical directors can delete files")
+            # Find space for this group
+            space = conn.execute(
+                "SELECT id FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,)
+            ).fetchone()
+            if space is None:
+                raise HTTPException(status_code=404, detail="Space not found for this group")
+            space_id = space["id"]
             work = conn.execute(
-                "SELECT folder_path FROM preparation_works WHERE id = ? AND group_id = ?",
-                (work_id, group_id),
+                "SELECT folder_path FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
             ).fetchone()
             if work is None:
                 raise HTTPException(status_code=404, detail="Preparation work not found")
@@ -5051,6 +5445,268 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             file_path.unlink()
         return {"ok": True}
 
+
+    # ===== preparation_work_items endpoints =====
+    @app.get("/api/v1/spaces/{space_id}/preparation-works/{work_id}/items")
+    def list_preparation_work_items(
+        space_id: str,
+        work_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        """List all items in a preparation work."""
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            if not _can_view_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = conn.execute(
+                "SELECT 1 FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            rows = conn.execute(
+                "SELECT * FROM preparation_work_items WHERE preparation_work_id = ? ORDER BY sort_order, id",
+                (work_id,),
+            ).fetchall()
+        return [_preparation_work_item_dto(row) for row in rows]
+
+    @app.post("/api/v1/spaces/{space_id}/preparation-works/{work_id}/items", status_code=201)
+    def create_preparation_work_item(
+        space_id: str,
+        work_id: str,
+        body: PreparationWorkItemBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Add an item (work + resource) to a preparation work."""
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        item_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            if not _can_manage_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = conn.execute(
+                "SELECT 1 FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            # Validate work_id and resource_id belong together
+            resource = conn.execute(
+                "SELECT work_id FROM resources WHERE id = ?", (body.resource_id,)
+            ).fetchone()
+            if resource is None:
+                raise HTTPException(status_code=404, detail="Resource not found")
+            if resource["work_id"] != body.work_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Resource does not belong to the specified Work"
+                )
+            conn.execute(
+                "INSERT INTO preparation_work_items "
+                "(id, preparation_work_id, work_id, resource_id, voice_label, instrument, custom_title, sort_order, status, notes, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    item_id, work_id, body.work_id, body.resource_id,
+                    body.voice_label, body.instrument, body.custom_title,
+                    body.sort_order, "pending", body.notes, now, now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM preparation_work_items WHERE id = ?", (item_id,)
+            ).fetchone()
+        return _preparation_work_item_dto(row)
+
+    @app.patch("/api/v1/spaces/{space_id}/preparation-works/{work_id}/items/{item_id}")
+    def update_preparation_work_item(
+        space_id: str,
+        work_id: str,
+        item_id: str,
+        body: PreparationWorkItemUpdateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Update an item in a preparation work."""
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        with _connect(cfg) as conn:
+            if not _can_manage_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = conn.execute(
+                "SELECT 1 FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            item = conn.execute(
+                "SELECT * FROM preparation_work_items WHERE id = ? AND preparation_work_id = ?",
+                (item_id, work_id),
+            ).fetchone()
+            if item is None:
+                raise HTTPException(status_code=404, detail="Preparation work item not found")
+            updates = []
+            values: list[Any] = []
+            for column in ("voice_label", "instrument", "custom_title", "sort_order", "status", "notes"):
+                value = getattr(body, column)
+                if value is not None:
+                    updates.append(f"{column} = ?")
+                    values.append(value)
+            if not updates:
+                return _preparation_work_item_dto(item)
+            updates.append("updated_at = ?")
+            values.append(now)
+            values.append(item_id)
+            conn.execute(
+                f"UPDATE preparation_work_items SET {', '.join(updates)} WHERE id = ?",
+                tuple(values),
+            )
+            row = conn.execute(
+                "SELECT * FROM preparation_work_items WHERE id = ?", (item_id,)
+            ).fetchone()
+        return _preparation_work_item_dto(row)
+
+    @app.delete("/api/v1/spaces/{space_id}/preparation-works/{work_id}/items/{item_id}")
+    def delete_preparation_work_item(
+        space_id: str,
+        work_id: str,
+        item_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Remove an item from a preparation work."""
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            if not _can_manage_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = conn.execute(
+                "SELECT 1 FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            item = conn.execute(
+                "SELECT 1 FROM preparation_work_items WHERE id = ? AND preparation_work_id = ?",
+                (item_id, work_id),
+            ).fetchone()
+            if item is None:
+                raise HTTPException(status_code=404, detail="Preparation work item not found")
+            conn.execute(
+                "DELETE FROM preparation_work_items WHERE id = ?", (item_id,)
+            )
+        return {"ok": True}
+
+    def _preparation_work_item_dto(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "preparation_work_id": row["preparation_work_id"],
+            "work_id": row["work_id"],
+            "resource_id": row["resource_id"],
+            "voice_label": row["voice_label"],
+            "instrument": row["instrument"],
+            "custom_title": row["custom_title"],
+            "sort_order": row["sort_order"],
+            "status": row["status"],
+            "notes": row["notes"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    # ===== preparation_work_files endpoints =====
+    @app.get("/api/v1/spaces/{space_id}/preparation-works/{work_id}/files")
+    def list_preparation_work_files(
+        space_id: str,
+        work_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        """List all files attached to a preparation work."""
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            if not _can_view_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = conn.execute(
+                "SELECT 1 FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            rows = conn.execute(
+                "SELECT * FROM preparation_work_files WHERE preparation_work_id = ? ORDER BY sort_order, id",
+                (work_id,),
+            ).fetchall()
+        return [_preparation_work_file_dto(row) for row in rows]
+
+    @app.post("/api/v1/spaces/{space_id}/preparation-works/{work_id}/files", status_code=201)
+    def add_preparation_work_file(
+        space_id: str,
+        work_id: str,
+        body: PreparationWorkFileBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Attach an existing file to a preparation work."""
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        file_ref_id = uuid.uuid4().hex
+        with _connect(cfg) as conn:
+            if not _can_manage_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = conn.execute(
+                "SELECT 1 FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            # Validate file exists
+            file = conn.execute(
+                "SELECT 1 FROM files WHERE id = ?", (body.file_id,)
+            ).fetchone()
+            if file is None:
+                raise HTTPException(status_code=404, detail="File not found")
+            conn.execute(
+                "INSERT INTO preparation_work_files "
+                "(id, preparation_work_id, file_id, purpose, sort_order, created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (file_ref_id, work_id, body.file_id, body.purpose, body.sort_order, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM preparation_work_files WHERE id = ?", (file_ref_id,)
+            ).fetchone()
+        return _preparation_work_file_dto(row)
+
+    @app.delete("/api/v1/spaces/{space_id}/preparation-works/{work_id}/files/{file_ref_id}")
+    def remove_preparation_work_file(
+        space_id: str,
+        work_id: str,
+        file_ref_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Remove a file reference from a preparation work."""
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            if not _can_manage_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = conn.execute(
+                "SELECT 1 FROM preparation_works WHERE id = ? AND space_id = ?",
+                (work_id, space_id),
+            ).fetchone()
+            if work is None:
+                raise HTTPException(status_code=404, detail="Preparation work not found")
+            file_ref = conn.execute(
+                "SELECT 1 FROM preparation_work_files WHERE id = ? AND preparation_work_id = ?",
+                (file_ref_id, work_id),
+            ).fetchone()
+            if file_ref is None:
+                raise HTTPException(status_code=404, detail="File reference not found")
+            conn.execute(
+                "DELETE FROM preparation_work_files WHERE id = ?", (file_ref_id,)
+            )
+        return {"ok": True}
+
+    def _preparation_work_file_dto(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "preparation_work_id": row["preparation_work_id"],
+            "file_id": row["file_id"],
+            "purpose": row["purpose"],
+            "sort_order": row["sort_order"],
+            "created_at": row["created_at"],
+        }
 
     return app
 

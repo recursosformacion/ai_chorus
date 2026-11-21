@@ -116,3 +116,41 @@ Chorus consulta OSAP mediante `POST /api/v1/searches`, `GET /api/v1/searches/{se
 Chorus no solicita una audiencia propia en `POST /auth/login`: usa la audiencia predeterminada de osap-auth (`osap-api`) y delega la validación de cada sesión en `GET /auth/me`. Esto permite ejecutar el piloto sin cambios en Auth ni en su configuración desplegada.
 
 Una audiencia `chorus-api` es el endurecimiento previsto: requiere añadirla a `allowed_token_audiences`, aceptarla en `/auth/me` y solicitarla desde Chorus. No es requisito para la primera entrega y no debe presentarse como ya habilitada.
+
+## CH-017 — El espacio de trabajo es `groups`, no una entidad superior
+
+**Estado:** Propuesta. Pendiente de aprobación.
+
+Los espacios de trabajo (personal, grupo, proyecto) se modelan ampliando `groups` con
+`kind` (`personal` / `grupo` / `proyecto`), `owner_sub`, `personal_of` y `archived_at`.
+No se introduce una entidad `workspaces` por encima de `groups`.
+
+Motivo: `groups` ya tiene `kind`, `status`, `entity_id`, membresía y roles. Una entidad
+superior duplicaría la membresía, obligaría a reescribir los endpoints que filtran por
+`group_id` y crearía dos caminos de autorización que pueden divergir.
+
+El espacio personal se crea bajo demanda (no en el registro) y no usa `group_members`:
+`personal_of` identifica al propietario. El nombre de columna `group_id` se mantiene en
+`preparation_works` y se documenta como «espacio», para no romper la API pública.
+
+Detalle completo en [workspaces-and-preparation.md](workspaces-and-preparation.md).
+
+## CH-018 — Las obras de un trabajo se referencian, no se duplican
+
+**Estado:** Propuesta. Pendiente de aprobación.
+
+La relación trabajo ↔ obra se modela con `preparation_work_items`, que referencia
+`works.id` (y opcionalmente `resources.id` como selección concreta). Una obra en varios
+trabajos ocupa una fila en `works` y una fila de contexto por trabajo.
+
+No se copia la obra ni sus ficheros. Se respeta la arquitectura V6 Work → Resource → File.
+
+## CH-019 — La propiedad no se transfiere al convertir un espacio personal
+
+**Estado:** Propuesta. Pendiente de aprobación.
+
+Convertir un espacio personal en proyecto requiere confirmación explícita del
+propietario. La biblioteca personal (`library_items`) no se comparte en la conversión;
+las obras permanecen en `works` con su `owner_sub` original.
+
+Esto evita exponer contenidos personales por invitar a otra persona sin intención.
