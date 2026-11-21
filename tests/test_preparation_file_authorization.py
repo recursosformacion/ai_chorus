@@ -60,7 +60,12 @@ def _insert_chain(conn, *, work_id, resource_id, file_id,
 
 @pytest.fixture
 def scenario(integration_settings: Settings, monkeypatch):
-    """Grupo con dos secciones, un archivo restringido y otro sin restringir."""
+    """Grupo con dos secciones, un archivo restringido y otro sin restringir.
+
+    Al terminar (también si la prueba falla) elimina las dos filas que crea en
+    ``group_sections``, identificadas por id derivado del grupo, sin afectar a
+    secciones de otras pruebas.
+    """
     profiles = {
         "token-mgr": _profile("sec-mgr"),
         "token-s1": _profile("sec-one"),
@@ -78,10 +83,11 @@ def scenario(integration_settings: Settings, monkeypatch):
     grp = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo Secciones"}).json()
     group_id, join_code = grp["id"], grp["join_code"]
 
-    # group_sections no tiene FK a groups: se usan ids únicos por grupo y se
-    # limpian explícitamente para que el test sea repetible.
+    # group_sections no tiene FK a groups: los ids se derivan del grupo para
+    # no colisionar entre ejecuciones y las filas se borran en el finally.
     sec1_id = f"sec1-{group_id[:10]}"
     sec2_id = f"sec2-{group_id[:10]}"
+    created_sections = (sec1_id, sec2_id)
 
     with db_connect(integration_settings) as conn:
         for section_id, name, code in ((sec1_id, "Soprano", "soprano"),
@@ -151,12 +157,25 @@ def scenario(integration_settings: Settings, monkeypatch):
         stored.parent.mkdir(parents=True, exist_ok=True)
         stored.write_bytes(contents[file_id])
 
-    yield {
+    ctx = {
         "client": client, "mgr": mgr, "s1": s1, "s2": s2, "out": out,
         "group_id": group_id, "space_id": space_id, "work_id": work_id,
         "sec_file_id": "f-sec", "free_file_id": "f-free",
     }
-    client.close()
+    try:
+        yield ctx
+    finally:
+        # Se ejecuta también si la prueba falla: sólo las filas de este grupo.
+        client.close()
+        _delete_sections(integration_settings, created_sections)
+
+
+def _delete_sections(settings: Settings, section_ids) -> None:
+    """Borra sólo las secciones indicadas, sin tocar las de otras pruebas."""
+    with db_connect(settings) as conn:
+        for section_id in section_ids:
+            conn.execute("DELETE FROM group_sections WHERE id = ?", (section_id,))
+        conn.commit()
 
 
 def _list(client, headers, space_id, work_id):

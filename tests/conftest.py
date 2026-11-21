@@ -119,6 +119,9 @@ def _clean_groups_for_integration(request):
         conn.execute("DELETE FROM preparation_works")
         conn.execute("DELETE FROM spaces")
         conn.execute("DELETE FROM group_members")
+        # group_sections no tiene FK a groups: hay que borrarla explícitamente
+        # o sus filas sobreviven a la eliminación del grupo.
+        conn.execute("DELETE FROM group_sections")
         conn.execute("DELETE FROM groups")
         # Cadenas Work -> Resource -> File (works.required_resource_id es
         # circular, por eso se desactivan temporalmente las FKs)
@@ -174,6 +177,8 @@ def _clean_db_for_db_tests(request):
         conn.execute("DELETE FROM preparation_works")
         conn.execute("DELETE FROM spaces")
         conn.execute("DELETE FROM group_members")
+        # group_sections no tiene FK a groups: borrado explícito
+        conn.execute("DELETE FROM group_sections")
         conn.execute("DELETE FROM groups")
         conn.execute("DELETE FROM group_article_media")
         conn.execute("DELETE FROM group_articles")
