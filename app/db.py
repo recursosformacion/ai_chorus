@@ -327,6 +327,38 @@ def _is_migration_registered(conn: Any, name: str) -> bool:
     return row is not None
 
 
+# Tablas donde puede vivir cada índice gestionado por 004-007.
+_INDEX_PARENT_TABLES = ("resources", "events", "group_articles", "group_article_media")
+
+# Sentencias de recreación de índices secundarios (idempotentes a nivel lógico).
+_INDEX_STATEMENTS = {
+    "idx_resources_material":
+        "CREATE INDEX idx_resources_material ON resources (work_id, material_status)",
+    "idx_resources_group_status":
+        "CREATE INDEX idx_resources_group_status ON resources (group_id, material_status)",
+    "idx_events_series":
+        "CREATE INDEX idx_events_series ON events (series_id, starts_at)",
+}
+
+# Columnas que 004_material_library.sql comparte con 001_schema.sql.
+# Se define, además, su valor por defecto en el baseline.
+_BASELINE_COLUMN_DEFAULTS = {
+    ("resources", "material_status"): "'draft'",
+}
+
+# Columnas que 004 añade y que el baseline NO define: si ya existen, el
+# esquema lo creó otra vía y no se puede reejecutar el ALTER a ciegas.
+_MIGRATION_ONLY_COLUMNS = {
+    "004_material_library.sql": {
+        ("resources", "version_label"),
+        ("resources", "part_label"),
+        ("files", "folder_path"),
+        ("files", "display_name"),
+        ("files", "original_name"),
+    },
+}
+
+
 def _get_expected_objects(mig_name: str) -> dict[str, set[str]]:
     """Devuelve objetos esperados por migración."""
     objects = {
@@ -359,7 +391,7 @@ def _get_existing_objects(conn: Any, expected: dict[str, set[str]]) -> dict[str,
             if existing_tables:
                 existing["tables"] = existing_tables
         elif obj_type == "indexes":
-            existing_idx = {i for i in names if any(_index_exists(conn, t, i) for t in ['resources', 'events', 'group_articles', 'group_article_media'])}
+            existing_idx = {i for i in names if any(_index_exists(conn, t, i) for t in _INDEX_PARENT_TABLES)}
             if existing_idx:
                 existing["indexes"] = existing_idx
         else:  # columnas (obj_type es nombre de tabla: "resources", "files", etc.)
@@ -392,6 +424,29 @@ def _register_legacy_baseline_recognition(conn: Any) -> None:
         ("009_legacy_baseline", utcnow())
     )
     conn.commit()
+
+
+def _ensure_expected_indexes(conn: Any, mig_name: str, present: set[str]) -> set[str]:
+    """Recrea los índices esperados que falten.
+
+    Un índice ausente no deja el esquema ambiguo: las columnas existen y el
+    índice sólo mejora consultas, por lo que se crea de forma idempotente.
+    Retorna el conjunto de índices esperados (todos presentes tras la llamada).
+    """
+    expected_indexes = _get_expected_objects(mig_name).get("indexes", set())
+    missing = set(expected_indexes) - set(present)
+    if not missing:
+        return set(expected_indexes)
+
+    for index_name in sorted(missing):
+        statement = _INDEX_STATEMENTS.get(index_name)
+        if not statement:
+            raise RuntimeError(
+                f"Índice {index_name} de {mig_name} sin sentencia de recreación. ABORTAR."
+            )
+        conn.execute(statement)
+        conn.commit()
+    return set(expected_indexes)
 
 
 def _safe_execute_migration(conn: Any, mig_name: str, mig_script: str) -> str:
@@ -436,16 +491,57 @@ def _safe_execute_migration(conn: Any, mig_name: str, mig_script: str) -> str:
                 f"faltan {sorted(missing)}. ABORTAR."
             )
     else:
-        if all_expected == all_existing:
+        expected_indexes = set(expected.get("indexes", set()))
+        existing_indexes = {i for i in all_existing if i in expected_indexes}
+        existing_structural = all_existing - expected_indexes
+        expected_structural = all_expected - expected_indexes
+
+        if expected_structural == existing_structural:
+            # Columnas/tablas completas: sólo faltan (o sobran) índices.
+            _ensure_expected_indexes(conn, mig_name, existing_indexes)
             _register_migration(conn, mig_name)
             return "SKIP_EXISTED"  # Objetos existen sin registro
-        elif all_existing:
+        elif _is_reexecutable(conn, mig_name, existing_structural):
+            # Columnas de la migración ya incluidas por el baseline
+            # (001_schema.sql) sin registro: reejecutar es inocuo.
+            return "EXECUTE"
+        elif existing_structural:
             raise RuntimeError(
                 f"Estado ambiguo para {mig_name}: objetos parciales {sorted(all_existing)} "
                 f"sin registro de migración. ABORTAR."
             )
         else:
             return "EXECUTE"  # Ejecutar normalmente
+
+
+def _is_reexecutable(conn: Any, mig_name: str, existing_structural: set[str]) -> bool:
+    """Indica si reejecutar la migración no altera el esquema existente.
+
+    Sólo se admite cuando TODO el solapamiento con migraciones previas son
+    columnas del baseline con idéntico tipo y valor por defecto, y ninguna
+    columna propia de la migración existe ya (en ese caso, el ALTER fallaría).
+    """
+    if mig_name not in _MIGRATION_ONLY_COLUMNS:
+        return False
+
+    if existing_structural & {
+        f"{table}.{column}" for table, column in _MIGRATION_ONLY_COLUMNS[mig_name]
+    }:
+        return False
+
+    for (table, column), default in _BASELINE_COLUMN_DEFAULTS.items():
+        row = conn.execute(
+            "SELECT COLUMN_TYPE, COLUMN_DEFAULT FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+            (table, column),
+        ).fetchone()
+        if not row:
+            return False
+        column_type = str(row["COLUMN_TYPE"]).lower()
+        column_default = str(row["COLUMN_DEFAULT"])
+        if not column_type.startswith("varchar(32)") or column_default != default:
+            return False
+    return True
 
 
 def connect(settings: Settings):

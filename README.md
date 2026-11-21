@@ -36,6 +36,36 @@ Chorus integra herramientas sobre la misma cuenta, biblioteca y modelo de datos.
 
 Los grupos, distribución y agenda se desarrollarán sobre esta base personal.
 
+## Estructura del repositorio
+
+```
+app/        Código de la aplicación FastAPI (config, db, main, security, utils)
+migrations/ Migraciones SQL (mysql/ vigentes; sqlite/ solo referencia histórica)
+tests/      Suite pytest (marcas: unit, integration, migrations, db)
+web/        Interfaz estática (HTML, CSS, JS sin build)
+docs/       Documentación técnica y auditorías
+scripts/
+  diagnostics/ Herramientas de inspección de BD y esquema (solo lectura)
+  verify/      Comprobaciones de integridad de datos
+  audit/       Inventarios y auditorías puntuales
+  migrations/  Migraciones de datos puntuales (bloques OSAP → Chorus)
+  runners/     Lanzadores de pytest con la BD de test configurada
+  rebuild_test_db.py  Reconstrucción controlada de osap_chorus_test
+_archive/   Scripts de un solo uso ya aplicados (solo referencia; ver _archive/README.md)
+```
+
+Los scripts de `scripts/` son ejecutables y forman parte del flujo de trabajo. Lo que hay en
+`_archive/` no debe ejecutarse: son parches históricos que reescribían `app/main.py` o
+`web/app.js` con `str.replace`.
+
+### Ejecutar pruebas
+
+```powershell
+python -m pytest tests -q -m unit              # sin base de datos
+python scripts/runners/run_tests.py            # integración (osap_chorus_test)
+python scripts/runners/run_core_tests.py       # grupos, artículos y auditoría
+```
+
 ## Documentación
 
 - [Arquitectura](docs/architecture.md)

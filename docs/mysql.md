@@ -80,7 +80,7 @@ FKs añadidas en `group_members` (migración 033): `group_admin_role_id` → `gr
 - `app/db.py`: `_verify_legacy_baseline()` — valida SOLO esquema histórico (001_schema.sql).
 - `app/db.py`: `_verify_final_schema()` — valida esquema completo tras migraciones 004-007.
 - `app/db.py`: `_register_legacy_baseline_recognition()` — registra reconocimiento legacy (operación Python, no SQL).
-- `app/db.py`: `_safe_execute_migration()` — ejecuta migración SOLO si sus objetos esperados NO existen; aborta en estados ambiguos.
+- `app/db.py`: `_safe_execute_migration()` — ejecuta migración SOLO si sus objetos esperados NO existen; aborta en estados ambiguos. Los índices secundarios ausentes se recrean (`_ensure_expected_indexes`) en lugar de abortar.
 
 ### Adaptador MySQL
 
@@ -106,6 +106,19 @@ FKs añadidas en `group_members` (migración 033): `group_admin_role_id` → `gr
    - Migración registrada pero objetos faltantes → **ABORTAR**
    - Objetos parciales sin registro → **ABORTAR**
    - Objetos existentes sin registro → registrar y saltar (idempotencia)
+   - Columnas completas y sólo falta un índice → **recrear el índice y registrar**
+
+## Diagnóstico de migraciones
+
+`scripts/diagnostics/inspect_migrations.py` (solo lectura) muestra conexión, migraciones
+registradas, tablas, columnas de material/grupos, índices de 004-007 y el estado de
+arranque de cada migración. Útil ante un `RuntimeError` de `_safe_execute_migration()`.
+
+```powershell
+$env:CHORUS_DATABASE_URL='mysql+pymysql://user:pass@127.0.0.1:3306/osap_chorus'
+python scripts/diagnostics/inspect_migrations.py
+python scripts/diagnostics/inspect_migrations.py --migrations 004 005
+```
 
 ## Reconstrucción de base de tests
 
