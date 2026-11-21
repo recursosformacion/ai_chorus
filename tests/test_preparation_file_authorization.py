@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.db import connect as db_connect
+from app.dbguard import UnsafeTestDatabaseError
 from app.main import create_app
 
 FILE_CONTENT = b"CONTENIDO-RESTRINGIDO"
@@ -62,126 +63,230 @@ def _insert_chain(conn, *, work_id, resource_id, file_id,
 def scenario(integration_settings: Settings, monkeypatch):
     """Grupo con dos secciones, un archivo restringido y otro sin restringir.
 
-    Al terminar (también si la prueba falla) elimina las dos filas que crea en
-    ``group_sections``, identificadas por id derivado del grupo, sin afectar a
-    secciones de otras pruebas.
+    La protección ``try/finally`` cubre toda la preparación: si falla una
+    inserción o una aserción intermedia, se cierra el cliente (si llegó a
+    crearse) y se eliminan exclusivamente las secciones cuyos identificadores
+    haya generado este fixture, sin afectar a secciones de otras pruebas.
     """
-    profiles = {
-        "token-mgr": _profile("sec-mgr"),
-        "token-s1": _profile("sec-one"),
-        "token-s2": _profile("sec-two"),
-        "token-out": _profile("sec-out"),
-    }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    # Pre-inicializados: la limpieza debe ser segura aunque la preparación
+    # falle antes de generar algún identificador.
+    client = None
+    group_id = None
+    sec1_id = None
+    sec2_id = None
+    created_sections: list[str] = []
 
-    client = TestClient(create_app(integration_settings))
-    mgr = {"Authorization": "Bearer token-mgr"}
-    s1 = {"Authorization": "Bearer token-s1"}
-    s2 = {"Authorization": "Bearer token-s2"}
-    out = {"Authorization": "Bearer token-out"}
-
-    grp = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo Secciones"}).json()
-    group_id, join_code = grp["id"], grp["join_code"]
-
-    # group_sections no tiene FK a groups: los ids se derivan del grupo para
-    # no colisionar entre ejecuciones y las filas se borran en el finally.
-    sec1_id = f"sec1-{group_id[:10]}"
-    sec2_id = f"sec2-{group_id[:10]}"
-    created_sections = (sec1_id, sec2_id)
-
-    with db_connect(integration_settings) as conn:
-        for section_id, name, code in ((sec1_id, "Soprano", "soprano"),
-                                       (sec2_id, "Tenor", "tenor")):
-            conn.execute(
-                "INSERT INTO group_sections "
-                "(id, group_id, name, code, active, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (section_id, group_id, name, code, 1,
-                 "2026-01-01 00:00:00", "2026-01-01 00:00:00"),
-            )
-        conn.commit()
-
-    for headers in (s1, s2):
-        assert client.post("/api/v1/groups/join", headers=headers,
-                           json={"code": join_code}).status_code == 200
-
-    # s1 en sección 1, s2 en sección 2
-    assert client.patch(f"/api/v1/groups/{group_id}/members/sec-one", headers=mgr,
-                        json={"section_id": sec1_id}).status_code == 200
-    assert client.patch(f"/api/v1/groups/{group_id}/members/sec-two", headers=mgr,
-                        json={"section_id": sec2_id}).status_code == 200
-
-    space_id = client.post(
-        "/api/v1/spaces", headers=mgr,
-        json={"space_type": "group", "group_id": group_id, "name": "General"},
-    ).json()["id"]
-    work_id = client.post(
-        f"/api/v1/spaces/{space_id}/preparation-works", headers=mgr,
-        json={"title": "Trabajo con archivos"},
-    ).json()["id"]
-
-    # Archivo restringido a la sección 1 y archivo sin restricción
-    with db_connect(integration_settings) as conn:
-        _insert_chain(conn, work_id="w-sec", resource_id="r-sec", file_id="f-sec",
-                      group_id=group_id, section_id=sec1_id)
-        _insert_chain(conn, work_id="w-free", resource_id="r-free", file_id="f-free",
-                      group_id=group_id, section_id=None)
-
-    # El manager incorpora ambos (tiene autoridad sobre todas las secciones)
-    r1 = client.post(
-        f"/api/v1/spaces/{space_id}/preparation-works/{work_id}/files",
-        headers=mgr, json={"file_id": "f-sec", "purpose": "score"},
-    )
-    assert r1.status_code == 201, r1.text
-    r2 = client.post(
-        f"/api/v1/spaces/{space_id}/preparation-works/{work_id}/files",
-        headers=mgr, json={"file_id": "f-free", "purpose": "part"},
-    )
-    assert r2.status_code == 201, r2.text
-
-    # El contenido real de los archivos debe existir en el almacén privado
-    from pathlib import Path
-
-    with db_connect(integration_settings) as conn:
-        pointers = {
-            row["id"]: row["storage_pointer"]
-            for row in conn.execute(
-                "SELECT id, storage_pointer FROM files WHERE id IN ('f-sec','f-free')"
-            ).fetchall()
-        }
-    contents = {"f-sec": FILE_CONTENT, "f-free": FREE_CONTENT}
-    for file_id, pointer in pointers.items():
-        stored = Path(pointer)
-        if not stored.is_absolute():
-            stored = Path(integration_settings.storage_root) / stored
-        stored.parent.mkdir(parents=True, exist_ok=True)
-        stored.write_bytes(contents[file_id])
-
-    ctx = {
-        "client": client, "mgr": mgr, "s1": s1, "s2": s2, "out": out,
-        "group_id": group_id, "space_id": space_id, "work_id": work_id,
-        "sec_file_id": "f-sec", "free_file_id": "f-free",
-    }
     try:
+        profiles = {
+            "token-mgr": _profile("sec-mgr"),
+            "token-s1": _profile("sec-one"),
+            "token-s2": _profile("sec-two"),
+            "token-out": _profile("sec-out"),
+        }
+        install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+
+        client = TestClient(create_app(integration_settings))
+        mgr = {"Authorization": "Bearer token-mgr"}
+        s1 = {"Authorization": "Bearer token-s1"}
+        s2 = {"Authorization": "Bearer token-s2"}
+        out = {"Authorization": "Bearer token-out"}
+
+        grp = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo Secciones"}).json()
+        group_id, join_code = grp["id"], grp["join_code"]
+
+        # group_sections no tiene FK a groups: los ids se derivan del grupo para
+        # no colisionar entre ejecuciones y las filas se borran en el finally.
+        sec1_id = f"sec1-{group_id[:10]}"
+        sec2_id = f"sec2-{group_id[:10]}"
+        # Se registran antes de insertar: así el finally los intenta borrar
+        # aunque la inserción falle a medias.
+        created_sections.extend([sec1_id, sec2_id])
+
+        with db_connect(integration_settings) as conn:
+            for section_id, name, code in ((sec1_id, "Soprano", "soprano"),
+                                           (sec2_id, "Tenor", "tenor")):
+                conn.execute(
+                    "INSERT INTO group_sections "
+                    "(id, group_id, name, code, active, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (section_id, group_id, name, code, 1,
+                     "2026-01-01 00:00:00", "2026-01-01 00:00:00"),
+                )
+            conn.commit()
+
+        for headers in (s1, s2):
+            assert client.post("/api/v1/groups/join", headers=headers,
+                               json={"code": join_code}).status_code == 200
+
+        # s1 en sección 1, s2 en sección 2
+        assert client.patch(f"/api/v1/groups/{group_id}/members/sec-one", headers=mgr,
+                            json={"section_id": sec1_id}).status_code == 200
+        assert client.patch(f"/api/v1/groups/{group_id}/members/sec-two", headers=mgr,
+                            json={"section_id": sec2_id}).status_code == 200
+
+        space_id = client.post(
+            "/api/v1/spaces", headers=mgr,
+            json={"space_type": "group", "group_id": group_id, "name": "General"},
+        ).json()["id"]
+        work_id = client.post(
+            f"/api/v1/spaces/{space_id}/preparation-works", headers=mgr,
+            json={"title": "Trabajo con archivos"},
+        ).json()["id"]
+
+        # Archivo restringido a la sección 1 y archivo sin restricción
+        with db_connect(integration_settings) as conn:
+            _insert_chain(conn, work_id="w-sec", resource_id="r-sec", file_id="f-sec",
+                          group_id=group_id, section_id=sec1_id)
+            _insert_chain(conn, work_id="w-free", resource_id="r-free", file_id="f-free",
+                          group_id=group_id, section_id=None)
+
+        # El manager incorpora ambos (tiene autoridad sobre todas las secciones)
+        r1 = client.post(
+            f"/api/v1/spaces/{space_id}/preparation-works/{work_id}/files",
+            headers=mgr, json={"file_id": "f-sec", "purpose": "score"},
+        )
+        assert r1.status_code == 201, r1.text
+        r2 = client.post(
+            f"/api/v1/spaces/{space_id}/preparation-works/{work_id}/files",
+            headers=mgr, json={"file_id": "f-free", "purpose": "part"},
+        )
+        assert r2.status_code == 201, r2.text
+
+        # El contenido real de los archivos debe existir en el almacén privado
+        from pathlib import Path
+
+        with db_connect(integration_settings) as conn:
+            pointers = {
+                row["id"]: row["storage_pointer"]
+                for row in conn.execute(
+                    "SELECT id, storage_pointer FROM files WHERE id IN ('f-sec','f-free')"
+                ).fetchall()
+            }
+        contents = {"f-sec": FILE_CONTENT, "f-free": FREE_CONTENT}
+        for file_id, pointer in pointers.items():
+            stored = Path(pointer)
+            if not stored.is_absolute():
+                stored = Path(integration_settings.storage_root) / stored
+            stored.parent.mkdir(parents=True, exist_ok=True)
+            stored.write_bytes(contents[file_id])
+
+        ctx = {
+            "client": client, "mgr": mgr, "s1": s1, "s2": s2, "out": out,
+            "group_id": group_id, "space_id": space_id, "work_id": work_id,
+            "sec_file_id": "f-sec", "free_file_id": "f-free",
+        }
         yield ctx
     finally:
-        # Se ejecuta también si la prueba falla: sólo las filas de este grupo.
-        client.close()
-        _delete_sections(integration_settings, created_sections)
+        # Cubre también los fallos durante la preparación, no sólo los de la
+        # prueba: se ejecuta al propagarse cualquier excepción del cuerpo.
+        if client is not None:
+            client.close()
+        if created_sections:
+            _delete_sections(integration_settings, tuple(created_sections))
 
 
 def _delete_sections(settings: Settings, section_ids) -> None:
-    """Borra sólo las secciones indicadas, sin tocar las de otras pruebas."""
-    with db_connect(settings) as conn:
+    """Borra sólo las secciones indicadas, sin tocar las de otras pruebas.
+
+    Reutiliza el guard de los tests (``conftest.assert_safe_test_connection``):
+    valida base de datos, usuario y versión sobre la conexión efectiva y no
+    ejecuta ningún DELETE si la validación falla.
+    """
+    import conftest
+
+    conn = conftest.assert_safe_test_connection(settings)
+    try:
         for section_id in section_ids:
             conn.execute("DELETE FROM group_sections WHERE id = ?", (section_id,))
         conn.commit()
+    finally:
+        conn.close()
 
 
 def _list(client, headers, space_id, work_id):
     return client.get(
         f"/api/v1/spaces/{space_id}/preparation-works/{work_id}/files", headers=headers
     )
+
+
+def _count_sections(settings: Settings) -> int:
+    with db_connect(settings) as conn:
+        return int(
+            conn.execute("SELECT COUNT(*) AS c FROM group_sections").fetchone()["c"]
+        )
+
+
+# --------------------------------------------------------------------------
+# Robustez de la limpieza del fixture
+# --------------------------------------------------------------------------
+@pytest.mark.integration
+def test_cleanup_runs_when_fixture_preparation_fails(integration_settings: Settings,
+                                                     monkeypatch):
+    """Si la preparación falla tras insertar las secciones, no quedan filas."""
+    import tests.test_preparation_file_authorization as mod
+
+    before = _count_sections(integration_settings)
+
+    # Romper la preparación después de crear el grupo e insertar las secciones.
+    def _boom(*args, **kwargs):
+        raise RuntimeError("fallo simulado durante la preparacion")
+
+    monkeypatch.setattr(mod, "_insert_chain", _boom)
+
+    generator = mod.scenario.__wrapped__(integration_settings, monkeypatch)
+    with pytest.raises(RuntimeError):
+        next(generator)
+    generator.close()
+
+    assert _count_sections(integration_settings) == before, (
+        "Las secciones del fixture deben eliminarse aunque la preparación falle"
+    )
+
+
+@pytest.mark.integration
+def test_cleanup_skips_delete_without_authorized_connection(integration_settings: Settings,
+                                                            monkeypatch):
+    """Sin conexión autorizada no se ejecuta ningún DELETE."""
+    import conftest
+
+    class _FakeCursor:
+        def fetchone(self):
+            return {
+                "db": "otra_base",
+                "usr": "osap2027_test@localhost",
+                "ver": "10.4.32-MariaDB",
+                "vc": "mariadb.org binary distribution",
+            }
+
+    class _FakeConnection:
+        def __init__(self):
+            self.executed: list[str] = []
+            self.closed = False
+
+        def execute(self, sql, params=()):
+            self.executed.append(sql)
+            return _FakeCursor()
+
+        def close(self):
+            self.closed = True
+
+    fake = _FakeConnection()
+    monkeypatch.setattr(conftest, "db_connect", lambda settings: fake)
+
+    # La URL apunta a la BD correcta, pero la conexión efectiva no: el guard
+    # debe rechazarla y no debe ejecutarse ningún DELETE.
+    with pytest.raises(UnsafeTestDatabaseError):
+        mod_delete_sections(integration_settings, ("sec-xyz",))
+
+    assert all("DELETE" not in sql.upper() for sql in fake.executed)
+    assert fake.closed, "La conexión debe cerrarse"
+
+
+def mod_delete_sections(settings: Settings, section_ids):
+    """Acceso al helper de limpieza del módulo (para probarlo directamente)."""
+    import tests.test_preparation_file_authorization as mod
+
+    return mod._delete_sections(settings, section_ids)
 
 
 def _download_by_id(client, headers, space_id, work_id, file_id):

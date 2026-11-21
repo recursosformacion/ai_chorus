@@ -36,8 +36,15 @@ def assert_safe_test_connection(settings: Settings):
         # No se puede conectar: se reporta como MariaDB no disponible para que
         # el test se omita, en lugar de ejecutar limpiezas a ciegas.
         raise DatabaseUnavailableError(f"No se pudo conectar a MariaDB: {exc}") from exc
-    # Valida la conexión REAL contra el servidor antes de devolverla.
-    check_effective_connection(conn)
+    # Valida la conexión REAL contra el servidor antes de devolverla. Si no es
+    # la BD de pruebas autorizada se cierra y se aborta sin ejecutar nada.
+    try:
+        check_effective_connection(conn)
+    except BaseException:
+        close = getattr(conn, "close", None)
+        if callable(close):
+            close()
+        raise
     return conn
 
 
