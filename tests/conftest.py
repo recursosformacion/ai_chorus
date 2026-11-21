@@ -87,6 +87,14 @@ def _clean_groups_for_integration(request):
             # Luego eliminar group_members y groups
             conn.execute("DELETE FROM group_members")
             conn.execute("DELETE FROM groups")
+            # Cadenas Work -> Resource -> File (works.required_resource_id es
+            # circular, por eso se desactivan temporalmente las FKs)
+            conn.execute("SET FOREIGN_KEY_CHECKS = 0")
+            conn.execute("DELETE FROM library_items")
+            conn.execute("DELETE FROM files")
+            conn.execute("DELETE FROM resources")
+            conn.execute("DELETE FROM works")
+            conn.execute("SET FOREIGN_KEY_CHECKS = 1")
             conn.commit()
 
 
@@ -115,6 +123,11 @@ def _clean_db_for_db_tests(request):
             conn.execute("DELETE FROM event_rsvps")
             conn.execute("DELETE FROM event_groups")
             conn.execute("DELETE FROM events")
+            # preparation_works/spaces cuelgan de groups: limpiarlos antes
+            conn.execute("DELETE FROM preparation_work_files")
+            conn.execute("DELETE FROM preparation_work_items")
+            conn.execute("DELETE FROM preparation_works")
+            conn.execute("DELETE FROM spaces")
             conn.execute("DELETE FROM group_members")
             conn.execute("DELETE FROM groups")
             conn.execute("DELETE FROM group_article_media")

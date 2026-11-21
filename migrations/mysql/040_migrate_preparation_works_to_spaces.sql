@@ -1,10 +1,22 @@
 -- Migration 040: Migrar preparation_works de group_id a space_id
--- 1. Añadir columna space_id (nullable temporalmente)
--- 2. Crear espacios para grupos existentes
--- 3. Migrar datos
--- 4. Hacer space_id NOT NULL
--- 5. Eliminar dependencia de group_id (cuando el código esté listo)
--- Referencia: arquitectura definitiva v1.0
+--
+-- Pasos:
+--   1. Añadir space_id (nullable temporalmente) si no existe.
+--   2. Crear un espacio de grupo por cada grupo existente.
+--   3. Asociar cada trabajo de preparación a su espacio.
+--   4. ABORTAR de forma inequívoca si queda algún trabajo sin asociar.
+--   5. Añadir FK space_id -> spaces(id) ON DELETE RESTRICT.
+--   6. Dejar space_id NOT NULL.
+--   7. Eliminar la dependencia antigua group_id (FK, índice y columna).
+--   8. Crear índices de apoyo.
+--
+-- Notas MariaDB 10.4.32:
+--   - SIGNAL no está soportado en el protocolo de sentencias preparadas (error 1295),
+--     por lo que el aborto del paso 4 se fuerza con una referencia a una tabla
+--     inexistente cuyo nombre explica el motivo. Así la migración falla, no se
+--     registra como aplicada y el runner se detiene.
+--   - ADD/DROP CONSTRAINT e IF NOT EXISTS no están disponibles para FKs: se
+--     comprueba information_schema antes de cada operación (patrón idempotente).
 
 -- =====================================================
 -- PASO 1: Añadir columna space_id (nullable temporalmente)
@@ -17,12 +29,12 @@ SET @col_exists = (
 );
 SET @sql = IF(@col_exists = 0,
     'ALTER TABLE preparation_works ADD COLUMN space_id VARCHAR(191) NULL AFTER id',
-    'SELECT "Column space_id already exists"'
+    'SELECT ''space_id already present'''
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- =====================================================
--- PASO 2: Crear espacios para grupos existentes
+-- PASO 2: Crear un espacio por cada grupo existente
 -- =====================================================
 INSERT IGNORE INTO spaces (id, space_type, owner_sub, group_id, name, created_at, updated_at)
 SELECT g.id, 'group', g.created_by, g.id, g.name, g.created_at, g.updated_at
@@ -31,23 +43,40 @@ LEFT JOIN spaces s ON s.group_id = g.id AND s.space_type = 'group'
 WHERE s.id IS NULL;
 
 -- =====================================================
--- PASO 3: Migrar preparation_works existentes
+-- PASO 3: Asociar los trabajos existentes a su espacio
 -- =====================================================
-UPDATE preparation_works pw
-JOIN spaces s ON s.group_id = pw.group_id AND s.space_type = 'group'
-SET pw.space_id = s.id
-WHERE pw.space_id IS NULL;
+-- Sólo aplica si group_id todavía existe ( BD no migrada ). En una BD ya
+-- migrada la columna no está, por lo que el paso se omite (idempotencia ).
+SET @group_col_exists = (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'preparation_works'
+      AND COLUMN_NAME = 'group_id'
+);
+SET @sql = IF(@group_col_exists > 0,
+    'UPDATE preparation_works pw JOIN spaces s ON s.group_id = pw.group_id AND s.space_type = ''group'' SET pw.space_id = s.id WHERE pw.space_id IS NULL',
+    'SELECT ''group_id absent: nothing to migrate'''
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- =====================================================
--- PASO 4: Verificar que no quedan NULLs
+-- PASO 4: ABORTAR si queda algún trabajo sin migrar
 -- =====================================================
--- Este SELECT debe devolver 0 filas. Si devuelve >0, hay trabajos sin migrar.
-SELECT COUNT(*) AS unmigrated_count
-FROM preparation_works
-WHERE space_id IS NULL;
+-- Si unmigrated_count > 0 se ejecuta un SELECT sobre una tabla inexistente,
+-- lo que provoca el error 1146 y detiene la migración sin registrarla.
+-- >>> BEGIN ABORT CHECK 040
+SET @unmigrated_count = (
+    SELECT COUNT(*) FROM preparation_works WHERE space_id IS NULL
+);
+SET @sql = IF(@unmigrated_count > 0,
+    'SELECT * FROM `migration_040_abort_unmigrated_preparation_works`',
+    'SELECT ''all preparation_works migrated'''
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+-- <<< END ABORT CHECK 040
 
 -- =====================================================
--- PASO 5: Añadir FK y hacer NOT NULL
+-- PASO 5: FK space_id -> spaces(id)
 -- =====================================================
 SET @fk_exists = (
     SELECT COUNT(*) FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
@@ -57,65 +86,60 @@ SET @fk_exists = (
 );
 SET @sql = IF(@fk_exists = 0,
     'ALTER TABLE preparation_works ADD CONSTRAINT fk_prepworks_space FOREIGN KEY (space_id) REFERENCES spaces(id) ON DELETE RESTRICT',
-    'SELECT "FK fk_prepworks_space already exists"'
-);
-PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- Hacer space_id NOT NULL (solo si no hay NULLs)
-SET @null_count = (
-    SELECT COUNT(*) FROM preparation_works WHERE space_id IS NULL
-);
-SET @sql = IF(@null_count = 0,
-    'ALTER TABLE preparation_works MODIFY COLUMN space_id VARCHAR(191) NOT NULL',
-    'SELECT "Cannot make space_id NOT NULL: there are NULL values"'
+    'SELECT ''fk_prepworks_space already present'''
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- =====================================================
--- PASO 6: Eliminar dependencia antigua de group_id
--- NOTA: Este paso se ejecuta DESPUÉS de que el código esté adaptado
--- Por ahora, comentamos las siguientes líneas para mantener compatibilidad
+-- PASO 6: space_id NOT NULL
 -- =====================================================
-
--- Descomentar cuando el código esté completamente adaptado:
--- SET @fk_exists = (
---     SELECT COUNT(*) FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
---     WHERE CONSTRAINT_SCHEMA = DATABASE()
---       AND TABLE_NAME = 'preparation_works'
---       AND CONSTRAINT_NAME = 'fk_preparation_works_group'
--- );
--- SET @sql = IF(@fk_exists > 0,
---     'ALTER TABLE preparation_works DROP FOREIGN KEY fk_preparation_works_group',
---     'SELECT "FK fk_preparation_works_group does not exist"'
--- );
--- PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- SET @idx_exists = (
---     SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
---     WHERE TABLE_SCHEMA = DATABASE()
---       AND TABLE_NAME = 'preparation_works'
---       AND INDEX_NAME = 'idx_preparation_works_group'
--- );
--- SET @sql = IF(@idx_exists > 0,
---     'DROP INDEX idx_preparation_works_group ON preparation_works',
---     'SELECT "Index idx_preparation_works_group does not exist"'
--- );
--- PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
--- SET @col_exists = (
---     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
---     WHERE TABLE_SCHEMA = DATABASE()
---       AND TABLE_NAME = 'preparation_works'
---       AND COLUMN_NAME = 'group_id'
--- );
--- SET @sql = IF(@col_exists > 0,
---     'ALTER TABLE preparation_works DROP COLUMN group_id',
---     'SELECT "Column group_id does not exist"'
--- );
--- PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+ALTER TABLE preparation_works MODIFY COLUMN space_id VARCHAR(191) NOT NULL;
 
 -- =====================================================
--- PASO 7: Crear índices para búsquedas frecuentes
+-- PASO 7: Eliminar dependencia antigua group_id
+-- =====================================================
+SET FOREIGN_KEY_CHECKS = 0;
+
+SET @fk_exists = (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'preparation_works'
+      AND CONSTRAINT_NAME = 'fk_preparation_works_group'
+);
+SET @sql = IF(@fk_exists > 0,
+    'ALTER TABLE preparation_works DROP FOREIGN KEY fk_preparation_works_group',
+    'SELECT ''fk_preparation_works_group absent'''
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'preparation_works'
+      AND INDEX_NAME = 'idx_preparation_works_group'
+);
+SET @sql = IF(@idx_exists > 0,
+    'DROP INDEX idx_preparation_works_group ON preparation_works',
+    'SELECT ''idx_preparation_works_group absent'''
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'preparation_works'
+      AND COLUMN_NAME = 'group_id'
+);
+SET @sql = IF(@col_exists > 0,
+    'ALTER TABLE preparation_works DROP COLUMN group_id',
+    'SELECT ''group_id absent'''
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- =====================================================
+-- PASO 8: Índices de apoyo
 -- =====================================================
 SET @idx_exists = (
     SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
@@ -125,6 +149,6 @@ SET @idx_exists = (
 );
 SET @sql = IF(@idx_exists = 0,
     'CREATE INDEX idx_preparation_works_space ON preparation_works(space_id)',
-    'SELECT "Index idx_preparation_works_space already exists"'
+    'SELECT ''idx_preparation_works_space already present'''
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
