@@ -3,6 +3,11 @@ import os
 import pytest
 from app.config import Settings
 from app.db import connect as db_connect
+from app.dbguard import (
+    DatabaseUnavailableError,
+    UnsafeTestDatabaseError,
+    check_effective_connection,
+)
 
 
 # --- Marcadores obligatorios ---
@@ -13,36 +18,58 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "db: tests que usan MariaDB con transacción aislada (unit_db)")
 
 
+# --- Protección de la base de pruebas ---
+def assert_safe_test_connection(settings: Settings):
+    """Punto único de comprobación antes de cualquier limpieza destructiva.
+
+    Devuelve una conexión validada. Nunca abre la BD de producción: si la
+    conexión efectiva no es osap_chorus_test/osap2027_test/MariaDB 10.4 se
+    aborta con error (no se ejecuta ningún DELETE).
+    """
+    if not settings.database_url:
+        raise DatabaseUnavailableError(
+            "CHORUS_DATABASE_URL no definido (requerido para MariaDB)"
+        )
+    try:
+        conn = db_connect(settings)
+    except Exception as exc:
+        # No se puede conectar: se reporta como MariaDB no disponible para que
+        # el test se omita, en lugar de ejecutar limpiezas a ciegas.
+        raise DatabaseUnavailableError(f"No se pudo conectar a MariaDB: {exc}") from exc
+    # Valida la conexión REAL contra el servidor antes de devolverla.
+    check_effective_connection(conn)
+    return conn
+
+
 # --- Verificación de entorno de integración ---
 def _verify_integration_db() -> Settings:
-    """Valida conexión efectiva a MariaDB osap_chorus_test. Falla si no cumple."""
+    """Valida conexión efectiva a MariaDB osap_chorus_test.
+
+    - Sin MariaDB utilizable -> skip (la suite debe poder correr sin BD).
+    - Conectado a otro destino -> fallo: es una configuración peligrosa.
+    """
     settings = Settings.load()  # Misma carga que create_app()
 
     if not settings.database_url:
         pytest.skip("CHORUS_DATABASE_URL no definido (requerido para MariaDB)")
 
-    conn = db_connect(settings)
     try:
-        row = conn.execute(
-            "SELECT DATABASE() AS db, CURRENT_USER() AS usr, @@version AS ver"
-        ).fetchone()
+        conn = db_connect(settings)
+    except Exception as exc:
+        pytest.skip(f"MariaDB no disponible: {exc}")
+        return settings  # pragma: no cover (pytest.skip lanza)
 
-        if row["db"] != "osap_chorus_test":
-            pytest.skip(f"BD efectiva '{row['db']}' != 'osap_chorus_test'")
-
-        user = row["usr"].split("@")[0] if row["usr"] else ""
-        if user != "osap2027_test":
-            pytest.skip(f"Usuario efectivo '{user}' != 'osap2027_test'")
-
-        if not row["ver"].startswith("10.4."):
-            pytest.skip(
-                f"MariaDB {row['ver']} no es de la línea 10.4 "
-                "(producción usa 10.4.32)"
-            )
-
-        return settings
+    try:
+        check_effective_connection(conn)
+    except UnsafeTestDatabaseError as exc:
+        # Conecta, pero no es la BD de pruebas autorizada: detener el test.
+        pytest.fail(str(exc))
+    except DatabaseUnavailableError as exc:
+        pytest.skip(str(exc))
     finally:
         conn.close()
+
+    return settings
 
 
 # --- Fixtures selectivas (solo para tests marcados) ---
@@ -68,73 +95,93 @@ def unit_db(integration_settings):
 
 @pytest.fixture(autouse=True)
 def _clean_groups_for_integration(request):
-    """Limpia la tabla groups antes de cada test de integración/migraciones."""
-    # Solo se ejecuta para tests con marcador integration o migrations
+    """Limpia tablas de grupos/espacios antes de tests de integración/migraciones.
+
+    La protección de BD es autónoma: este fixture no depende de que
+    ``integration_settings`` se haya ejecutado antes.
+    """
     marker = request.node.get_closest_marker("integration") or request.node.get_closest_marker("migrations")
-    if marker:
-        # Verificar que CHORUS_DATABASE_URL está definido
-        if not os.getenv("CHORUS_DATABASE_URL"):
-            pytest.skip("CHORUS_DATABASE_URL no definido, saltando limpieza")
-        settings = Settings.load()
-        with db_connect(settings) as conn:
-            # Eliminar en orden inverso por FK
-            # Primero eliminar preparation_works que referencian spaces
-            conn.execute("DELETE FROM preparation_work_items")
-            conn.execute("DELETE FROM preparation_work_files")
-            conn.execute("DELETE FROM preparation_works")
-            # Luego eliminar spaces que referencian groups
-            conn.execute("DELETE FROM spaces")
-            # Luego eliminar group_members y groups
-            conn.execute("DELETE FROM group_members")
-            conn.execute("DELETE FROM groups")
-            # Cadenas Work -> Resource -> File (works.required_resource_id es
-            # circular, por eso se desactivan temporalmente las FKs)
-            conn.execute("SET FOREIGN_KEY_CHECKS = 0")
-            conn.execute("DELETE FROM library_items")
-            conn.execute("DELETE FROM files")
-            conn.execute("DELETE FROM resources")
-            conn.execute("DELETE FROM works")
-            conn.execute("SET FOREIGN_KEY_CHECKS = 1")
-            conn.commit()
+    if not marker:
+        return
+
+    settings = Settings.load()
+    try:
+        conn = assert_safe_test_connection(settings)
+    except DatabaseUnavailableError as exc:
+        pytest.skip(f"BD de pruebas no disponible: {exc}")
+    except UnsafeTestDatabaseError as exc:
+        pytest.fail(str(exc))
+
+    try:
+        # Eliminar en orden inverso por FK
+        conn.execute("DELETE FROM preparation_work_items")
+        conn.execute("DELETE FROM preparation_work_files")
+        conn.execute("DELETE FROM preparation_works")
+        conn.execute("DELETE FROM spaces")
+        conn.execute("DELETE FROM group_members")
+        conn.execute("DELETE FROM groups")
+        # Cadenas Work -> Resource -> File (works.required_resource_id es
+        # circular, por eso se desactivan temporalmente las FKs)
+        conn.execute("SET FOREIGN_KEY_CHECKS = 0")
+        conn.execute("DELETE FROM library_items")
+        conn.execute("DELETE FROM files")
+        conn.execute("DELETE FROM resources")
+        conn.execute("DELETE FROM works")
+        conn.execute("SET FOREIGN_KEY_CHECKS = 1")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @pytest.fixture(autouse=True)
 def _clean_db_for_db_tests(request):
-    """Limpia tablas principales antes de cada test @pytest.mark.db."""
+    """Limpia tablas principales antes de cada test @pytest.mark.db.
+
+    Misma protección autónoma de BD que el fixture anterior.
+    """
     marker = request.node.get_closest_marker("db")
-    if marker:
-        if not os.getenv("CHORUS_DATABASE_URL"):
-            pytest.skip("CHORUS_DATABASE_URL no definido, saltando limpieza")
-        settings = Settings.load()
-        with db_connect(settings) as conn:
-            # Eliminar en orden inverso por FK
-            conn.execute("DELETE FROM editor_source_tokens")
-            conn.execute("DELETE FROM creation_drafts")
-            conn.execute("DELETE FROM collection_items")
-            conn.execute("DELETE FROM collections")
-            conn.execute("DELETE FROM library_items")
-            conn.execute("DELETE FROM files")
-            conn.execute("DELETE FROM resources")
-            conn.execute("DELETE FROM works")
-            conn.execute("DELETE FROM oidc_states")
-            conn.execute("DELETE FROM message_recipients")
-            conn.execute("DELETE FROM messages")
-            conn.execute("DELETE FROM event_targets")
-            conn.execute("DELETE FROM event_rsvps")
-            conn.execute("DELETE FROM event_groups")
-            conn.execute("DELETE FROM events")
-            # preparation_works/spaces cuelgan de groups: limpiarlos antes
-            conn.execute("DELETE FROM preparation_work_files")
-            conn.execute("DELETE FROM preparation_work_items")
-            conn.execute("DELETE FROM preparation_works")
-            conn.execute("DELETE FROM spaces")
-            conn.execute("DELETE FROM group_members")
-            conn.execute("DELETE FROM groups")
-            conn.execute("DELETE FROM group_article_media")
-            conn.execute("DELETE FROM group_articles")
-            conn.execute("DELETE FROM group_sections")
-            conn.execute("DELETE FROM entity_leads")
-            conn.commit()
+    if not marker:
+        return
+
+    settings = Settings.load()
+    try:
+        conn = assert_safe_test_connection(settings)
+    except DatabaseUnavailableError as exc:
+        pytest.skip(f"BD de pruebas no disponible: {exc}")
+    except UnsafeTestDatabaseError as exc:
+        pytest.fail(str(exc))
+
+    try:
+        # Eliminar en orden inverso por FK
+        conn.execute("DELETE FROM editor_source_tokens")
+        conn.execute("DELETE FROM creation_drafts")
+        conn.execute("DELETE FROM collection_items")
+        conn.execute("DELETE FROM collections")
+        conn.execute("DELETE FROM library_items")
+        conn.execute("DELETE FROM files")
+        conn.execute("DELETE FROM resources")
+        conn.execute("DELETE FROM works")
+        conn.execute("DELETE FROM oidc_states")
+        conn.execute("DELETE FROM message_recipients")
+        conn.execute("DELETE FROM messages")
+        conn.execute("DELETE FROM event_targets")
+        conn.execute("DELETE FROM event_rsvps")
+        conn.execute("DELETE FROM event_groups")
+        conn.execute("DELETE FROM events")
+        # preparation_works/spaces cuelgan de groups: limpiarlos antes
+        conn.execute("DELETE FROM preparation_work_files")
+        conn.execute("DELETE FROM preparation_work_items")
+        conn.execute("DELETE FROM preparation_works")
+        conn.execute("DELETE FROM spaces")
+        conn.execute("DELETE FROM group_members")
+        conn.execute("DELETE FROM groups")
+        conn.execute("DELETE FROM group_article_media")
+        conn.execute("DELETE FROM group_articles")
+        conn.execute("DELETE FROM group_sections")
+        conn.execute("DELETE FROM entity_leads")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @pytest.fixture

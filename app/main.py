@@ -294,6 +294,66 @@ class PreparationWorkUpdateBody(BaseModel):
     status: Literal["preparing", "ready", "published", "archived"] | None = None
 
 
+# Columnas actualizables de preparation_works vía PATCH. Todas admiten NULL,
+# por lo que un envío explícito de null limpia el valor.
+_PREP_WORK_UPDATABLE_COLUMNS = (
+    "title",
+    "composer",
+    "destination_type",
+    "event_name",
+    "event_date",
+    "notes",
+    "status",
+)
+
+# Columnas NOT NULL en preparation_works: un null explícito se rechaza en vez
+# de intentar escribir NULL contra la base de datos.
+_PREP_WORK_NON_NULL_COLUMNS = frozenset({"title", "destination_type", "status"})
+
+# Columnas actualizables de preparation_work_items y su nulabilidad en esquema.
+_PREP_ITEM_UPDATABLE_COLUMNS = (
+    "voice_label",
+    "instrument",
+    "custom_title",
+    "sort_order",
+    "status",
+    "notes",
+)
+_PREP_ITEM_NON_NULL_COLUMNS = frozenset({"sort_order", "status"})
+
+
+def _apply_patch_fields(
+    body: Any,
+    columns: tuple[str, ...],
+    non_null_columns: frozenset[str],
+    transform: dict[str, Any] | None = None,
+) -> tuple[list[str], list[Any]]:
+    """Traduce un modelo PATCH a asignaciones SQL con semántica estricta.
+
+    - Campo omitido: no aparece en el resultado (conserva su valor).
+    - Campo enviado con valor: se asigna.
+    - Campo enviado como null: se asigna NULL si la columna lo admite; si la
+      columna es NOT NULL se rechaza con 400 en lugar de provocar un error de BD.
+    """
+    provided = body.model_fields_set
+    updates: list[str] = []
+    values: list[Any] = []
+    for column in columns:
+        if column not in provided:
+            continue
+        value = getattr(body, column)
+        if value is None and column in non_null_columns:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Field '{column}' cannot be null",
+            )
+        if value is not None and transform and column in transform:
+            value = transform[column](value)
+        updates.append(f"{column}=?")
+        values.append(value)
+    return updates, values
+
+
 class PreparationFileBody(BaseModel):
     part_label: str | None = Field(default=None, max_length=191)
     purpose: Literal["score", "part", "midi", "audio", "video", "reference", "other"] | None = None
@@ -488,28 +548,64 @@ def _can_view_space(conn, space_id: str, user_id: str, profile: dict[str, Any]) 
     return _group_membership(conn, space["group_id"], user_id) is not None
 
 
+def _resource_section_allowed(conn, group_id: str | None, section_id: str | None,
+                              user_id: str) -> bool:
+    """Acceso a una Resource restringida a una sección concreta.
+
+    - Sin sección restringida: sin restricción adicional.
+    - Manager del grupo: acceso a todas las secciones.
+    - Miembro: sólo si su ``group_members.section_id`` coincide.
+    """
+    if not section_id:
+        return True
+    if not group_id:
+        return False
+    member = _group_membership(conn, group_id, user_id)
+    if member is None:
+        return False
+    if member["role"] == "manager":
+        return True
+    row = conn.execute(
+        "SELECT section_id FROM group_members "
+        "WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+        (group_id, user_id),
+    ).fetchone()
+    if row is None:
+        return False
+    return row["section_id"] == section_id
+
+
 def _can_use_work_in_space(conn, space: dict[str, Any], user_id: str, profile: dict[str, Any],
                            work_id: str, resource_id: str) -> bool:
     """Valida que el usuario puede incorporar una Work/Resource a un espacio.
 
     Reglas:
     - Admin de plataforma: sí.
-    - Work propia (works.owner_sub = user_id): sí.
-    - Resource compartida con el mismo grupo del espacio (resources.group_id): sí.
+    - Work propia (works.owner_sub = user_id): sí, salvo que la Resource esté
+      restringida a una sección del grupo y el usuario no pertenezca a ella.
+    - Resource compartida con el grupo del espacio (resources.group_id): sí,
+      respetando la restricción de sección.
     - Cualquier otro caso: no (evita incorporar material privado ajeno).
     """
     if _is_admin(profile):
         return True
     row = conn.execute(
-        "SELECT w.owner_sub AS work_owner, r.work_id AS resource_work_id, r.group_id AS resource_group "
+        "SELECT w.owner_sub AS work_owner, r.work_id AS resource_work_id, "
+        "       r.group_id AS resource_group, r.group_section_id AS section_id "
         "FROM resources r JOIN works w ON w.id = r.work_id WHERE r.id = ?",
         (resource_id,),
     ).fetchone()
     if row is None or row["resource_work_id"] != work_id:
         return False
+
+    space_group_id = space.get("group_id")
+    if not _resource_section_allowed(
+        conn, row["resource_group"], row["section_id"], user_id
+    ):
+        return False
+
     if row["work_owner"] is not None and row["work_owner"] == user_id:
         return True
-    space_group_id = space.get("group_id")
     if space_group_id and row["resource_group"] == space_group_id:
         return True
     return False
@@ -520,23 +616,32 @@ def _can_use_file_in_space(conn, space: dict[str, Any], user_id: str, profile: d
     """Valida que el usuario puede asociar un File existente a un espacio.
 
     Un archivo pertenece a una Resource, que a su vez pertenece a una Work.
-    Se permite si el usuario es propietario de la Work, si la Resource está
-    compartida con el grupo del espacio, o si es admin. Un identificador
-    conocido NO basta para apropiarse del archivo de otro usuario.
+    Se permite si el usuario es propietario de la Work, o si la Resource está
+    compartida con el grupo del espacio (respetando restricción de sección),
+    o si es admin. Un identificador conocido NO basta para apropiarse del
+    archivo de otro usuario.
     """
     if _is_admin(profile):
         return True
     row = conn.execute(
-        "SELECT r.id AS resource_id, r.group_id AS resource_group, w.owner_sub AS work_owner "
+        "SELECT r.id AS resource_id, r.work_id AS resource_work_id, "
+        "       r.group_id AS resource_group, r.group_section_id AS section_id, "
+        "       w.owner_sub AS work_owner "
         "FROM files f JOIN resources r ON r.id = f.resource_id "
         "JOIN works w ON w.id = r.work_id WHERE f.id = ?",
         (file_id,),
     ).fetchone()
     if row is None:
         return False
+
+    space_group_id = space.get("group_id")
+    if not _resource_section_allowed(
+        conn, row["resource_group"], row["section_id"], user_id
+    ):
+        return False
+
     if row["work_owner"] is not None and row["work_owner"] == user_id:
         return True
-    space_group_id = space.get("group_id")
     if space_group_id and row["resource_group"] == space_group_id:
         return True
     return False
@@ -4888,16 +4993,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "SELECT * FROM spaces ORDER BY created_at DESC"
                 ).fetchall()
             else:
-                # Personal spaces owned by user
-                # Group/project spaces where user is owner or member
+                # owner_sub sólo concede visibilidad en espacios PERSONALES.
+                # Los espacios de grupo/proyecto dependen exclusivamente de la
+                # membresía activa: quien abandona o es expulsado deja de verlos.
                 rows = conn.execute(
                     """
                     SELECT s.* FROM spaces s
-                    WHERE s.owner_sub = ?
-                       OR (s.group_id IS NOT NULL AND EXISTS (
-                           SELECT 1 FROM group_members gm
-                           WHERE gm.group_id = s.group_id AND gm.user_sub = ? AND gm.status = 'active'
-                       ))
+                    WHERE (s.space_type = 'personal' AND s.owner_sub = ?)
+                       OR (s.space_type IN ('group','project')
+                           AND s.group_id IS NOT NULL
+                           AND EXISTS (
+                               SELECT 1 FROM group_members gm
+                               WHERE gm.group_id = s.group_id
+                                 AND gm.user_sub = ?
+                                 AND gm.status = 'active'
+                           ))
                     ORDER BY s.created_at DESC
                     """,
                     (user_id, user_id),
@@ -4941,12 +5051,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             status_code=403,
                             detail="Only group managers can create spaces for this group"
                         )
+            # owner_sub representa propietario PERSONAL: sólo aplica a espacios
+            # personales. Un espacio de grupo/proyecto no pertenece a un usuario.
+            owner_sub = user_id if body.space_type == "personal" else None
             conn.execute(
                 "INSERT INTO spaces "
                 "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (
-                    space_id, body.space_type, user_id, body.group_id,
+                    space_id, body.space_type, owner_sub, body.group_id,
                     body.name.strip(), body.description, now, now,
                 ),
             )
@@ -4978,21 +5091,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_id = str(profile["user_id"])
         now = utcnow()
         with _connect(cfg) as conn:
+            _require_space(conn, space_id)
             if not _can_manage_space(conn, space_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
-            updates = []
-            values: list[Any] = []
-            if body.name is not None:
-                updates.append("name = ?")
-                values.append(body.name.strip())
-            if body.description is not None:
-                updates.append("description = ?")
-                values.append(body.description)
+            updates, values = _apply_patch_fields(
+                body,
+                ("name", "description"),
+                frozenset({"name"}),
+                transform={"name": lambda v: v.strip()},
+            )
             if not updates:
-                row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
-                if row is None:
-                    raise HTTPException(status_code=404, detail="Space not found")
-                return _space_dto(row)
+                return _space_dto(_require_space(conn, space_id))
             updates.append("updated_at = ?")
             values.append(now)
             values.append(space_id)
@@ -5000,8 +5109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 f"UPDATE spaces SET {', '.join(updates)} WHERE id = ?",
                 tuple(values),
             )
-            row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
-        return _space_dto(row)
+            return _space_dto(_require_space(conn, space_id))
 
     @app.post("/api/v1/spaces/{space_id}/convert", status_code=201)
     def convert_space(
@@ -5053,8 +5161,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
             # Update space
+            # Al convertirse en colectivo deja de ser un espacio personal: la
+            # gestión pasa a derivar de la membresía de manager del nuevo grupo,
+            # por lo que owner_sub se limpia.
             conn.execute(
-                "UPDATE spaces SET space_type = ?, group_id = ?, updated_at = ? WHERE id = ?",
+                "UPDATE spaces SET space_type = ?, group_id = ?, owner_sub = NULL, updated_at = ? WHERE id = ?",
                 (body.target_type, group_id, now, space_id),
             )
 
@@ -5087,27 +5198,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ===== preparation_works helpers =====
     def _group_space(conn, group_id: str) -> dict[str, Any] | None:
-        """Resuelve el espacio de un grupo, creándolo si no existe.
+        """Espacio **general** de un grupo (space_type='group').
 
-        Devuelve la fila del espacio o None si el grupo no existe.
+        Un grupo tiene un único espacio general y puede tener varios espacios de
+        proyecto; por eso la resolución no admite 'project' ni depende del orden
+        de la consulta: el índice único ``uq_spaces_general_group`` lo garantiza.
+
+        Devuelve None si el grupo no existe.
         """
         group = conn.execute("SELECT id, name FROM groups WHERE id = ?", (group_id,)).fetchone()
         if group is None:
             return None
         space = conn.execute(
-            "SELECT * FROM spaces WHERE group_id = ? AND space_type IN ('group','project')",
+            "SELECT * FROM spaces WHERE group_id = ? AND space_type = 'group'",
             (group_id,),
         ).fetchone()
         if space is not None:
             return dict(space)
+
+        # Creación idempotente: si otra petición la creó a la vez, el índice
+        # único hace fallar el INSERT y se relee el espacio ya existente.
         space_id = uuid.uuid4().hex
         now = utcnow()
-        conn.execute(
-            "INSERT INTO spaces "
-            "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (space_id, "group", group["id"], group_id, group["name"], None, now, now),
-        )
+        try:
+            conn.execute(
+                "INSERT INTO spaces "
+                "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (space_id, "group", None, group_id, group["name"], None, now, now),
+            )
+        except Exception:
+            conn.execute("SELECT 1")  # la transacción sigue utilizable
+            existing = conn.execute(
+                "SELECT * FROM spaces WHERE group_id = ? AND space_type = 'group'",
+                (group_id,),
+            ).fetchone()
+            if existing is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="No se pudo resolver el espacio general del grupo",
+                )
+            return dict(existing)
+
         row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
         return dict(row)
 
@@ -5174,16 +5306,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def _update_prep_work(conn, space_id: str, work_id: str,
                           body: PreparationWorkUpdateBody) -> dict[str, Any]:
+        """Actualiza un trabajo aplicando semántica PATCH estricta.
+
+        - Campo omitido por el cliente: conserva su valor actual.
+        - Campo enviado con valor: se actualiza.
+        - Campo enviado explícitamente como null: se limpia (si el campo admite
+          null, que es el caso de todos los opcionales de este modelo).
+        """
         work = _require_prep_work(conn, space_id, work_id)
-        updates: list[str] = []
-        values: list[Any] = []
-        for column in ("title", "composer", "destination_type", "event_name", "event_date", "notes", "status"):
-            value = getattr(body, column)
-            # event_name/event_date admiten None explícito para limpiarlos.
-            if value is not None or column in ("event_name", "event_date"):
-                updates.append(f"{column}=?")
-                values.append(value)
+        # model_fields_set distingue "omitido" de "enviado como null".
+        updates, values = _apply_patch_fields(
+            body, _PREP_WORK_UPDATABLE_COLUMNS, _PREP_WORK_NON_NULL_COLUMNS
+        )
         if not updates:
+            # Petición vacía: operación sin efecto, respuesta estable.
             return work
         values.append(utcnow())
         values.append(work_id)
@@ -5370,6 +5506,157 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"ok": True}
 
 
+    # ===== preparation_work files: helpers comunes =====
+    def _prep_file_container_work_id(work_id: str) -> str:
+        """Id determinista de la Work contenedora de los archivos del trabajo.
+
+        Al ser determinista, la creación es idempotente aunque se repita.
+        """
+        return f"pw-{work_id}"
+
+    def _stream_stored_file(row: dict[str, Any], download_name: str) -> Response:
+        """Sirve un archivo a partir de su registro en ``files``.
+
+        La autorización se comprueba siempre antes de llamar aquí.
+        """
+        pointer = str(row["storage_pointer"] or "")
+        if not pointer:
+            raise HTTPException(status_code=404, detail="File has no storage pointer")
+
+        candidate = Path(pointer)
+        if not candidate.is_absolute():
+            candidate = Path(cfg.storage_root).resolve() / pointer
+        resolved = candidate.resolve()
+
+        root = Path(cfg.storage_root).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Invalid file path")
+        if not resolved.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        mime_type = row["mime_type"] if "mime_type" in row.keys() else None
+        return Response(
+            content=resolved.read_bytes(),
+            media_type=mime_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+        )
+
+    def _ensure_prep_file_container(conn, work: dict[str, Any], user_id: str) -> str:
+        """Devuelve la Work que agrupa los archivos adjuntos al trabajo."""
+        container_id = _prep_file_container_work_id(work["id"])
+        existing = conn.execute("SELECT id FROM works WHERE id = ?", (container_id,)).fetchone()
+        if existing is not None:
+            return container_id
+        now = utcnow()
+        conn.execute(
+            "INSERT INTO works (id, title, created_at, updated_at, required_resource_id, owner_sub) "
+            "VALUES (?,?,?,?,?,?)",
+            (container_id, f"Archivos de {work['title']}", now, now, container_id, user_id),
+        )
+        return container_id
+
+    def _register_prep_file(
+        conn,
+        space: dict[str, Any],
+        work: dict[str, Any],
+        user_id: str,
+        *,
+        data: bytes,
+        original_name: str,
+        mime_type: str,
+        purpose: str,
+        sort_order: int = 0,
+        part_label: str | None = None,
+    ) -> dict[str, Any]:
+        """Registra un archivo en el modelo unificado.
+
+        Crea la cadena Work(contenedora) -> Resource -> File y la referencia
+        preparation_work_files. Devuelve un DTO estable con ``id`` (referencia)
+        y ``file_id`` (File de Chorus).
+        """
+        now = utcnow()
+        container_id = _ensure_prep_file_container(conn, work, user_id)
+
+        resource_id = uuid.uuid4().hex
+        file_id = uuid.uuid4().hex
+        suffix = Path(original_name).suffix.lower()
+        pointer = _save_private(cfg, data, suffix, Path(work["folder_path"]))
+        digest = hashlib.sha256(data).hexdigest()
+
+        group_id = space.get("group_id")
+
+        conn.execute(
+            "INSERT INTO resources "
+            "(id, work_id, resource_type, created_at, updated_at, required_file_id, "
+            " part_label, material_status, group_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                resource_id, container_id, "preparation_file", now, now, file_id,
+                part_label, "registered", group_id,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO files "
+            "(id, resource_id, name, mime_type, size_bytes, status, sha256, "
+            " storage_pointer, created_at, updated_at, folder_path, display_name, original_name) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                file_id, resource_id, original_name, mime_type, len(data), "registered",
+                digest, pointer, now, now, work["folder_path"], original_name, original_name,
+            ),
+        )
+        # La Work contenedora apunta a su recurso (columna única por Work)
+        conn.execute(
+            "UPDATE works SET required_resource_id = ?, updated_at = ? WHERE id = ?",
+            (resource_id, now, container_id),
+        )
+
+        ref_id = uuid.uuid4().hex
+        conn.execute(
+            "INSERT INTO preparation_work_files "
+            "(id, preparation_work_id, file_id, purpose, sort_order, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (ref_id, work["id"], file_id, purpose, sort_order, now),
+        )
+        return _prep_file_ref_by_id(conn, ref_id)
+
+    def _prep_file_ref_by_id(conn, ref_id: str) -> dict[str, Any]:
+        """DTO completo de una referencia (incluye metadatos del File y la Resource)."""
+        row = conn.execute(
+            "SELECT pwf.id AS id, pwf.preparation_work_id AS preparation_work_id, "
+            "       pwf.file_id AS file_id, pwf.purpose AS purpose, "
+            "       pwf.sort_order AS sort_order, pwf.created_at AS created_at, "
+            "       f.name AS name, f.original_name AS original_name, "
+            "       f.display_name AS display_name, f.mime_type AS mime_type, "
+            "       f.size_bytes AS size_bytes, f.sha256 AS sha256, "
+            "       r.part_label AS part_label "
+            "FROM preparation_work_files pwf "
+            "JOIN files f ON f.id = pwf.file_id "
+            "LEFT JOIN resources r ON r.id = f.resource_id "
+            "WHERE pwf.id = ?",
+            (ref_id,),
+        ).fetchone()
+        return _preparation_work_file_dto(row)
+
+    def _list_prep_files(conn, space_id: str, work_id: str) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            "SELECT pwf.id AS id, pwf.file_id AS file_id, pwf.purpose AS purpose, "
+            "       pwf.sort_order AS sort_order, pwf.created_at AS created_at, "
+            "       f.name AS name, f.original_name AS original_name, "
+            "       f.display_name AS display_name, f.mime_type AS mime_type, "
+            "       f.size_bytes AS size_bytes, f.sha256 AS sha256, "
+            "       r.part_label AS part_label "
+            "FROM preparation_work_files pwf "
+            "JOIN files f ON f.id = pwf.file_id "
+            "LEFT JOIN resources r ON r.id = f.resource_id "
+            "WHERE pwf.preparation_work_id = ? "
+            "ORDER BY pwf.sort_order, pwf.id",
+            (work_id,),
+        ).fetchall()
+        return [_preparation_work_file_dto(row) for row in rows]
+
     @app.post("/api/v1/groups/{group_id}/preparation-works/{work_id}/files", status_code=201)
     async def upload_preparation_files(
         group_id: str,
@@ -5378,8 +5665,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         parts: str = Form(default="[]"),
         profile: dict[str, Any] = Depends(current_profile),
     ) -> dict[str, Any]:
-        """Upload one or more files to a preparation work.
-        parts: JSON array of {part_label, purpose} for each file (optional, same length as files).
+        """Sube uno o más archivos a un trabajo (ruta histórica compatible).
+
+        delega en el modelo unificado: cada archivo queda en el almacenamiento
+        privado, con registro ``files`` y referencia ``preparation_work_files``.
+        parts: JSON con {part_label, purpose} por archivo (misma longitud).
         """
         import json as json_std
         user_id = str(profile["user_id"])
@@ -5399,31 +5689,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not _can_manage_space_preparation(conn, space["id"], user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
             work = _require_prep_work(conn, space["id"], work_id)
-            folder_path = work["folder_path"]
 
-        now = utcnow()
-        uploaded = []
-        for i, upload in enumerate(files):
-            relative = str(upload.filename or "archivo").replace("\\", "/")
-            original = relative.split("/")[-1]
-            suffix = Path(original).suffix.lower()
-            data = await upload.read()
-            if len(data) > cfg.max_upload_bytes:
-                raise HTTPException(status_code=413, detail=f"{original}: exceeds max upload size")
-            # Save file in the preparation work's folder (folder_path)
-            pointer = _save_private(cfg, data, suffix, Path(folder_path))
-            part_info = parts_list[i] if i < len(parts_list) else {}
-            file_id = uuid.uuid4().hex
-            uploaded.append({
-                "id": file_id,
-                "original_name": original,
-                "storage_pointer": pointer,
-                "mime_type": upload.content_type or "",
-                "size_bytes": len(data),
-                "part_label": part_info.get("part_label"),
-                "purpose": part_info.get("purpose"),
-            })
-        return {"work_id": work_id, "folder_path": folder_path, "files": uploaded}
+            uploaded: list[dict[str, Any]] = []
+            for i, upload in enumerate(files):
+                relative = str(upload.filename or "archivo").replace("\\", "/")
+                original = relative.split("/")[-1]
+                data = await upload.read()
+                if len(data) > cfg.max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413, detail=f"{original}: exceeds max upload size"
+                    )
+                part_info = parts_list[i] if i < len(parts_list) else {}
+                purpose = part_info.get("purpose") or "other"
+                if purpose not in ("score", "part", "audio", "video", "other"):
+                    purpose = "other"
+                dto = _register_prep_file(
+                    conn, space, work, user_id,
+                    data=data,
+                    original_name=original,
+                    mime_type=upload.content_type or "",
+                    purpose=purpose,
+                    sort_order=i,
+                    part_label=part_info.get("part_label"),
+                )
+                uploaded.append(dto)
+
+        return {
+            "work_id": work_id,
+            "space_id": space["id"],
+            "folder_path": work["folder_path"],
+            "files": uploaded,
+        }
 
 
     @app.get("/api/v1/groups/{group_id}/preparation-works/{work_id}/files")
@@ -5432,6 +5728,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         work_id: str,
         profile: dict[str, Any] = Depends(current_profile),
     ) -> list[dict[str, Any]]:
+        """Lista los archivos del trabajo desde el modelo unificado."""
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
             space = _group_space(conn, group_id)
@@ -5439,27 +5736,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_view_space(conn, space["id"], user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
-            work = _require_prep_work(conn, space["id"], work_id)
-            folder_path = work["folder_path"]
-
-        # List files in the folder using storage_root
-        root = Path(cfg.storage_root).resolve()
-        folder = (root / folder_path).resolve()
-        if root not in folder.parents and root != folder:
-            raise HTTPException(status_code=403, detail="Invalid folder path")
-        if not folder.exists():
-            return []
-
-        files = []
-        for file_path in sorted(folder.iterdir()):
-            if file_path.is_file():
-                stat = file_path.stat()
-                files.append({
-                    "name": file_path.name,
-                    "size_bytes": stat.st_size,
-                    "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                })
-        return files
+            _require_prep_work(conn, space["id"], work_id)
+            return _list_prep_files(conn, space["id"], work_id)
 
 
     @app.get("/api/v1/groups/{group_id}/preparation-works/{work_id}/files/{file_name}/download")
@@ -5469,6 +5747,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         file_name: str,
         profile: dict[str, Any] = Depends(current_profile),
     ) -> Response:
+        """Descarga por nombre (ruta histórica). Resuelve el File canónico."""
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
             space = _group_space(conn, group_id)
@@ -5476,23 +5755,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_view_space(conn, space["id"], user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
-            work = _require_prep_work(conn, space["id"], work_id)
-            folder_path = work["folder_path"]
-
-        root = Path(cfg.storage_root).resolve()
-        file_path = (root / folder_path / file_name).resolve()
-        if root not in file_path.parents:
-            raise HTTPException(status_code=403, detail="Invalid file path")
-        if not file_path.is_file():
+            _require_prep_work(conn, space["id"], work_id)
+            row = conn.execute(
+                "SELECT f.name AS name, f.storage_pointer AS storage_pointer, "
+                "       f.mime_type AS mime_type "
+                "FROM preparation_work_files pwf "
+                "JOIN files f ON f.id = pwf.file_id "
+                "WHERE pwf.preparation_work_id = ? "
+                "  AND (f.name = ? OR f.original_name = ? OR f.display_name = ?) "
+                "LIMIT 1",
+                (work_id, file_name, file_name, file_name),
+            ).fetchone()
+        if row is None:
             raise HTTPException(status_code=404, detail="File not found")
+        return _stream_stored_file(row, download_name=row["name"])
 
-        data = file_path.read_bytes()
-        mime_type = "application/octet-stream"
-        return Response(
-            content=data,
-            media_type=mime_type,
-            headers={"Content-Disposition": f'attachment; filename="{file_name}"'}
-        )
+
+    @app.get("/api/v1/spaces/{space_id}/preparation-works/{work_id}/files/{file_id}/download")
+    def download_prep_file_by_id(
+        space_id: str,
+        work_id: str,
+        file_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> Response:
+        """Descarga por identificador estable de File (modelo unificado)."""
+        user_id = str(profile["user_id"])
+        with _connect(cfg) as conn:
+            _require_space(conn, space_id)
+            if not _can_view_space(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            _require_prep_work(conn, space_id, work_id)
+            row = conn.execute(
+                "SELECT f.name AS name, f.storage_pointer AS storage_pointer, "
+                "       f.mime_type AS mime_type "
+                "FROM preparation_work_files pwf "
+                "JOIN files f ON f.id = pwf.file_id "
+                "WHERE pwf.preparation_work_id = ? AND pwf.file_id = ? LIMIT 1",
+                (work_id, file_id),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        return _stream_stored_file(row, download_name=row["name"])
 
 
     @app.delete("/api/v1/groups/{group_id}/preparation-works/{work_id}/files/{file_name}")
@@ -5502,6 +5805,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         file_name: str,
         profile: dict[str, Any] = Depends(current_profile),
     ) -> dict[str, Any]:
+        """Retira la referencia (ruta histórica por nombre).
+
+        No borra el archivo físico ni el registro ``files``: sólo la relación
+        con este trabajo.
+        """
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
             space = _group_space(conn, group_id)
@@ -5509,15 +5817,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Group not found")
             if not _can_manage_space_preparation(conn, space["id"], user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
-            work = _require_prep_work(conn, space["id"], work_id)
-            folder_path = work["folder_path"]
-
-        root = Path(cfg.storage_root).resolve()
-        file_path = (root / folder_path / file_name).resolve()
-        if root not in file_path.parents:
-            raise HTTPException(status_code=403, detail="Invalid file path")
-        if file_path.is_file():
-            file_path.unlink()
+            _require_prep_work(conn, space["id"], work_id)
+            row = conn.execute(
+                "SELECT pwf.id AS ref_id "
+                "FROM preparation_work_files pwf "
+                "JOIN files f ON f.id = pwf.file_id "
+                "WHERE pwf.preparation_work_id = ? "
+                "  AND (f.name = ? OR f.original_name = ? OR f.display_name = ?) "
+                "LIMIT 1",
+                (work_id, file_name, file_name, file_name),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="File not found")
+            conn.execute("DELETE FROM preparation_work_files WHERE id = ?", (row["ref_id"],))
         return {"ok": True}
 
 
@@ -5613,13 +5925,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchone()
             if item is None:
                 raise HTTPException(status_code=404, detail="Preparation work item not found")
-            updates = []
-            values: list[Any] = []
-            for column in ("voice_label", "instrument", "custom_title", "sort_order", "status", "notes"):
-                value = getattr(body, column)
-                if value is not None:
-                    updates.append(f"{column} = ?")
-                    values.append(value)
+            updates, values = _apply_patch_fields(
+                body, _PREP_ITEM_UPDATABLE_COLUMNS, _PREP_ITEM_NON_NULL_COLUMNS
+            )
             if not updates:
                 return _preparation_work_item_dto(item)
             updates.append("updated_at = ?")
@@ -5689,11 +5997,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not _can_view_space(conn, space_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
             _require_prep_work(conn, space_id, work_id)
-            rows = conn.execute(
-                "SELECT * FROM preparation_work_files WHERE preparation_work_id = ? ORDER BY sort_order, id",
-                (work_id,),
-            ).fetchall()
-        return [_preparation_work_file_dto(row) for row in rows]
+            return _list_prep_files(conn, space_id, work_id)
 
     @app.post("/api/v1/spaces/{space_id}/preparation-works/{work_id}/files", status_code=201)
     def add_preparation_work_file(
@@ -5705,7 +6009,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Attach an existing file to a preparation work.
 
         No basta con que el archivo exista: el usuario debe poder utilizarlo
-        (Work propia o Resource compartida con el grupo del espacio).
+        (Work propia, o Resource compartida con el grupo del espacio y, si está
+        restringida a una sección, ser miembro de ella).
         La referencia no altera el archivo físico ni su propiedad.
         """
         user_id = str(profile["user_id"])
@@ -5715,10 +6020,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             space = _require_space(conn, space_id)
             if not _can_manage_space_preparation(conn, space_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
-            _require_prep_work(conn, space_id, work_id)
+            work = _require_prep_work(conn, space_id, work_id)
             # Validar existencia y acceso al archivo
             file = conn.execute(
-                "SELECT 1 FROM files WHERE id = ?", (body.file_id,)
+                "SELECT id FROM files WHERE id = ?", (body.file_id,)
             ).fetchone()
             if file is None:
                 raise HTTPException(status_code=404, detail="File not found")
@@ -5734,7 +6039,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 (file_ref_id, work_id, body.file_id, body.purpose, body.sort_order, now),
             )
             row = conn.execute(
-                "SELECT * FROM preparation_work_files WHERE id = ?", (file_ref_id,)
+                "SELECT pwf.id AS id, pwf.preparation_work_id AS preparation_work_id, "
+                "       pwf.file_id AS file_id, pwf.purpose AS purpose, "
+                "       pwf.sort_order AS sort_order, pwf.created_at AS created_at, "
+                "       f.name AS name, f.original_name AS original_name, "
+                "       f.display_name AS display_name, f.mime_type AS mime_type, "
+                "       f.size_bytes AS size_bytes, r.part_label AS part_label "
+                "FROM preparation_work_files pwf "
+                "JOIN files f ON f.id = pwf.file_id "
+                "LEFT JOIN resources r ON r.id = f.resource_id "
+                "WHERE pwf.id = ?",
+                (file_ref_id,),
             ).fetchone()
         return _preparation_work_file_dto(row)
 
@@ -5767,10 +6082,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"ok": True}
 
     def _preparation_work_file_dto(row: dict[str, Any]) -> dict[str, Any]:
+        keys = row.keys()
         return {
             "id": row["id"],
-            "preparation_work_id": row["preparation_work_id"],
+            "preparation_work_id": row["preparation_work_id"] if "preparation_work_id" in keys else None,
             "file_id": row["file_id"],
+            # Compatibilidad con el contrato histórico (name/original_name)
+            "name": row["name"] if "name" in keys else None,
+            "original_name": row["original_name"] if "original_name" in keys else None,
+            "display_name": row["display_name"] if "display_name" in keys else None,
+            "mime_type": row["mime_type"] if "mime_type" in keys else None,
+            "size_bytes": row["size_bytes"] if "size_bytes" in keys else None,
+            "part_label": row["part_label"] if "part_label" in keys else None,
             "purpose": row["purpose"],
             "sort_order": row["sort_order"],
             "created_at": row["created_at"],

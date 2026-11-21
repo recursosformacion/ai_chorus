@@ -16,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import Settings
 from app.db import connect as db_connect, _execute_sql_script, _verify_final_schema
+from app.dbguard import (
+    DatabaseUnavailableError,
+    UnsafeTestDatabaseError,
+    check_effective_connection,
+)
 
 MIGRATIONS = [
     "001_schema.sql",
@@ -48,16 +53,26 @@ MIGRATIONS = [
     "038_preparation_work_items.sql",
     "039_preparation_work_files.sql",
     "040_migrate_preparation_works_to_spaces.sql",
+    "041_consolidate_spaces.sql",
     # 009_legacy_baseline NO se ejecuta en reconstrucción desde cero
 ]
 
 
 def _verify_test_environment(settings: Settings) -> dict:
-    """Valida motor, BD, usuario, host ANTES de operaciones destructivas."""
+    """Valida motor, BD y usuario ANTES de operaciones destructivas.
+
+    Usa el guard centralizado (app.dbguard): la comprobación se hace sobre la
+    conexión efectiva, no sobre el texto de CHORUS_DATABASE_URL.
+    """
+    if not settings.database_url:
+        raise RuntimeError("CHORUS_DATABASE_URL no definido (requerido para MariaDB)")
+
     conn = db_connect(settings)
     try:
-        if not settings.database_url:
-            raise RuntimeError("CHORUS_DATABASE_URL no definido (requerido para MariaDB)")
+        try:
+            effective = check_effective_connection(conn)
+        except UnsafeTestDatabaseError as exc:
+            raise RuntimeError(str(exc)) from exc
 
         row = conn.execute(
             "SELECT DATABASE() AS db, CURRENT_USER() AS usr, @@hostname AS host, @@port AS port, @@version AS ver"
@@ -78,7 +93,7 @@ def _verify_test_environment(settings: Settings) -> dict:
             raise RuntimeError(f"Usuario efectivo '{info['user']}' != 'osap2027_test'")
 
         # Verificar línea MariaDB 10.4 (producción usa 10.4.32)
-        if not info["version"].startswith("10.4."):
+        if not effective.is_supported_version:
             raise RuntimeError(
                 f"Versión MariaDB {info['version']} no es de la línea 10.4 "
                 "(producción usa 10.4.32)"
@@ -132,9 +147,16 @@ def _verify_spaces_schema(conn) -> tuple[bool, list[str]]:
         errors.append("spaces: falta columna group_id")
     elif row['IS_NULLABLE'] != 'YES':
         errors.append("spaces.group_id debe ser NULLABLE (espacios personales)")
+    row = col('spaces', 'owner_sub')
+    if row is None:
+        errors.append("spaces: falta columna owner_sub")
+    elif row['IS_NULLABLE'] != 'YES':
+        errors.append("spaces.owner_sub debe ser NULLABLE (sólo personal tiene dueño)")
     row = col('spaces', 'space_type')
     if row is not None and 'personal' not in str(row['COLUMN_TYPE']):
         errors.append("spaces.space_type debe incluir 'personal'")
+    if col('spaces', 'general_group_id') is None:
+        errors.append("spaces: falta columna generada general_group_id (mig 041)")
 
     # --- preparation_works: space_id obligatorio, group_id eliminado ---
     row = col('preparation_works', 'space_id')
@@ -184,6 +206,7 @@ def _verify_spaces_schema(conn) -> tuple[bool, list[str]]:
     # --- Índices esperados ---
     for table, index in (
         ('spaces', 'idx_spaces_owner'),
+        ('spaces', 'uq_spaces_general_group'),
         ('preparation_works', 'idx_preparation_works_space'),
         ('preparation_work_items', 'idx_pwi_prepwork'),
         ('preparation_work_files', 'idx_pwf_prepwork'),
@@ -195,6 +218,41 @@ def _verify_spaces_schema(conn) -> tuple[bool, list[str]]:
         ).fetchone()
         if row is None:
             errors.append(f"{table}: falta índice {index}")
+
+    # --- Integridad referencial y consistencia de datos ---
+    integrity_checks = (
+        ("Trabajos sin espacio válido",
+         "SELECT COUNT(*) AS c FROM preparation_works pw "
+         "LEFT JOIN spaces s ON s.id = pw.space_id WHERE s.id IS NULL"),
+        ("Items sin trabajo válido",
+         "SELECT COUNT(*) AS c FROM preparation_work_items i "
+         "LEFT JOIN preparation_works w ON w.id = i.preparation_work_id WHERE w.id IS NULL"),
+        ("Referencias de archivo sin trabajo válido",
+         "SELECT COUNT(*) AS c FROM preparation_work_files f "
+         "LEFT JOIN preparation_works w ON w.id = f.preparation_work_id WHERE w.id IS NULL"),
+        ("Referencias de archivo con file_id inexistente",
+         "SELECT COUNT(*) AS c FROM preparation_work_files f "
+         "LEFT JOIN files fi ON fi.id = f.file_id WHERE fi.id IS NULL"),
+        ("Items con Resource que no pertenece a su Work",
+         "SELECT COUNT(*) AS c FROM preparation_work_items i "
+         "JOIN resources r ON r.id = i.resource_id WHERE r.work_id <> i.work_id"),
+        ("Espacios personales con group_id",
+         "SELECT COUNT(*) AS c FROM spaces WHERE space_type = 'personal' AND group_id IS NOT NULL"),
+        ("Espacios de grupo/proyecto sin group_id",
+         "SELECT COUNT(*) AS c FROM spaces WHERE space_type IN ('group','project') AND group_id IS NULL"),
+        ("Espacios no personales con owner_sub",
+         "SELECT COUNT(*) AS c FROM spaces WHERE space_type IN ('group','project') AND owner_sub IS NOT NULL"),
+        ("Espacios personales sin owner_sub",
+         "SELECT COUNT(*) AS c FROM spaces WHERE space_type = 'personal' AND owner_sub IS NULL"),
+        ("Grupos con más de un espacio general",
+         "SELECT COUNT(*) AS c FROM (SELECT group_id FROM spaces "
+         "WHERE space_type = 'group' GROUP BY group_id HAVING COUNT(*) > 1) t"),
+    )
+    for label, sql in integrity_checks:
+        row = conn.execute(sql).fetchone()
+        count = int(row["c"]) if row else -1
+        if count != 0:
+            errors.append(f"integridad: {label} ({count} filas)")
 
     return len(errors) == 0, errors
 
