@@ -72,7 +72,14 @@ Además, si la Resource está restringida a una sección (`resources.group_secti
 - El manager del grupo accede a todas las secciones.
 - Un miembro sólo accede si su `group_members.section_id` coincide.
 
-Conocer un `file_id` **no** autoriza: la descarga repite la comprobación en cada petición.
+Conocer un `file_id` **no** autoriza. La autorización de sección **se revalida en cada acceso** (listado y descarga), no se hereda del momento en que el archivo se incorporó a la preparación. La comprobación está centralizada en `_prep_file_section_allowed()`, que usan tanto `_list_prep_files()` (filtrando los elementos devueltos) como `_stream_prep_file()` (único punto de acceso al almacenamiento para archivos de preparación), del que cuelgan la ruta canónica por id y la ruta histórica por nombre con idéntica exigencia.
+
+Efectos:
+
+- Un miembro de otra sección no ve el archivo en el listado.
+- Su descarga responde `403` sin entregar contenido, tanto por id como por nombre.
+- Un archivo sin `group_section_id` mantiene la visibilidad normal del espacio.
+- La pérdida de membresía elimina el acceso en la siguiente petición.
 
 ---
 
@@ -102,6 +109,17 @@ preparation_work_files (preparation_work_id, file_id, purpose, sort_order)
 - Eliminar una **referencia** (`preparation_work_files`) sólo quita el vínculo con ese trabajo.
 - **No** se borra el archivo físico, ni el registro `files`, ni la `resources` contenedora.
 - Eliminar un **trabajo** elimina en cascada sus items y referencias, pero nunca Works, Resources o Files.
+
+### 3.2 Autorización de acceso
+
+| Operación | Punto de control |
+|-----------|------------------|
+| Listar archivos | `_list_prep_files()` filtra por `_prep_file_section_allowed()` |
+| Descargar por id | `download_prep_file_by_id()` → `_stream_prep_file()` |
+| Descargar por nombre | `download_preparation_file()` → `_stream_prep_file()` |
+| Incorporar archivo | `add_preparation_work_file()` → `_can_use_file_in_space()` |
+
+`_stream_prep_file()` es el único camino hacia `_stream_stored_file()` para archivos de preparación: no existe una ruta alternativa que eluda la restricción de sección.
 
 ---
 

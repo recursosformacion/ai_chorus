@@ -5640,14 +5640,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ).fetchone()
         return _preparation_work_file_dto(row)
 
-    def _list_prep_files(conn, space_id: str, work_id: str) -> list[dict[str, Any]]:
+    def _prep_file_section_allowed(conn, space: dict[str, Any], user_id: str,
+                                   profile: dict[str, Any], *,
+                                   resource_group_id: str | None,
+                                   resource_section_id: str | None) -> bool:
+        """Autorización de un archivo concreto según su restricción de sección.
+
+        Punto único de decisión para listar, descargar y consultar archivos de
+        una preparación. No delega en que el archivo se autorizara al
+        incorporarlo: la restricción se comprueba en cada acceso.
+
+        - Admin de plataforma: sí.
+        - Sin `group_section_id`: sin restricción adicional (la visibilidad del
+          espacio ya se validó antes).
+        - Con `group_section_id`: sólo manager del grupo correspondiente o
+          miembro de esa sección.
+        """
+        if _is_admin(profile):
+            return True
+        if not resource_section_id:
+            return True
+        group_id = resource_group_id or space.get("group_id")
+        return _resource_section_allowed(conn, group_id, resource_section_id, user_id)
+
+    def _list_prep_files(conn, space: dict[str, Any], work_id: str, user_id: str,
+                         profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Lista los archivos del trabajo filtrando por autorización de sección."""
         rows = conn.execute(
             "SELECT pwf.id AS id, pwf.file_id AS file_id, pwf.purpose AS purpose, "
             "       pwf.sort_order AS sort_order, pwf.created_at AS created_at, "
             "       f.name AS name, f.original_name AS original_name, "
             "       f.display_name AS display_name, f.mime_type AS mime_type, "
             "       f.size_bytes AS size_bytes, f.sha256 AS sha256, "
-            "       r.part_label AS part_label "
+            "       r.part_label AS part_label, "
+            "       r.group_id AS resource_group_id, "
+            "       r.group_section_id AS resource_section_id "
             "FROM preparation_work_files pwf "
             "JOIN files f ON f.id = pwf.file_id "
             "LEFT JOIN resources r ON r.id = f.resource_id "
@@ -5655,7 +5682,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "ORDER BY pwf.sort_order, pwf.id",
             (work_id,),
         ).fetchall()
-        return [_preparation_work_file_dto(row) for row in rows]
+        return [
+            _preparation_work_file_dto(row)
+            for row in rows
+            if _prep_file_section_allowed(
+                conn, space, user_id, profile,
+                resource_group_id=row["resource_group_id"],
+                resource_section_id=row["resource_section_id"],
+            )
+        ]
+
+    def _stream_prep_file(conn, space: dict[str, Any], work_id: str, user_id: str,
+                          profile: dict[str, Any], *, file_id: str | None = None,
+                          file_name: str | None = None) -> Response:
+        """Descarga un archivo de una preparación revalidando la autorización.
+
+        Se usa tanto por id estable (ruta canónica) como por nombre (ruta
+        histórica): la restricción de sección se comprueba en el momento de la
+        descarga, no cuando el archivo se incorporó al trabajo.
+        """
+        if file_id is not None:
+            row = conn.execute(
+                "SELECT f.name AS name, f.storage_pointer AS storage_pointer, "
+                "       f.mime_type AS mime_type, r.group_id AS resource_group_id, "
+                "       r.group_section_id AS resource_section_id "
+                "FROM preparation_work_files pwf "
+                "JOIN files f ON f.id = pwf.file_id "
+                "LEFT JOIN resources r ON r.id = f.resource_id "
+                "WHERE pwf.preparation_work_id = ? AND pwf.file_id = ? LIMIT 1",
+                (work_id, file_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT f.name AS name, f.storage_pointer AS storage_pointer, "
+                "       f.mime_type AS mime_type, r.group_id AS resource_group_id, "
+                "       r.group_section_id AS resource_section_id "
+                "FROM preparation_work_files pwf "
+                "JOIN files f ON f.id = pwf.file_id "
+                "LEFT JOIN resources r ON r.id = f.resource_id "
+                "WHERE pwf.preparation_work_id = ? "
+                "  AND (f.name = ? OR f.original_name = ? OR f.display_name = ?) "
+                "LIMIT 1",
+                (work_id, file_name, file_name, file_name),
+            ).fetchone()
+
+        if row is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        if not _prep_file_section_allowed(
+            conn, space, user_id, profile,
+            resource_group_id=row["resource_group_id"],
+            resource_section_id=row["resource_section_id"],
+        ):
+            raise HTTPException(status_code=403, detail="Access denied")
+        return _stream_stored_file(row, download_name=row["name"])
 
     @app.post("/api/v1/groups/{group_id}/preparation-works/{work_id}/files", status_code=201)
     async def upload_preparation_files(
@@ -5737,7 +5816,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not _can_view_space(conn, space["id"], user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
             _require_prep_work(conn, space["id"], work_id)
-            return _list_prep_files(conn, space["id"], work_id)
+            return _list_prep_files(conn, space, work_id, user_id, profile)
 
 
     @app.get("/api/v1/groups/{group_id}/preparation-works/{work_id}/files/{file_name}/download")
@@ -5747,7 +5826,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         file_name: str,
         profile: dict[str, Any] = Depends(current_profile),
     ) -> Response:
-        """Descarga por nombre (ruta histórica). Resuelve el File canónico."""
+        """Descarga por nombre (ruta histórica). Resuelve el File canónico.
+
+        Misma autorización que la ruta canónica: la restricción de sección se
+        revalida aquí, no se hereda del momento de la incorporación.
+        """
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
             space = _group_space(conn, group_id)
@@ -5756,19 +5839,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not _can_view_space(conn, space["id"], user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
             _require_prep_work(conn, space["id"], work_id)
-            row = conn.execute(
-                "SELECT f.name AS name, f.storage_pointer AS storage_pointer, "
-                "       f.mime_type AS mime_type "
-                "FROM preparation_work_files pwf "
-                "JOIN files f ON f.id = pwf.file_id "
-                "WHERE pwf.preparation_work_id = ? "
-                "  AND (f.name = ? OR f.original_name = ? OR f.display_name = ?) "
-                "LIMIT 1",
-                (work_id, file_name, file_name, file_name),
-            ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="File not found")
-        return _stream_stored_file(row, download_name=row["name"])
+            return _stream_prep_file(
+                conn, space, work_id, user_id, profile, file_name=file_name
+            )
 
 
     @app.get("/api/v1/spaces/{space_id}/preparation-works/{work_id}/files/{file_id}/download")
@@ -5781,21 +5854,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Descarga por identificador estable de File (modelo unificado)."""
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
-            _require_space(conn, space_id)
+            space = _require_space(conn, space_id)
             if not _can_view_space(conn, space_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
             _require_prep_work(conn, space_id, work_id)
-            row = conn.execute(
-                "SELECT f.name AS name, f.storage_pointer AS storage_pointer, "
-                "       f.mime_type AS mime_type "
-                "FROM preparation_work_files pwf "
-                "JOIN files f ON f.id = pwf.file_id "
-                "WHERE pwf.preparation_work_id = ? AND pwf.file_id = ? LIMIT 1",
-                (work_id, file_id),
-            ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="File not found")
-        return _stream_stored_file(row, download_name=row["name"])
+            return _stream_prep_file(
+                conn, space, work_id, user_id, profile, file_id=file_id
+            )
 
 
     @app.delete("/api/v1/groups/{group_id}/preparation-works/{work_id}/files/{file_name}")
@@ -5993,11 +6058,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """List all files attached to a preparation work."""
         user_id = str(profile["user_id"])
         with _connect(cfg) as conn:
-            _require_space(conn, space_id)
+            space = _require_space(conn, space_id)
             if not _can_view_space(conn, space_id, user_id, profile):
                 raise HTTPException(status_code=403, detail="Access denied")
             _require_prep_work(conn, space_id, work_id)
-            return _list_prep_files(conn, space_id, work_id)
+            return _list_prep_files(conn, space, work_id, user_id, profile)
 
     @app.post("/api/v1/spaces/{space_id}/preparation-works/{work_id}/files", status_code=201)
     def add_preparation_work_file(
