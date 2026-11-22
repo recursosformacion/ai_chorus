@@ -238,6 +238,20 @@ class MemberCreateBody(BaseModel):
     display_name: str | None = Field(default=None, max_length=255)
 
 
+class AdminMemberCreateBody(BaseModel):
+    """Incorporación de un usuario existente por administración global.
+
+    No expone el campo ``role``: el alta administrativa siempre crea un miembro
+    ordinario. La responsabilidad de gestor sólo la concede un gestor del grupo
+    mediante el mantenimiento normal.
+    """
+    user_sub: str = Field(min_length=1, max_length=191)
+    display_name: str | None = Field(default=None, max_length=255)
+    admin_role_id: str | None = Field(default=None, max_length=191)
+    musical_role_id: str | None = Field(default=None, max_length=191)
+    section_id: str | None = Field(default=None, max_length=191)
+
+
 class GroupRoleBody(BaseModel):
     scope: Literal["admin", "musical"]
     code: str = Field(min_length=1, max_length=64)
@@ -434,6 +448,84 @@ def _approved_memberships(profile: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _is_admin(profile: dict[str, Any]) -> bool:
     return "admin" in _roles(profile)
+
+
+# ===== Autorización de grupos y membresías =====
+# Modelo de roles de pertenencia (group_members.role): sólo hay dos valores.
+#   - 'manager': gestor del grupo. Único rol que puede conceder/retirar la
+#     responsabilidad de gestor.
+#   - 'member' : miembro ordinario. Es el rol por defecto de cualquier alta.
+# No existe un tercer rol de pertenencia. Los cargos administrativos y los
+# roles musicales son catálogos del grupo (group_roles) y no confieren
+# privilegios de gestión por sí mismos.
+ORDINARY_MEMBER_ROLE = "member"
+MANAGER_ROLE = "manager"
+
+
+def _is_group_manager(conn, group_id: str, user_id: str) -> bool:
+    """True si el usuario es gestor activo del grupo."""
+    member = _group_membership(conn, group_id, user_id)
+    return member is not None and member["role"] == MANAGER_ROLE
+
+
+def _may_manage_group(conn, group_id: str, user_id: str, profile: dict[str, Any]) -> bool:
+    """Gestión ordinaria del grupo: admin de plataforma o gestor del grupo."""
+    return _is_admin(profile) or _is_group_manager(conn, group_id, user_id)
+
+
+def _may_grant_manager(conn, group_id: str, user_id: str, profile: dict[str, Any]) -> bool:
+    """Conceder o retirar la responsabilidad de gestor.
+
+    Exclusivo de un gestor autorizado del propio grupo. Un administrador global
+    NO puede otorgar permisos de gestor: sólo un gestor del grupo puede hacerlo,
+    aunque el administrador global sea quien dé de alta al miembro.
+    """
+    return _is_group_manager(conn, group_id, user_id)
+
+
+def _activity_legacy_id(prefix: str, user_sub: str) -> str:
+    """Identificador único para activity_log.
+
+    Evita colisiones cuando se registran varias operaciones del mismo usuario en
+    el mismo segundo (el esquema exige unicidad en legacy_id).
+    """
+    return f"{prefix}-{user_sub[:8]}-{uuid.uuid4().hex[:12]}"
+
+
+def _validate_group_catalog_refs(conn, group_id: str, *,
+                                 admin_role_id: str | None = None,
+                                 musical_role_id: str | None = None,
+                                 section_id: str | None = None) -> None:
+    """Rechaza identificadores de catálogo que no pertenezcan al grupo.
+
+    Los catálogos (cargos, roles musicales y secciones) pertenecen al grupo y
+    son los identificadores que se guardan en la pertenencia del miembro.
+    """
+    if admin_role_id is not None:
+        role = conn.execute(
+            "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
+            (admin_role_id, group_id),
+        ).fetchone()
+        if role is None:
+            raise HTTPException(status_code=400, detail="Admin role not found in this group")
+        if role["scope"] != "admin":
+            raise HTTPException(status_code=400, detail="Admin role must have scope 'admin'")
+    if musical_role_id is not None:
+        role = conn.execute(
+            "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
+            (musical_role_id, group_id),
+        ).fetchone()
+        if role is None:
+            raise HTTPException(status_code=400, detail="Musical role not found in this group")
+        if role["scope"] != "musical":
+            raise HTTPException(status_code=400, detail="Musical role must have scope 'musical'")
+    if section_id is not None:
+        section = conn.execute(
+            "SELECT 1 FROM group_sections WHERE id = ? AND group_id = ? AND active = 1",
+            (section_id, group_id),
+        ).fetchone()
+        if section is None:
+            raise HTTPException(status_code=400, detail="Section not found in this group")
 
 
 def _is_representative(profile: dict[str, Any], entity_id: str) -> bool:
@@ -856,8 +948,9 @@ def _article_permissions(conn, row, user_id: str, profile: dict[str, Any]) -> tu
         (row["group_id"], user_id),
     ).fetchone()
     role = member["role"] if member is not None else None
-    can_edit = admin or role in ("manager", "collaborator") or str(row["author_user_id"]) == user_id
-    can_publish = admin or role == "manager"
+    # Modelo único de roles de pertenencia: 'manager' o 'member'.
+    can_edit = admin or role == MANAGER_ROLE or str(row["author_user_id"]) == user_id
+    can_publish = admin or role == MANAGER_ROLE
     return can_edit, can_publish
 
 
@@ -2333,7 +2426,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.execute(
                 "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (f"mem-{user_id[:8]}-{int(time.time())}", group_id, "member_self_update", user_id, None, None, None, now),
+                (_activity_legacy_id("mem", user_id), group_id, "member_self_update", user_id, None, None, None, now),
             )
             updated = conn.execute(
                 "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?", (group_id, user_id)
@@ -2358,7 +2451,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "SELECT role FROM group_members WHERE group_id=? AND user_sub=? "
                 "AND status='active'", (group_id, user_id)
             ).fetchone()
-            if not _is_admin(profile) and (actor is None or actor["role"] != "manager"):
+            if not _is_admin(profile) and (actor is None or actor["role"] != MANAGER_ROLE):
                 raise HTTPException(status_code=403, detail="Only group managers can edit")
             target = conn.execute(
                 "SELECT * FROM group_members WHERE group_id=? AND user_sub=?",
@@ -2366,32 +2459,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchone()
             if target is None:
                 raise HTTPException(status_code=404, detail="Member not found")
-            if body.status == "removed" and target["role"] == "manager":
+            # Conceder o retirar la responsabilidad de gestor corresponde sólo
+            # a un gestor del grupo: un administrador global no puede hacerlo.
+            if body.role is not None and body.role != target["role"]:
+                if not _may_grant_manager(conn, group_id, user_id, profile):
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Only a group manager can change manager permissions",
+                    )
+            if body.status == "removed" and target["role"] == MANAGER_ROLE:
                 managers = conn.execute(
                     "SELECT COUNT(*) AS n FROM group_members WHERE group_id=? "
                     "AND role='manager' AND status='active'", (group_id,)
                 ).fetchone()["n"]
                 if int(managers) <= 1:
                     raise HTTPException(status_code=400, detail="The group needs a manager")
-            # Validate role scopes if provided
-            if body.admin_role_id is not None:
-                role = conn.execute(
-                    "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
-                    (body.admin_role_id, group_id),
-                ).fetchone()
-                if role is None:
-                    raise HTTPException(status_code=400, detail="Admin role not found in this group")
-                if role["scope"] != "admin":
-                    raise HTTPException(status_code=400, detail="Admin role must have scope 'admin'")
-            if body.musical_role_id is not None:
-                role = conn.execute(
-                    "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
-                    (body.musical_role_id, group_id),
-                ).fetchone()
-                if role is None:
-                    raise HTTPException(status_code=400, detail="Musical role not found in this group")
-                if role["scope"] != "musical":
-                    raise HTTPException(status_code=400, detail="Musical role must have scope 'musical'")
+            # Los catálogos (cargo, rol musical, sección) deben ser de este grupo
+            _validate_group_catalog_refs(
+                conn, group_id,
+                admin_role_id=body.admin_role_id,
+                musical_role_id=body.musical_role_id,
+                section_id=body.section_id,
+            )
             # Capture before values for activity log
             before_role = target["role"]
             before_admin_role = target["admin_role_id"]
@@ -2430,7 +2519,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 conn.execute(
                     "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
                     "VALUES (?,?,?,?,?,?,?,?)",
-                    (f"mem-{user_sub[:8]}-{int(time.time())}", group_id, "member_role_change", user_id, before_role, body.role or before_role, json.dumps(detail) if detail else None, now),
+                    (_activity_legacy_id("mem", user_sub), group_id, "member_role_change", user_id, before_role, body.role or before_role, json.dumps(detail) if detail else None, now),
                 )
         return {"ok": True}
 
@@ -2586,6 +2675,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for row in rows
         ]
 
+    @app.get("/api/v1/admin/groups/{group_id}/members")
+    def admin_list_group_members(
+        group_id: str,
+        status: str | None = None,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        """Membresías del grupo para mantenimiento, incluidos los estados.
+
+        A diferencia del listado ordinario (que sólo devuelve miembros activos),
+        esta vista administrativa incluye altas, bajas y estados de pertenencia,
+        con los identificadores de catálogo guardados en cada membresía.
+        """
+        if not _is_admin(profile):
+            raise HTTPException(status_code=403, detail="Admin role required")
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            if status:
+                rows = conn.execute(
+                    "SELECT user_sub, role, status, display_name, admin_role_id, "
+                    "       musical_role_id, section_id, granted_by, joined_at, updated_at "
+                    "FROM group_members WHERE group_id = ? AND status = ? "
+                    "ORDER BY status, role DESC, user_sub",
+                    (group_id, status),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT user_sub, role, status, display_name, admin_role_id, "
+                    "       musical_role_id, section_id, granted_by, joined_at, updated_at "
+                    "FROM group_members WHERE group_id = ? "
+                    "ORDER BY status, role DESC, user_sub",
+                    (group_id,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
     @app.post("/api/v1/groups/{group_id}/members", status_code=201)
     def add_group_member(
         group_id: str,
@@ -2604,8 +2729,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ? AND status = 'active'",
                 (group_id, user_id),
             ).fetchone()
-            if not admin and (member is None or member["role"] != "manager"):
+            if not admin and (member is None or member["role"] != MANAGER_ROLE):
                 raise HTTPException(status_code=403, detail="Only group managers can add members")
+            # Sólo un gestor del grupo puede dar de alta con rol de gestor. Un
+            # administrador global puede incorporar miembros ordinarios, pero
+            # nunca conceder permisos de gestión.
+            if body.role == MANAGER_ROLE and not _may_grant_manager(conn, group_id, user_id, profile):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only a group manager can grant manager permissions",
+                )
             # Check if user is already a member
             existing = conn.execute(
                 "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?",
@@ -2613,34 +2746,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchone()
             if existing:
                 raise HTTPException(status_code=409, detail="User is already a member of this group")
-            # Validate section_id if provided
-            if body.section_id is not None:
-                section = conn.execute(
-                    "SELECT 1 FROM group_sections WHERE id = ? AND group_id = ? AND active = 1",
-                    (body.section_id, group_id),
-                ).fetchone()
-                if section is None:
-                    raise HTTPException(status_code=400, detail="Section not found in this group")
-            # Validate admin_role_id if provided
-            if body.admin_role_id is not None:
-                role = conn.execute(
-                    "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
-                    (body.admin_role_id, group_id),
-                ).fetchone()
-                if role is None:
-                    raise HTTPException(status_code=400, detail="Admin role not found in this group")
-                if role["scope"] != "admin":
-                    raise HTTPException(status_code=400, detail="Admin role must have scope 'admin'")
-            # Validate musical_role_id if provided
-            if body.musical_role_id is not None:
-                role = conn.execute(
-                    "SELECT scope FROM group_roles WHERE id = ? AND group_id = ?",
-                    (body.musical_role_id, group_id),
-                ).fetchone()
-                if role is None:
-                    raise HTTPException(status_code=400, detail="Musical role not found in this group")
-                if role["scope"] != "musical":
-                    raise HTTPException(status_code=400, detail="Musical role must have scope 'musical'")
+            # Los catálogos deben pertenecer a este grupo
+            _validate_group_catalog_refs(
+                conn, group_id,
+                admin_role_id=body.admin_role_id,
+                musical_role_id=body.musical_role_id,
+                section_id=body.section_id,
+            )
             # Create member
             member_id = uuid.uuid4().hex
             conn.execute(
@@ -2657,7 +2769,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.execute(
                 "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (f"mem-{body.user_sub[:8]}-{int(time.time())}", group_id, "member_added", user_id, None, "active",
+                (_activity_legacy_id("mem", body.user_sub), group_id, "member_added", user_id, None, "active",
                  f'{{"role":"{body.role}","admin_role_id":{body.admin_role_id or "null"},"musical_role_id":{body.musical_role_id or "null"},"section_id":{body.section_id or "null"}}}', now),
             )
             new_member = conn.execute(
@@ -3546,6 +3658,235 @@ def create_app(settings: Settings | None = None) -> FastAPI:
              "joined": bool(row["joined"])}
             for row in rows
         ]
+    # ===== Mantenimiento administrativo de grupos y miembros =====
+    @app.get("/api/v1/admin/groups")
+    def admin_list_groups(
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        """Lista los grupos de Chorus con su estado de pertenencia.
+
+        Los grupos son exclusivamente de Chorus: la identidad de los usuarios
+        sigue procediendo de osap-auth, pero la pertenencia es dato de Chorus.
+        """
+        if not _is_admin(profile):
+            raise HTTPException(status_code=403, detail="Admin role required")
+        with _connect(cfg) as conn:
+            rows = conn.execute(
+                "SELECT g.id, g.name, g.kind, g.type_code, g.status, g.created_at, "
+                "       (SELECT COUNT(*) FROM group_members gm "
+                "         WHERE gm.group_id = g.id AND gm.status = 'active') AS member_count, "
+                "       (SELECT COUNT(*) FROM group_members gm "
+                "         WHERE gm.group_id = g.id AND gm.role = 'manager' "
+                "           AND gm.status = 'active') AS manager_count, "
+                "       (SELECT COUNT(*) FROM group_sections gs "
+                "         WHERE gs.group_id = g.id AND gs.active = 1) AS section_count, "
+                "       (SELECT COUNT(*) FROM group_roles gr "
+                "         WHERE gr.group_id = g.id AND gr.active = 1) AS role_count "
+                "FROM groups g ORDER BY g.name"
+            ).fetchall()
+        return [
+            {
+                "id": row["id"], "name": row["name"], "kind": row["kind"],
+                "type_code": row["type_code"], "status": row["status"],
+                "member_count": int(row["member_count"]),
+                "manager_count": int(row["manager_count"]),
+                "section_count": int(row["section_count"]),
+                "role_count": int(row["role_count"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    @app.get("/api/v1/admin/groups/{group_id}")
+    def admin_get_group(
+        group_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Detalle de un grupo de Chorus con sus recuentos de catálogo."""
+        if not _is_admin(profile):
+            raise HTTPException(status_code=403, detail="Admin role required")
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            row = conn.execute(
+                "SELECT "
+                " (SELECT COUNT(*) FROM group_members gm "
+                "   WHERE gm.group_id = ? AND gm.status = 'active') AS member_count, "
+                " (SELECT COUNT(*) FROM group_members gm "
+                "   WHERE gm.group_id = ? AND gm.role = 'manager' "
+                "     AND gm.status = 'active') AS manager_count, "
+                " (SELECT COUNT(*) FROM group_sections gs "
+                "   WHERE gs.group_id = ? AND gs.active = 1) AS section_count, "
+                " (SELECT COUNT(*) FROM group_roles gr "
+                "   WHERE gr.group_id = ? AND gr.scope = 'admin' AND gr.active = 1) AS admin_role_count, "
+                " (SELECT COUNT(*) FROM group_roles gr "
+                "   WHERE gr.group_id = ? AND gr.scope = 'musical' AND gr.active = 1) AS musical_role_count",
+                (group_id, group_id, group_id, group_id, group_id),
+            ).fetchone()
+        return {
+            "id": group["id"], "name": group["name"], "kind": group["kind"],
+            "type_code": group["type_code"], "status": group["status"],
+            "description": group["description"], "locality": group["locality"],
+            "member_count": int(row["member_count"]),
+            "manager_count": int(row["manager_count"]),
+            "section_count": int(row["section_count"]),
+            "admin_role_count": int(row["admin_role_count"]),
+            "musical_role_count": int(row["musical_role_count"]),
+        }
+
+    @app.get("/api/v1/admin/groups/{group_id}/catalog")
+    def admin_group_catalog(
+        group_id: str,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Catálogos del grupo: cargos, roles musicales y secciones.
+
+        Los tres selectores se alimentan de aquí y guardan estos identificadores
+        en la pertenencia del miembro. Se rechaza cualquier id que no sea del
+        grupo.
+        """
+        if not _is_admin(profile):
+            raise HTTPException(status_code=403, detail="Admin role required")
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT 1 FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            section_rows = conn.execute(
+                "SELECT id, code, name, scope, sort_order FROM group_sections "
+                "WHERE group_id = ? AND active = 1 ORDER BY scope, sort_order, name",
+                (group_id,),
+            ).fetchall()
+            admin_rows = conn.execute(
+                "SELECT id, code, name, parent_id, sort_order FROM group_roles "
+                "WHERE group_id = ? AND scope = 'admin' AND active = 1 ORDER BY sort_order, name",
+                (group_id,),
+            ).fetchall()
+            musical_rows = conn.execute(
+                "SELECT id, code, name, parent_id, sort_order FROM group_roles "
+                "WHERE group_id = ? AND scope = 'musical' AND active = 1 ORDER BY sort_order, name",
+                (group_id,),
+            ).fetchall()
+        return {
+            "group_id": group_id,
+            "sections": [dict(row) for row in section_rows],
+            "admin_roles": [dict(row) for row in admin_rows],
+            "musical_roles": [dict(row) for row in musical_rows],
+        }
+
+    @app.get("/api/v1/admin/users")
+    def admin_search_users(
+        q: str | None = None,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> list[dict[str, Any]]:
+        """Directorio local de usuarios conocidos por Chorus.
+
+        La identidad procede de osap-auth; Chorus sólo puede localizar a los
+        usuarios que ya tienen alguna membresía propia. No consulta catálogos de
+        usuarios de OSAP ni mantiene un duplicado de la identidad.
+        """
+        if not _is_admin(profile):
+            raise HTTPException(status_code=403, detail="Admin role required")
+        term = (q or "").strip()
+        with _connect(cfg) as conn:
+            if term:
+                like = f"%{term}%"
+                rows = conn.execute(
+                    "SELECT user_sub, "
+                    "       MAX(COALESCE(display_name, '')) AS display_name, "
+                    "       COUNT(*) AS memberships "
+                    "FROM group_members "
+                    "WHERE user_sub LIKE ? OR display_name LIKE ? "
+                    "GROUP BY user_sub ORDER BY user_sub LIMIT 50",
+                    (like, like),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT user_sub, "
+                    "       MAX(COALESCE(display_name, '')) AS display_name, "
+                    "       COUNT(*) AS memberships "
+                    "FROM group_members GROUP BY user_sub ORDER BY user_sub LIMIT 50"
+                ).fetchall()
+        return [
+            {
+                "user_sub": row["user_sub"],
+                "display_name": row["display_name"] or None,
+                "memberships": int(row["memberships"]),
+            }
+            for row in rows
+        ]
+
+    @app.post("/api/v1/admin/groups/{group_id}/members", status_code=201)
+    def admin_add_group_member(
+        group_id: str,
+        body: AdminMemberCreateBody,
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Incorpora un usuario existente a un grupo como miembro ordinario.
+
+        Es el contrato de alta administrativa para herramientas externas: no
+        acepta ``role``, por lo que nunca concede permisos de gestor. La
+        concesión de gestor corresponde sólo a un gestor del grupo.
+        """
+        if not _is_admin(profile):
+            raise HTTPException(status_code=403, detail="Admin role required")
+        user_id = str(profile["user_id"])
+        now = utcnow()
+        with _connect(cfg) as conn:
+            group = conn.execute("SELECT id, name FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group is None:
+                raise HTTPException(status_code=404, detail="Group not found")
+            existing = conn.execute(
+                "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?",
+                (group_id, body.user_sub),
+            ).fetchone()
+            if existing is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="User is already a member of this group",
+                )
+            # Los catálogos deben pertenecer a este grupo
+            _validate_group_catalog_refs(
+                conn, group_id,
+                admin_role_id=body.admin_role_id,
+                musical_role_id=body.musical_role_id,
+                section_id=body.section_id,
+            )
+            member_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO group_members "
+                "(id, group_id, user_sub, role, status, display_name, "
+                " admin_role_id, musical_role_id, section_id, granted_by, joined_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    member_id, group_id, body.user_sub, ORDINARY_MEMBER_ROLE, "active",
+                    body.display_name or "",
+                    body.admin_role_id, body.musical_role_id, body.section_id,
+                    user_id, now, now,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO activity_log "
+                "(legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (
+                    _activity_legacy_id("mem", body.user_sub), group_id,
+                    "member_added", user_id, None, "active",
+                    json.dumps({
+                        "source": "admin_onboarding",
+                        "role": ORDINARY_MEMBER_ROLE,
+                        "admin_role_id": body.admin_role_id,
+                        "musical_role_id": body.musical_role_id,
+                        "section_id": body.section_id,
+                    }),
+                    now,
+                ),
+            )
+            new_member = conn.execute(
+                "SELECT * FROM group_members WHERE id = ?", (member_id,)
+            ).fetchone()
+        return dict(new_member)
+
     @app.get("/api/v1/groups/{group_id}/articles")
     def list_group_articles(
         group_id: str, profile: dict[str, Any] = Depends(current_profile)
@@ -3559,17 +3900,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchone()
             if member is None and not admin:
                 raise HTTPException(status_code=403, detail="Active member required")
-            role = member["role"] if member is not None else "manager"
+            role = member["role"] if member is not None else MANAGER_ROLE
             rows = conn.execute(
                 "SELECT * FROM group_articles WHERE group_id=? "
-                "AND (? IN ('manager','collaborator') OR status='published' OR author_user_id=?) "
+                "AND (? = 'manager' OR status='published' OR author_user_id=?) "
                 "ORDER BY COALESCE(event_date, created_at) DESC, created_at DESC",
                 (group_id, role, user_id),
             ).fetchall()
             return [
                 _article_dto(
                     conn, row,
-                    can_edit=admin or role in ("manager", "collaborator")
+                    can_edit=admin or role == MANAGER_ROLE
                     or str(row["author_user_id"]) == user_id,
                     can_publish=admin or role == "manager",
                 )
@@ -3605,7 +3946,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 (group_id, user_id),
             ).fetchone()
             role = member["role"] if member is not None else None
-            if not admin and role not in ("manager", "collaborator"):
+            if not admin and role != MANAGER_ROLE:
                 raise HTTPException(status_code=403, detail="Editorial role required")
             article_id = uuid.uuid4().hex
             base_slug = _slugify(body.title)
