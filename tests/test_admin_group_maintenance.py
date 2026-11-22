@@ -14,6 +14,8 @@ Cubre los ocho puntos de verificación:
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -21,6 +23,12 @@ from app.config import Settings
 from app.db import connect as db_connect
 from app.main import create_app
 from tests.m2m_fakes import RecordingIdentityClient, install_identity
+
+def _uid(name: str) -> str:
+    """UUID determinista a partir de un nombre legible (los ids de Auth son UUID)."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"chorus-test:{name}"))
+
+
 
 ADMIN = "admin-1"
 MGR = "mgr-1"
@@ -91,16 +99,16 @@ def ctx(integration_settings: Settings, monkeypatch):
     # osap-auth resuelve los nombres públicos de los destinatarios de alta.
     # Se instala antes de crear la app porque create_app construye el cliente.
     directory = {
-        "nuevo-usuario": "Usuario Nuevo",
-        "quiere-ser-gestor": "Quiere Ser Gestor",
-        "otro-gestor": "Otro Gestor",
-        "futuro-gestor": "Futuro Gestor",
-        "seccion-ajena": "Seccion Ajena",
-        "rol-ajeno": "Rol Ajeno",
-        "cargo-ajeno": "Cargo Ajeno",
-        "id-falso": "Id Falso",
-        "identidad-real": "Identidad Real",
-        "persistente": "Persistente",
+        _uid("nuevo-usuario"): "Usuario Nuevo",
+        _uid("quiere-ser-gestor"): "Quiere Ser Gestor",
+        _uid("otro-gestor"): "Otro Gestor",
+        _uid("futuro-gestor"): "Futuro Gestor",
+        _uid("seccion-ajena"): "Seccion Ajena",
+        _uid("rol-ajeno"): "Rol Ajeno",
+        _uid("cargo-ajeno"): "Cargo Ajeno",
+        _uid("id-falso"): "Id Falso",
+        _uid("identidad-real"): "Identidad Real",
+        _uid("persistente"): "Persistente",
         "colado": "Colado",
     }
     identity = RecordingIdentityClient(directory)
@@ -207,7 +215,7 @@ def test_global_admin_onboards_ordinary_member(ctx):
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
         json={
-            "user_sub": "nuevo-usuario",
+            "user_sub": _uid("nuevo-usuario"),
             "display_name": "Usuario Nuevo",
             "admin_role_id": ctx["cat1"]["admin_role_id"],
             "musical_role_id": ctx["cat1"]["musical_role_id"],
@@ -225,7 +233,7 @@ def test_global_admin_onboards_ordinary_member(ctx):
 
     # Persiste y se refleja al volver a consultar
     listed = client.get(f"/api/v1/admin/groups/{ctx['g1']}/members", headers=admin).json()
-    found = next(m for m in listed if m["user_sub"] == "nuevo-usuario")
+    found = next(m for m in listed if m["user_sub"] == _uid("nuevo-usuario"))
     assert found["role"] == "member"
     assert found["status"] == "active"
     assert found["section_id"] == ctx["cat1"]["section_id"]
@@ -258,7 +266,7 @@ def test_global_admin_cannot_grant_manager(ctx):
     r = client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "quiere-ser-gestor", "role": "manager"},
+        json={"user_sub": _uid("quiere-ser-gestor"), "role": "manager"},
     )
     assert r.status_code == 201, r.text
     assert r.json()["role"] == "member", "El campo role se ignora en el alta administrativa"
@@ -267,13 +275,13 @@ def test_global_admin_cannot_grant_manager(ctx):
     r2 = client.post(
         f"/api/v1/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "otro-gestor", "role": "manager"},
+        json={"user_sub": _uid("otro-gestor"), "role": "manager"},
     )
     assert r2.status_code == 403, r2.text
 
     # Modificación: el administrador global no puede ascender a gestor
     r3 = client.patch(
-        f"/api/v1/groups/{ctx['g1']}/members/quiere-ser-gestor",
+        f"/api/v1/groups/{ctx['g1']}/members/{_uid('quiere-ser-gestor')}",
         headers=admin,
         json={"role": "manager"},
     )
@@ -291,7 +299,7 @@ def test_global_admin_cannot_grant_manager(ctx):
     with db_connect_from_ctx(ctx) as conn:
         row = conn.execute(
             "SELECT role FROM group_members WHERE group_id = ? AND user_sub = ?",
-            (ctx["g1"], "quiere-ser-gestor"),
+            (ctx["g1"], _uid("quiere-ser-gestor")),
         ).fetchone()
         assert row["role"] == "member"
 
@@ -306,19 +314,19 @@ def test_group_manager_can_grant_manager(ctx):
     client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "futuro-gestor"},
+        json={"user_sub": _uid("futuro-gestor")},
     )
 
     # El gestor del grupo concede la responsabilidad
     r = client.patch(
-        f"/api/v1/groups/{ctx['g1']}/members/futuro-gestor",
+        f"/api/v1/groups/{ctx['g1']}/members/{_uid("futuro-gestor")}",
         headers=mgr,
         json={"role": "manager"},
     )
     assert r.status_code == 200, r.text
 
     listed = client.get(f"/api/v1/groups/{ctx['g1']}/members", headers=mgr).json()
-    found = next(m for m in listed if m["user_sub"] == "futuro-gestor")
+    found = next(m for m in listed if m["user_sub"] == _uid("futuro-gestor"))
     assert found["role"] == "manager"
 
     # Queda auditado el cambio de rol
@@ -334,7 +342,7 @@ def test_group_manager_can_grant_manager(ctx):
 
     # Y también puede retirarla
     r2 = client.patch(
-        f"/api/v1/groups/{ctx['g1']}/members/futuro-gestor",
+        f"/api/v1/groups/{ctx['g1']}/members/{_uid("futuro-gestor")}",
         headers=mgr,
         json={"role": "member"},
     )
@@ -352,7 +360,7 @@ def test_catalogs_from_another_group_are_rejected(ctx):
     r = client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "seccion-ajena", "section_id": ctx["cat2"]["section_id"]},
+        json={"user_sub": _uid("seccion-ajena"), "section_id": ctx["cat2"]["section_id"]},
     )
     assert r.status_code == 400, r.text
     assert "Section not found in this group" in r.text
@@ -361,7 +369,7 @@ def test_catalogs_from_another_group_are_rejected(ctx):
     r2 = client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "rol-ajeno", "musical_role_id": ctx["cat2"]["musical_role_id"]},
+        json={"user_sub": _uid("rol-ajeno"), "musical_role_id": ctx["cat2"]["musical_role_id"]},
     )
     assert r2.status_code == 400, r2.text
     assert "Musical role not found in this group" in r2.text
@@ -370,7 +378,7 @@ def test_catalogs_from_another_group_are_rejected(ctx):
     r3 = client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "cargo-ajeno", "admin_role_id": ctx["cat2"]["admin_role_id"]},
+        json={"user_sub": _uid("cargo-ajeno"), "admin_role_id": ctx["cat2"]["admin_role_id"]},
     )
     assert r3.status_code == 400, r3.text
     assert "Admin role not found in this group" in r3.text
@@ -379,7 +387,7 @@ def test_catalogs_from_another_group_are_rejected(ctx):
     r4 = client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "id-falso", "section_id": "no-existe"},
+        json={"user_sub": _uid("id-falso"), "section_id": "no-existe"},
     )
     assert r4.status_code == 400, r4.text
 
@@ -403,7 +411,7 @@ def test_operations_use_real_osap_auth_identity(ctx):
     r = client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": "identidad-real"},
+        json={"user_sub": _uid("identidad-real")},
     )
     assert r.status_code == 201, r.text
 
@@ -411,7 +419,7 @@ def test_operations_use_real_osap_auth_identity(ctx):
         row = conn.execute(
             "SELECT user_sub, granted_by FROM group_members "
             "WHERE group_id = ? AND user_sub = ?",
-            (ctx["g1"], "identidad-real"),
+            (ctx["g1"], _uid("identidad-real")),
         ).fetchone()
         # El alta la realiza el admin autenticado por osap-auth
         assert row["granted_by"] == ADMIN
@@ -420,14 +428,14 @@ def test_operations_use_real_osap_auth_identity(ctx):
     assert client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers={"Authorization": "Bearer token-invalido"},
-        json={"user_sub": "intruso"},
+        json={"user_sub": _uid("intruso")},
     ).status_code == 401
 
     # Un usuario sin rol de admin no puede usar el mantenimiento
     assert client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=ctx["member"],
-        json={"user_sub": "colado"},
+        json={"user_sub": _uid("colado")},
     ).status_code == 403
 
 
@@ -442,7 +450,7 @@ def test_changes_persist_on_reload(ctx):
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
         json={
-            "user_sub": "persistente",
+            "user_sub": _uid("persistente"),
             "display_name": "Nombre Inicial",
             "section_id": ctx["cat1"]["section_id"],
         },
@@ -450,7 +458,7 @@ def test_changes_persist_on_reload(ctx):
 
     # El gestor ajusta cargo, rol musical y sección (campos de mantenimiento)
     r = client.patch(
-        f"/api/v1/groups/{ctx['g1']}/members/persistente",
+        f"/api/v1/groups/{ctx['g1']}/members/{_uid("persistente")}",
         headers=mgr,
         json={
             "admin_role_id": ctx["cat1"]["admin_role_id"],
@@ -465,7 +473,7 @@ def test_changes_persist_on_reload(ctx):
     listed = client.get(
         f"/api/v1/admin/groups/{ctx['g1']}/members", headers=admin
     ).json()
-    found = next(m for m in listed if m["user_sub"] == "persistente")
+    found = next(m for m in listed if m["user_sub"] == _uid("persistente"))
     # El nombre procede de Auth, no de un registro local
     assert found["name"] == "Persistente"
     assert found["identity_verified"] is True
@@ -481,7 +489,7 @@ def test_changes_persist_on_reload(ctx):
         row = conn.execute(
             "SELECT role, status, admin_role_id, musical_role_id, section_id, display_name "
             "FROM group_members WHERE group_id = ? AND user_sub = ?",
-            (ctx["g1"], "persistente"),
+            (ctx["g1"], _uid("persistente")),
         ).fetchone()
         assert row["role"] == "member"
         assert row["status"] == "active"
@@ -490,12 +498,12 @@ def test_changes_persist_on_reload(ctx):
 
     # Baja y alta posterior
     assert client.delete(
-        f"/api/v1/groups/{ctx['g1']}/members/persistente", headers=mgr
+        f"/api/v1/groups/{ctx['g1']}/members/{_uid("persistente")}", headers=mgr
     ).status_code == 200
     after = client.get(
         f"/api/v1/admin/groups/{ctx['g1']}/members", headers=admin
     ).json()
-    found = next(m for m in after if m["user_sub"] == "persistente")
+    found = next(m for m in after if m["user_sub"] == _uid("persistente"))
     assert found["status"] == "removed"
 
     # El filtro por estado funciona

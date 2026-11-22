@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from app.identity import PublicIdentity
+from app.identity import PublicIdentity, canonical_uuid
 
 TOKEN_PATH = "/oauth/token"
 M2M_PATH = "/auth/m2m/users"
@@ -106,11 +106,19 @@ class RecordingIdentityClient:
         self.calls.append(list(user_ids))
         if not self.available:
             _raise_unavailable()
-        return {
-            uid: PublicIdentity(user_id=uid, name=self.directory[uid])
-            for uid in dict.fromkeys(user_ids)
-            if uid in self.directory
-        }
+        resolved = {}
+        for uid in dict.fromkeys(user_ids):
+            if uid not in self.directory:
+                continue
+            try:
+                canonical = canonical_uuid(uid)
+            except (ValueError, AttributeError, TypeError):
+                # Auth omite los identificadores mal formados
+                continue
+            resolved[canonical] = PublicIdentity(
+                user_id=canonical, name=self.directory[uid]
+            )
+        return resolved
 
     def resolve_public_names(self, user_ids):
         return {
@@ -125,7 +133,11 @@ class RecordingIdentityClient:
             _raise_unavailable()
         if user_id not in self.directory:
             return None
-        return PublicIdentity(user_id=user_id, name=self.directory[user_id])
+        try:
+            canonical = canonical_uuid(user_id)
+        except (ValueError, AttributeError, TypeError):
+            return None
+        return PublicIdentity(user_id=canonical, name=self.directory[user_id])
 
     def resolve_one(self, user_id: str):
         identity = self.resolve_identity(user_id)

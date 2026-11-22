@@ -37,14 +37,20 @@ MAL_FORMADO = "no-es-un-uuid"
 
 DIRECTORIO = {DESTINATARIO: "Nombre Canonico"}
 
-# Usuarios de las pruebas de listado y permisos
+def _uid(name: str) -> str:
+    """UUID determinista a partir de un nombre legible (los ids de Auth son UUID)."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"chorus-test:{name}"))
+
+
+
+# Usuarios de las pruebas de listado y permisos (UUID válidos)
 for _i in range(4):
-    DIRECTORIO[f"user-{_i}"] = f"Usuario {_i}"
-    DIRECTORIO[f"batch-{_i}"] = f"Lote {_i}"
+    DIRECTORIO[_uid(f"user-{_i}")] = f"Usuario {_i}"
+    DIRECTORIO[_uid(f"batch-{_i}")] = f"Lote {_i}"
 for _i in range(3):
-    DIRECTORIO[f"p-{_i}"] = f"Permiso {_i}"
-DIRECTORIO["otro"] = "Otro"
-DIRECTORIO["otro-miembro"] = "Otro Miembro"
+    DIRECTORIO[_uid(f"p-{_i}")] = f"Permiso {_i}"
+DIRECTORIO[_uid("otro")] = "Otro"
+DIRECTORIO[_uid("otro-miembro")] = "Otro Miembro"
 
 
 def _profile(user_id: str, roles=None):
@@ -450,7 +456,7 @@ def test_member_listing_resolves_names_in_one_batch_call(app_client):
         created = app_client.client.post(
             f"/api/v1/admin/groups/{app_client.group_id}/members",
             headers=app_client.headers["admin"],
-            json={"user_sub": f"user-{index}"},
+            json={"user_sub": _uid(f"user-{index}")},
         )
         assert created.status_code == 201, created.text
 
@@ -464,7 +470,7 @@ def test_member_listing_resolves_names_in_one_batch_call(app_client):
     # Una única llamada con todos los ids, no una por miembro
     assert len(app_client.identity.calls) == 1, app_client.identity.calls
     called_ids = set(app_client.identity.calls[0])
-    assert {"user-0", "user-1", "user-2", "user-3"} <= called_ids
+    assert {_uid(f"user-{i}") for i in range(4)} <= called_ids
 
 
 @pytest.mark.integration
@@ -473,7 +479,7 @@ def test_admin_member_listing_also_batches_names(app_client):
         app_client.client.post(
             f"/api/v1/admin/groups/{app_client.group_id}/members",
             headers=app_client.headers["admin"],
-            json={"user_sub": f"batch-{index}"},
+            json={"user_sub": _uid(f"batch-{index}")},
         )
 
     app_client.identity.calls.clear()
@@ -483,7 +489,7 @@ def test_admin_member_listing_also_batches_names(app_client):
     ).json()
 
     assert len(app_client.identity.calls) == 1, app_client.identity.calls
-    assert {"batch-0", "batch-1", "batch-2"} <= set(app_client.identity.calls[0])
+    assert {_uid(f"batch-{i}") for i in range(3)} <= set(app_client.identity.calls[0])
     assert len(listed) >= 3
 
 
@@ -529,22 +535,22 @@ def test_permissions_are_preserved(app_client):
 
     # Admin global: puede dar de alta por el contrato administrativo
     assert app_client.client.post(
-        admin_url, headers=app_client.headers["admin"], json={"user_sub": "p-1"}
+        admin_url, headers=app_client.headers["admin"], json={"user_sub": _uid("p-1")}
     ).status_code == 201
 
     # Gestor: da de alta por el mantenimiento normal del grupo
     assert app_client.client.post(
-        group_url, headers=app_client.headers["mgr"], json={"user_sub": "p-2"}
+        group_url, headers=app_client.headers["mgr"], json={"user_sub": _uid("p-2")}
     ).status_code == 201
 
     # Un gestor NO puede usar el contrato administrativo global
     assert app_client.client.post(
-        admin_url, headers=app_client.headers["mgr"], json={"user_sub": "p-4"}
+        admin_url, headers=app_client.headers["mgr"], json={"user_sub": _uid("p-4")}
     ).status_code == 403
 
     # Miembro ordinario: no puede dar de alta
     assert app_client.client.post(
-        group_url, headers=app_client.headers["member"], json={"user_sub": "p-3"}
+        group_url, headers=app_client.headers["member"], json={"user_sub": _uid("p-3")}
     ).status_code == 403
 
     # El gestor puede consultar los grupos de Chorus
@@ -577,7 +583,7 @@ def test_global_admin_cannot_grant_manager_role(app_client):
     blocked = app_client.client.post(
         f"/api/v1/groups/{app_client.group_id}/members",
         headers=app_client.headers["admin"],
-        json={"user_sub": "otro", "role": "manager"},
+        json={"user_sub": _uid("otro"), "role": "manager"},
     )
     assert blocked.status_code == 403, blocked.text
 

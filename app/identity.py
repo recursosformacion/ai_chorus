@@ -81,6 +81,16 @@ def _is_uuid(value: Any) -> bool:
     return True
 
 
+def canonical_uuid(value: str) -> str:
+    """Forma canónica (minúsculas, sin llaves) de un UUID.
+
+    Lanza ``ValueError`` si el valor no es un UUID válido. Se usa para
+    normalizar ``group_members.user_sub`` después de verificar la identidad:
+    dos representaciones del mismo UUID deben producir la misma clave.
+    """
+    return str(uuid_module.UUID(value))
+
+
 def _canonical(value: str) -> str:
     """Forma canónica de un UUID ya validado."""
     return str(uuid_module.UUID(value))

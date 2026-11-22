@@ -99,15 +99,22 @@ class _PermissiveIdentity:
         self.calls: list[list[str]] = []
 
     def lookup(self, user_ids):
-        from app.identity import PublicIdentity
+        from app.identity import PublicIdentity, canonical_uuid
 
         ids = list(user_ids)
         self.calls.append(ids)
-        return {
-            uid: PublicIdentity(user_id=uid, name=f"Usuario {uid[:8]}")
-            for uid in dict.fromkeys(ids)
-            if uid
-        }
+        resolved = {}
+        for uid in dict.fromkeys(ids):
+            if not uid:
+                continue
+            try:
+                canonical = canonical_uuid(uid)
+            except (ValueError, AttributeError, TypeError):
+                continue
+            resolved[canonical] = PublicIdentity(
+                user_id=canonical, name=f"Usuario {canonical[:8]}"
+            )
+        return resolved
 
     def resolve_public_names(self, user_ids):
         return {
@@ -117,12 +124,16 @@ class _PermissiveIdentity:
         }
 
     def resolve_identity(self, user_id: str):
-        from app.identity import PublicIdentity
+        from app.identity import PublicIdentity, canonical_uuid
 
         self.calls.append([user_id])
         if not user_id:
             return None
-        return PublicIdentity(user_id=user_id, name=f"Usuario {user_id[:8]}")
+        try:
+            canonical = canonical_uuid(user_id)
+        except (ValueError, AttributeError, TypeError):
+            return None
+        return PublicIdentity(user_id=canonical, name=f"Usuario {canonical[:8]}")
 
     def resolve_one(self, user_id: str):
         identity = self.resolve_identity(user_id)

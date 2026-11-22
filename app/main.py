@@ -30,7 +30,12 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.db import connect as db_connect
-from app.identity import IdentityClient, IdentityUnavailable, PublicIdentity
+from app.identity import (
+    IdentityClient,
+    IdentityUnavailable,
+    PublicIdentity,
+    canonical_uuid,
+)
 from app.db import (
     _verify_legacy_baseline,
     _register_legacy_baseline_recognition,
@@ -1440,7 +1445,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail=f"Identity service unavailable: {exc}",
             ) from exc
 
-    def _verify_member_identity(user_sub: str) -> str | None:
+    def _verify_member_identity(user_sub: str) -> PublicIdentity:
         """Verifica al DESTINATARIO de un alta en osap-auth.
 
         Se aplica a todos los flujos que reciben un identificador de destinatario
@@ -1448,8 +1453,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         usuario autenticado se incorpora usan la identidad ya validada por
         ``/auth/me`` y no pasan por aquí.
 
-        Devuelve el nombre canónico de Auth, que puede ser ``None`` si Auth
-        reconoce la identidad pero no expone nombre público.
+        Devuelve la ``PublicIdentity`` verificada, con:
+
+        - ``user_id`` en **forma canónica** (minúsculas, sin llaves): es el
+          único valor que debe usarse para comparar, insertar y auditar.
+        - ``name`` canónico de Auth, que puede ser ``None`` si Auth reconoce la
+          identidad pero no expone nombre público.
+
+        El UUID original del cliente no se reutiliza después de verificarlo.
 
         - Identidad no reconocida: ``400`` (no se inserta nada).
         - Auth no disponible o respuesta malformada: ``503`` (no se inserta nada).
@@ -1466,7 +1477,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=400,
                 detail="Unknown user_id: osap-auth does not recognise this identity",
             )
-        return identity.name
+        # Se normaliza el user_id devuelto por Auth (ya canónico por contrato)
+        # para no depender de la representación de partida.
+        return PublicIdentity(
+            user_id=canonical_uuid(identity.user_id),
+            name=identity.name,
+        )
 
     def profile_from_authorization(authorization: str | None) -> dict[str, Any]:
         if not authorization or not authorization.lower().startswith("bearer "):
@@ -2844,10 +2860,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=403,
                     detail="Only a group manager can grant manager permissions",
                 )
-            # Check if user is already a member
+            # Verificar la identidad del DESTINATARIO en osap-auth ANTES de
+            # cualquier escritura y ANTES de comprobar duplicados: la
+            # comparación debe hacerse con el UUID canónico, no con la
+            # representación que envió el cliente.
+            identity = _verify_member_identity(body.user_sub)
+            canonical_sub = identity.user_id
+
+            # Check if user is already a member (clave canónica)
             existing = conn.execute(
                 "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?",
-                (group_id, body.user_sub),
+                (group_id, canonical_sub),
             ).fetchone()
             if existing:
                 raise HTTPException(status_code=409, detail="User is already a member of this group")
@@ -2858,9 +2881,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 musical_role_id=body.musical_role_id,
                 section_id=body.section_id,
             )
-            # Verificar la identidad del DESTINATARIO en osap-auth antes de
-            # cualquier escritura en group_members o activity_log.
-            canonical_name = _verify_member_identity(body.user_sub)
             # Create member
             member_id = uuid.uuid4().hex
             conn.execute(
@@ -2868,8 +2888,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "(id, group_id, user_sub, role, status, display_name, admin_role_id, musical_role_id, section_id, granted_by, joined_at, updated_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    member_id, group_id, body.user_sub, body.role, "active",
-                    canonical_name, body.admin_role_id, body.musical_role_id,
+                    member_id, group_id, canonical_sub, body.role, "active",
+                    identity.name, body.admin_role_id, body.musical_role_id,
                     body.section_id, user_id, now, now,
                 ),
             )
@@ -2877,7 +2897,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             conn.execute(
                 "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (_activity_legacy_id("mem", body.user_sub), group_id, "member_added", user_id, None, "active",
+                (_activity_legacy_id("mem", canonical_sub), group_id, "member_added", user_id, None, "active",
                  json.dumps({
                      "role": body.role,
                      "identity_verified_by": "osap-auth",
@@ -3914,9 +3934,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             group = conn.execute("SELECT id, name FROM groups WHERE id = ?", (group_id,)).fetchone()
             if group is None:
                 raise HTTPException(status_code=404, detail="Group not found")
+            # Verificar la identidad del DESTINATARIO (no la del actor) ANTES de
+            # cualquier escritura y ANTES del chequeo de duplicados: la
+            # comparación se hace con el UUID canónico.
+            identity = _verify_member_identity(body.user_sub)
+            canonical_sub = identity.user_id
             existing = conn.execute(
                 "SELECT * FROM group_members WHERE group_id = ? AND user_sub = ?",
-                (group_id, body.user_sub),
+                (group_id, canonical_sub),
             ).fetchone()
             if existing is not None:
                 raise HTTPException(
@@ -3930,9 +3955,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 musical_role_id=body.musical_role_id,
                 section_id=body.section_id,
             )
-            # Verificar la identidad del DESTINATARIO (no la del actor) antes de
-            # cualquier escritura en group_members o activity_log.
-            canonical_name = _verify_member_identity(body.user_sub)
             member_id = uuid.uuid4().hex
             # display_name es una instantánea del nombre canónico de Auth, no una
             # fuente de verdad alternativa: se rellena desde Auth y nunca se usa
@@ -3943,8 +3965,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 " admin_role_id, musical_role_id, section_id, granted_by, joined_at, updated_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    member_id, group_id, body.user_sub, ORDINARY_MEMBER_ROLE, "active",
-                    canonical_name,
+                    member_id, group_id, canonical_sub, ORDINARY_MEMBER_ROLE, "active",
+                    identity.name,
                     body.admin_role_id, body.musical_role_id, body.section_id,
                     actor_id, now, now,
                 ),
@@ -3954,7 +3976,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "(legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (
-                    _activity_legacy_id("mem", body.user_sub), group_id,
+                    _activity_legacy_id("mem", canonical_sub), group_id,
                     "member_added", actor_id, None, "active",
                     json.dumps({
                         "source": "admin_onboarding",
