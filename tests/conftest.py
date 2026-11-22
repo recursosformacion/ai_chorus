@@ -98,14 +98,35 @@ class _PermissiveIdentity:
     def __init__(self):
         self.calls: list[list[str]] = []
 
-    def resolve_public_names(self, user_ids):
+    def lookup(self, user_ids):
+        from app.identity import PublicIdentity
+
         ids = list(user_ids)
         self.calls.append(ids)
-        return {uid: f"Usuario {uid[:8]}" for uid in dict.fromkeys(ids) if uid}
+        return {
+            uid: PublicIdentity(user_id=uid, name=f"Usuario {uid[:8]}")
+            for uid in dict.fromkeys(ids)
+            if uid
+        }
+
+    def resolve_public_names(self, user_ids):
+        return {
+            uid: identity.name
+            for uid, identity in self.lookup(user_ids).items()
+            if identity.name
+        }
+
+    def resolve_identity(self, user_id: str):
+        from app.identity import PublicIdentity
+
+        self.calls.append([user_id])
+        if not user_id:
+            return None
+        return PublicIdentity(user_id=user_id, name=f"Usuario {user_id[:8]}")
 
     def resolve_one(self, user_id: str):
-        self.calls.append([user_id])
-        return f"Usuario {user_id[:8]}" if user_id else None
+        identity = self.resolve_identity(user_id)
+        return identity.name if identity is not None else None
 
 
 @pytest.fixture(autouse=True)
@@ -133,6 +154,53 @@ def unit_db(integration_settings):
         conn.close()
 
 
+def _purge_integration_tables(conn) -> None:
+    """Vacía las tablas que la suite puede haber tocado, en orden de dependencia.
+
+    La protección de BD se hace antes de llamar aquí
+    (``assert_safe_test_connection``).
+    """
+    conn.execute("DELETE FROM preparation_work_items")
+    conn.execute("DELETE FROM preparation_work_files")
+    conn.execute("DELETE FROM preparation_works")
+    conn.execute("DELETE FROM spaces")
+    conn.execute("DELETE FROM group_members")
+    # group_sections no tiene FK a groups: hay que borrarla explícitamente o
+    # sus filas sobreviven a la eliminación del grupo.
+    conn.execute("DELETE FROM group_sections")
+    conn.execute("DELETE FROM groups")
+    # Registro de auditoría: las operaciones de los tests generan filas
+    conn.execute("DELETE FROM activity_log")
+    # Cadenas Work -> Resource -> File (works.required_resource_id es
+    # circular, por eso se desactivan temporalmente las FKs)
+    conn.execute("SET FOREIGN_KEY_CHECKS = 0")
+    conn.execute("DELETE FROM library_items")
+    conn.execute("DELETE FROM files")
+    conn.execute("DELETE FROM resources")
+    conn.execute("DELETE FROM works")
+    conn.execute("SET FOREIGN_KEY_CHECKS = 1")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _purge_tables_at_session_end():
+    """Limpieza final: la BD de pruebas no queda con residuos de la sesión."""
+    yield
+    if not os.getenv("CHORUS_DATABASE_URL"):
+        return
+    settings = Settings.load()
+    try:
+        conn = assert_safe_test_connection(settings)
+    except (DatabaseUnavailableError, UnsafeTestDatabaseError):
+        return
+    try:
+        _purge_integration_tables(conn)
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
 @pytest.fixture(autouse=True)
 def _clean_groups_for_integration(request):
     """Limpia tablas de grupos/espacios antes de tests de integración/migraciones.
@@ -153,24 +221,7 @@ def _clean_groups_for_integration(request):
         pytest.fail(str(exc))
 
     try:
-        # Eliminar en orden inverso por FK
-        conn.execute("DELETE FROM preparation_work_items")
-        conn.execute("DELETE FROM preparation_work_files")
-        conn.execute("DELETE FROM preparation_works")
-        conn.execute("DELETE FROM spaces")
-        conn.execute("DELETE FROM group_members")
-        # group_sections no tiene FK a groups: hay que borrarla explícitamente
-        # o sus filas sobreviven a la eliminación del grupo.
-        conn.execute("DELETE FROM group_sections")
-        conn.execute("DELETE FROM groups")
-        # Cadenas Work -> Resource -> File (works.required_resource_id es
-        # circular, por eso se desactivan temporalmente las FKs)
-        conn.execute("SET FOREIGN_KEY_CHECKS = 0")
-        conn.execute("DELETE FROM library_items")
-        conn.execute("DELETE FROM files")
-        conn.execute("DELETE FROM resources")
-        conn.execute("DELETE FROM works")
-        conn.execute("SET FOREIGN_KEY_CHECKS = 1")
+        _purge_integration_tables(conn)
         conn.commit()
     finally:
         conn.close()
@@ -220,6 +271,8 @@ def _clean_db_for_db_tests(request):
         # group_sections no tiene FK a groups: borrado explícito
         conn.execute("DELETE FROM group_sections")
         conn.execute("DELETE FROM groups")
+        # Registro de auditoría: las operaciones de los tests generan filas
+        conn.execute("DELETE FROM activity_log")
         conn.execute("DELETE FROM group_article_media")
         conn.execute("DELETE FROM group_articles")
         conn.execute("DELETE FROM group_sections")

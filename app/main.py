@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.db import connect as db_connect
-from app.identity import IdentityClient, IdentityUnavailable
+from app.identity import IdentityClient, IdentityUnavailable, PublicIdentity
 from app.db import (
     _verify_legacy_baseline,
     _register_legacy_baseline_recognition,
@@ -1417,52 +1417,56 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise IdentityUnavailable("El cliente de identidad no está disponible")
         return client
 
-    def _resolve_member_names(conn, user_subs: list[str]) -> dict[str, str]:
-        """Resuelve nombres públicos en lote mediante el contrato M2M.
+    def _resolve_member_identities(
+        conn, user_subs: list[str]
+    ) -> dict[str, PublicIdentity]:
+        """Resuelve identidades en lote mediante el contrato M2M.
 
-        Devuelve un diccionario ``user_id -> name`` con lo que Auth reconozca.
-        Un identificador que Auth omite simplemente no aparece: no se inventa
-        nombre ni se usan datos locales como identidad verificada.
+        Devuelve una entrada por cada identificador que Auth reconoce, con su
+        nombre público (que puede ser ``None``). Un identificador ausente del
+        resultado es una identidad que Auth **no reconoce**: no se inventa nombre.
 
-        Si Auth no está disponible se responde 503 en lugar de degradar
-        silenciosamente a "nadie está verificado": no es lo mismo una identidad
-        que Auth no reconoce que un fallo del proveedor de identidad.
+        Si Auth no está disponible o incumple el contrato se responde 503 en
+        lugar de degradar silenciosamente a "nadie está verificado".
         """
         targets = [uid for uid in dict.fromkeys(user_subs) if uid]
         if not targets:
             return {}
         try:
-            return _identity_client_of().resolve_public_names(targets)
+            return _identity_client_of().lookup(targets)
         except IdentityUnavailable as exc:
             raise HTTPException(
                 status_code=503,
                 detail=f"Identity service unavailable: {exc}",
             ) from exc
 
-    def _verify_member_identity(user_sub: str) -> str:
-        """Verifica al DESTINATARIO de un alta en osap-auth y da su nombre canónico.
+    def _verify_member_identity(user_sub: str) -> str | None:
+        """Verifica al DESTINATARIO de un alta en osap-auth.
 
         Se aplica a todos los flujos que reciben un identificador de destinatario
         (alta de gestor y alta administrativa). Los flujos donde el propio
         usuario autenticado se incorpora usan la identidad ya validada por
         ``/auth/me`` y no pasan por aquí.
 
+        Devuelve el nombre canónico de Auth, que puede ser ``None`` si Auth
+        reconoce la identidad pero no expone nombre público.
+
         - Identidad no reconocida: ``400`` (no se inserta nada).
-        - Auth no disponible: ``503`` (no se inserta nada).
+        - Auth no disponible o respuesta malformada: ``503`` (no se inserta nada).
         """
         try:
-            canonical_name = _identity_client_of().resolve_one(user_sub)
+            identity = _identity_client_of().resolve_identity(user_sub)
         except IdentityUnavailable as exc:
             raise HTTPException(
                 status_code=503,
                 detail=f"Identity service unavailable: {exc}",
             ) from exc
-        if canonical_name is None:
+        if identity is None:
             raise HTTPException(
                 status_code=400,
                 detail="Unknown user_id: osap-auth does not recognise this identity",
             )
-        return canonical_name
+        return identity.name
 
     def profile_from_authorization(authorization: str | None) -> dict[str, Any]:
         if not authorization or not authorization.lower().startswith("bearer "):
@@ -2728,14 +2732,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ).fetchall()
                 role_map = {r["id"]: {"code": r["code"], "name": r["name"]} for r in role_rows}
             # Nombres públicos resueltos en UNA consulta agrupada a osap-auth.
-            names = _resolve_member_names(conn, [row["user_sub"] for row in rows])
+            identities = _resolve_member_identities(
+                conn, [row["user_sub"] for row in rows]
+            )
         return [
             {
                 "user_sub": row["user_sub"],
                 "role": row["role"],
-                # Nombre canónico de Auth; None si Auth no lo resuelve.
-                "name": names.get(row["user_sub"]),
-                "identity_verified": row["user_sub"] in names,
+                # Nombre canónico de Auth; None si Auth no lo resuelve o si el
+                # contrato no expone nombre público para esa identidad.
+                "name": (
+                    identities[row["user_sub"]].name
+                    if row["user_sub"] in identities
+                    else None
+                ),
+                "identity_verified": row["user_sub"] in identities,
                 "voice_label": row["voice_label"],
                 "section": row["section"],
                 "admin_role_id": row["admin_role_id"],
@@ -2785,12 +2796,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "ORDER BY status, role DESC, user_sub",
                     (group_id,),
                 ).fetchall()
-            names = _resolve_member_names(conn, [row["user_sub"] for row in rows])
+            identities = _resolve_member_identities(
+                conn, [row["user_sub"] for row in rows]
+            )
         result = []
         for row in rows:
+            identity = identities.get(row["user_sub"])
             item = dict(row)
-            item["name"] = names.get(row["user_sub"])
-            item["identity_verified"] = row["user_sub"] in names
+            item["name"] = identity.name if identity is not None else None
+            item["identity_verified"] = identity is not None
             item["legacy_display_name"] = row["display_name"]
             del item["display_name"]
             result.append(item)

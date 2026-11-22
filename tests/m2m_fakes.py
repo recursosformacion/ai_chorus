@@ -15,6 +15,8 @@ from typing import Any
 
 import httpx
 
+from app.identity import PublicIdentity
+
 TOKEN_PATH = "/oauth/token"
 M2M_PATH = "/auth/m2m/users"
 
@@ -84,36 +86,50 @@ class FakeM2MTransport(httpx.BaseTransport):
 class RecordingIdentityClient:
     """Sustituto del cliente de identidad para pruebas de endpoints.
 
-    No es una segunda implementación del contrato: sólo registra llamadas y
-    devuelve respuestas preparadas, para poder assertar el comportamiento de
-    Chorus (agrupación, rechazo, indisponibilidad).
+    Implementa el mismo contrato de métodos que ``IdentityClient``:
+    ``lookup`` (identidades reconocidas), ``resolve_public_names`` (sólo con
+    nombre) y ``resolve_identity`` (distinguir no reconocido de sin nombre).
     """
 
     def __init__(
         self,
-        directory: dict[str, str] | None = None,
+        directory: dict[str, str | None] | None = None,
         *,
         available: bool = True,
     ) -> None:
-        self.directory = dict(directory or {})
+        # Un valor None representa "identidad reconocida sin nombre público".
+        self.directory: dict[str, str | None] = dict(directory or {})
         self.available = available
         self.calls: list[list[str]] = []
 
-    def resolve_public_names(self, user_ids):
+    def lookup(self, user_ids):
         self.calls.append(list(user_ids))
         if not self.available:
             _raise_unavailable()
         return {
-            uid: self.directory[uid]
+            uid: PublicIdentity(user_id=uid, name=self.directory[uid])
             for uid in dict.fromkeys(user_ids)
             if uid in self.directory
         }
 
-    def resolve_one(self, user_id: str):
+    def resolve_public_names(self, user_ids):
+        return {
+            uid: identity.name
+            for uid, identity in self.lookup(user_ids).items()
+            if identity.name
+        }
+
+    def resolve_identity(self, user_id: str):
         self.calls.append([user_id])
         if not self.available:
             _raise_unavailable()
-        return self.directory.get(user_id)
+        if user_id not in self.directory:
+            return None
+        return PublicIdentity(user_id=user_id, name=self.directory[user_id])
+
+    def resolve_one(self, user_id: str):
+        identity = self.resolve_identity(user_id)
+        return identity.name if identity is not None else None
 
 
 class _Unavailable(Exception):

@@ -11,6 +11,8 @@ sustituto que registra llamadas.
 """
 from __future__ import annotations
 
+import uuid
+
 import pytest
 import httpx
 from fastapi.testclient import TestClient
@@ -166,8 +168,9 @@ def test_onboarding_consults_m2m_contract(app_client):
 @pytest.mark.unit
 def test_m2m_client_uses_service_token_and_batched_lookup():
     """Contrato real: token de servicio + ids agrupados en una sola llamada."""
+    otro = "55555555-5555-4555-8555-555555555555"
     transport = FakeM2MTransport(
-        {DESTINATARIO: "Nombre Canonico", "third-uuid": "Tercero"}
+        {DESTINATARIO: "Nombre Canonico", otro: "Tercero"}
     )
     client = IdentityClient(
         "https://auth.test",
@@ -176,11 +179,11 @@ def test_m2m_client_uses_service_token_and_batched_lookup():
         transport=transport,
     )
 
-    resolved = client.resolve_public_names([DESTINATARIO, "third-uuid"])
+    resolved = client.resolve_public_names([DESTINATARIO, otro])
 
     assert resolved == {
         DESTINATARIO: "Nombre Canonico",
-        "third-uuid": "Tercero",
+        otro: "Tercero",
     }
     # Una sola llamada de token y una sola de lookup para dos ids
     assert len(transport.token_calls) == 1
@@ -196,7 +199,7 @@ def test_m2m_client_uses_service_token_and_batched_lookup():
 @pytest.mark.unit
 def test_m2m_lookup_batches_in_chunks_of_500():
     """Los ids se agrupan en lotes de 500 (máximo del contrato)."""
-    directory = {f"id-{i}": f"Name {i}" for i in range(600)}
+    directory = {str(uuid.UUID(int=i)): f"Name {i}" for i in range(600)}
     transport = FakeM2MTransport(directory)
     client = IdentityClient(
         "https://auth.test", client_id="c", client_secret="s", transport=transport
@@ -378,6 +381,64 @@ def test_unavailable_auth_returns_503_on_member_listing(app_client):
         headers=app_client.headers["admin"],
     )
     assert administrative.status_code == 503, administrative.text
+
+
+class _MalformedIdentity:
+    """Doble que simula una respuesta de Auth que incumple el contrato."""
+
+    def __init__(self):
+        self.calls: list[list[str]] = []
+
+    def lookup(self, user_ids):
+        from app.identity import IdentityUnavailable
+
+        self.calls.append(list(user_ids))
+        raise IdentityUnavailable(
+            "osap-auth devolvió un elemento sin el campo obligatorio id"
+        )
+
+    def resolve_public_names(self, user_ids):
+        return self.lookup(user_ids)
+
+    def resolve_identity(self, user_id: str):
+        from app.identity import IdentityUnavailable
+
+        self.calls.append([user_id])
+        raise IdentityUnavailable("respuesta malformada de osap-auth")
+
+    def resolve_one(self, user_id: str):
+        return self.resolve_identity(user_id)
+
+
+def test_malformed_contract_returns_503_on_member_listing(app_client):
+    """Una respuesta malformada es un error de contrato, no una omisión."""
+    app_client.set_identity(_MalformedIdentity())
+
+    ordinary = app_client.client.get(
+        f"/api/v1/groups/{app_client.group_id}/members",
+        headers=app_client.headers["mgr"],
+    )
+    assert ordinary.status_code == 503, ordinary.text
+
+    administrative = app_client.client.get(
+        f"/api/v1/admin/groups/{app_client.group_id}/members",
+        headers=app_client.headers["admin"],
+    )
+    assert administrative.status_code == 503, administrative.text
+
+
+def test_malformed_contract_blocks_onboarding(app_client):
+    """Con respuesta malformada no se puede dar de alta a nadie."""
+    app_client.set_identity(_MalformedIdentity())
+    before = _count_members(app_client)
+
+    response = app_client.client.post(
+        f"/api/v1/admin/groups/{app_client.group_id}/members",
+        headers=app_client.headers["admin"],
+        json={"user_sub": DESTINATARIO},
+    )
+    assert response.status_code == 503, response.text
+    assert _count_members(app_client) == before
 
 
 # --------------------------------------------------------------------------
