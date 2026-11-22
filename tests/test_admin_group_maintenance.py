@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.db import connect as db_connect
 from app.main import create_app
+from tests.m2m_fakes import RecordingIdentityClient, install_identity
 
 ADMIN = "admin-1"
 MGR = "mgr-1"
@@ -78,7 +79,7 @@ def _seed_catalogs(settings: Settings, group_id: str) -> dict:
 
 @pytest.fixture
 def ctx(integration_settings: Settings, monkeypatch):
-    """Dos grupos con catálogos y un administrador global autenticado."""
+    """Dos grupos con catálogos, un administrador global y Auth simulado."""
     profiles = {
         "token-admin": _profile(ADMIN, roles=["admin"]),
         "token-mgr": _profile(MGR),
@@ -86,6 +87,24 @@ def ctx(integration_settings: Settings, monkeypatch):
         "token-outsider": _profile(OUTSIDER),
     }
     install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+
+    # osap-auth resuelve los nombres públicos de los destinatarios de alta.
+    # Se instala antes de crear la app porque create_app construye el cliente.
+    directory = {
+        "nuevo-usuario": "Usuario Nuevo",
+        "quiere-ser-gestor": "Quiere Ser Gestor",
+        "otro-gestor": "Otro Gestor",
+        "futuro-gestor": "Futuro Gestor",
+        "seccion-ajena": "Seccion Ajena",
+        "rol-ajeno": "Rol Ajeno",
+        "cargo-ajeno": "Cargo Ajeno",
+        "id-falso": "Id Falso",
+        "identidad-real": "Identidad Real",
+        "persistente": "Persistente",
+        "colado": "Colado",
+    }
+    identity = RecordingIdentityClient(directory)
+    install_identity(monkeypatch, identity)
 
     client = TestClient(create_app(integration_settings))
     admin = {"Authorization": "Bearer token-admin"}
@@ -104,6 +123,7 @@ def ctx(integration_settings: Settings, monkeypatch):
         "g1": g1["id"], "g2": g2["id"],
         "join1": g1["join_code"],
         "cat1": cat1, "cat2": cat2,
+        "identity": identity,
     }
     try:
         yield data
@@ -446,7 +466,11 @@ def test_changes_persist_on_reload(ctx):
         f"/api/v1/admin/groups/{ctx['g1']}/members", headers=admin
     ).json()
     found = next(m for m in listed if m["user_sub"] == "persistente")
-    assert found["display_name"] == "Nombre Inicial"
+    # El nombre procede de Auth, no de un registro local
+    assert found["name"] == "Persistente"
+    assert found["identity_verified"] is True
+    # display_name queda como instantanea historica no verificada
+    assert found["legacy_display_name"] == "Persistente"
     assert found["admin_role_id"] == ctx["cat1"]["admin_role_id"]
     assert found["musical_role_id"] == ctx["cat1"]["musical_role_id"]
     assert found["section_id"] == ctx["cat1"]["section_id"]
@@ -461,7 +485,8 @@ def test_changes_persist_on_reload(ctx):
         ).fetchone()
         assert row["role"] == "member"
         assert row["status"] == "active"
-        assert row["display_name"] == "Nombre Inicial"
+        # El alta guarda el nombre canonico de Auth como instantanea
+        assert row["display_name"] == "Persistente"
 
     # Baja y alta posterior
     assert client.delete(

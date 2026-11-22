@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.config import Settings
 from app.db import connect as db_connect
+from app.identity import IdentityClient, IdentityUnavailable
 from app.db import (
     _verify_legacy_baseline,
     _register_legacy_baseline_recognition,
@@ -1385,6 +1386,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="Chorus API", version="0.2.2", lifespan=lifespan)
+    # Cliente de identidad M2M (osap-auth es la fuente única de identidad).
+    app.state.identity_client = IdentityClient(
+        cfg.auth_base_url,
+        client_id=cfg.auth_m2m_client_id,
+        client_secret=cfg.auth_m2m_client_secret,
+        scope=cfg.auth_m2m_scope,
+        audience=cfg.auth_m2m_audience,
+        timeout_seconds=cfg.auth_timeout_seconds,
+    )
 
     origins = list(cfg.cors_origins)
     if cfg.editor_origin and cfg.editor_origin not in origins:
@@ -1395,6 +1405,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_methods=["GET", "POST", "OPTIONS"],
             allow_headers=["Authorization", "Content-Type"],
         )
+
+    def _identity_client_of() -> IdentityClient:
+        """Cliente de identidad M2M de la aplicación (osap-auth).
+
+        Se obtiene de ``app.state`` para que las pruebas puedan sustituirlo sin
+        tocar la configuración global.
+        """
+        client = getattr(app.state, "identity_client", None)
+        if client is None:
+            raise IdentityUnavailable("El cliente de identidad no está disponible")
+        return client
+
+    def _resolve_member_names(conn, user_subs: list[str]) -> dict[str, str]:
+        """Resuelve nombres públicos en lote mediante el contrato M2M.
+
+        Devuelve un diccionario ``user_id -> name`` con lo que Auth reconozca.
+        Si Auth no está disponible o no responde un identificador, no se inventa
+        nombre: simplemente no aparece en el resultado.
+        """
+        targets = [uid for uid in dict.fromkeys(user_subs) if uid]
+        if not targets:
+            return {}
+        try:
+            return _identity_client_of().resolve_public_names(targets)
+        except IdentityUnavailable:
+            # Sin Auth no hay nombres verificados. Se devuelve vacío y el
+            # llamador marca identity_verified=False en lugar de usar datos
+            # locales como si fueran identidad verificada.
+            return {}
 
     def profile_from_authorization(authorization: str | None) -> dict[str, Any]:
         if not authorization or not authorization.lower().startswith("bearer "):
@@ -2659,11 +2698,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     tuple(role_ids),
                 ).fetchall()
                 role_map = {r["id"]: {"code": r["code"], "name": r["name"]} for r in role_rows}
+            # Nombres públicos resueltos en UNA consulta agrupada a osap-auth.
+            names = _resolve_member_names(conn, [row["user_sub"] for row in rows])
         return [
             {
                 "user_sub": row["user_sub"],
                 "role": row["role"],
-                "name": row["display_name"] or row["user_sub"][:8],
+                # Nombre canónico de Auth; None si Auth no lo resuelve.
+                "name": names.get(row["user_sub"]),
+                "identity_verified": row["user_sub"] in names,
                 "voice_label": row["voice_label"],
                 "section": row["section"],
                 "admin_role_id": row["admin_role_id"],
@@ -2686,6 +2729,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         A diferencia del listado ordinario (que sólo devuelve miembros activos),
         esta vista administrativa incluye altas, bajas y estados de pertenencia,
         con los identificadores de catálogo guardados en cada membresía.
+
+        Los nombres se resuelven en lote mediante el contrato M2M de osap-auth.
+        ``display_name`` se expone como ``legacy_display_name`` y queda marcado
+        como no verificado: es una instantánea histórica, no identidad.
         """
         if not _is_admin(profile):
             raise HTTPException(status_code=403, detail="Admin role required")
@@ -2709,7 +2756,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "ORDER BY status, role DESC, user_sub",
                     (group_id,),
                 ).fetchall()
-        return [dict(row) for row in rows]
+            names = _resolve_member_names(conn, [row["user_sub"] for row in rows])
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["name"] = names.get(row["user_sub"])
+            item["identity_verified"] = row["user_sub"] in names
+            item["legacy_display_name"] = row["display_name"]
+            del item["display_name"]
+            result.append(item)
+        return result
 
     @app.post("/api/v1/groups/{group_id}/members", status_code=201)
     def add_group_member(
@@ -3774,48 +3830,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "musical_roles": [dict(row) for row in musical_rows],
         }
 
-    @app.get("/api/v1/admin/users")
-    def admin_search_users(
-        q: str | None = None,
-        profile: dict[str, Any] = Depends(current_profile),
-    ) -> list[dict[str, Any]]:
-        """Directorio local de usuarios conocidos por Chorus.
-
-        La identidad procede de osap-auth; Chorus sólo puede localizar a los
-        usuarios que ya tienen alguna membresía propia. No consulta catálogos de
-        usuarios de OSAP ni mantiene un duplicado de la identidad.
-        """
-        if not _is_admin(profile):
-            raise HTTPException(status_code=403, detail="Admin role required")
-        term = (q or "").strip()
-        with _connect(cfg) as conn:
-            if term:
-                like = f"%{term}%"
-                rows = conn.execute(
-                    "SELECT user_sub, "
-                    "       MAX(COALESCE(display_name, '')) AS display_name, "
-                    "       COUNT(*) AS memberships "
-                    "FROM group_members "
-                    "WHERE user_sub LIKE ? OR display_name LIKE ? "
-                    "GROUP BY user_sub ORDER BY user_sub LIMIT 50",
-                    (like, like),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT user_sub, "
-                    "       MAX(COALESCE(display_name, '')) AS display_name, "
-                    "       COUNT(*) AS memberships "
-                    "FROM group_members GROUP BY user_sub ORDER BY user_sub LIMIT 50"
-                ).fetchall()
-        return [
-            {
-                "user_sub": row["user_sub"],
-                "display_name": row["display_name"] or None,
-                "memberships": int(row["memberships"]),
-            }
-            for row in rows
-        ]
-
     @app.post("/api/v1/admin/groups/{group_id}/members", status_code=201)
     def admin_add_group_member(
         group_id: str,
@@ -3824,14 +3838,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         """Incorpora un usuario existente a un grupo como miembro ordinario.
 
-        Es el contrato de alta administrativa para herramientas externas: no
-        acepta ``role``, por lo que nunca concede permisos de gestor. La
-        concesión de gestor corresponde sólo a un gestor del grupo.
+        Es el contrato de alta administrativa para herramientas externas. Antes
+        de crear la pertenencia se **verifica la identidad en osap-auth** mediante
+        el contrato M2M: un ``user_sub`` que Auth no reconoce se rechaza y no
+        genera ninguna fila. El nombre que se muestra es el canónico de Auth, no
+        el que aporte el administrador.
+
+        No acepta ``role``: el alta crea siempre un ``member``. La concesión de
+        gestor corresponde sólo a un gestor del grupo.
         """
         if not _is_admin(profile):
             raise HTTPException(status_code=403, detail="Admin role required")
-        user_id = str(profile["user_id"])
+        actor_id = str(profile["user_id"])
         now = utcnow()
+
+        # 1-2. Verificar la identidad del DESTINATARIO en osap-auth (no la del
+        # actor autenticado, que ya validó current_profile).
+        try:
+            canonical_name = _identity_client_of().resolve_one(body.user_sub)
+        except IdentityUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Identity service unavailable: {exc}",
+            ) from exc
+        if canonical_name is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Unknown user_id: osap-auth does not recognise this identity",
+            )
+
         with _connect(cfg) as conn:
             group = conn.execute("SELECT id, name FROM groups WHERE id = ?", (group_id,)).fetchone()
             if group is None:
@@ -3853,6 +3888,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 section_id=body.section_id,
             )
             member_id = uuid.uuid4().hex
+            # display_name es una instantánea del nombre canónico de Auth, no una
+            # fuente de verdad alternativa: se rellena desde Auth y nunca se usa
+            # para verificar identidades.
             conn.execute(
                 "INSERT INTO group_members "
                 "(id, group_id, user_sub, role, status, display_name, "
@@ -3860,9 +3898,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     member_id, group_id, body.user_sub, ORDINARY_MEMBER_ROLE, "active",
-                    body.display_name or "",
+                    canonical_name,
                     body.admin_role_id, body.musical_role_id, body.section_id,
-                    user_id, now, now,
+                    actor_id, now, now,
                 ),
             )
             conn.execute(
@@ -3871,10 +3909,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (
                     _activity_legacy_id("mem", body.user_sub), group_id,
-                    "member_added", user_id, None, "active",
+                    "member_added", actor_id, None, "active",
                     json.dumps({
                         "source": "admin_onboarding",
                         "role": ORDINARY_MEMBER_ROLE,
+                        "identity_verified_by": "osap-auth",
                         "admin_role_id": body.admin_role_id,
                         "musical_role_id": body.musical_role_id,
                         "section_id": body.section_id,

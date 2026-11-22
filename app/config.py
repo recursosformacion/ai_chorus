@@ -30,6 +30,11 @@ class Settings:
     auth_timeout_seconds: float = 15.0
     osap_timeout_seconds: float = 45.0
     secure_cookies: bool = True
+    # Credenciales M2M de servicio para osap-auth (contrato /auth/m2m/users).
+    auth_m2m_client_id: str = ""
+    auth_m2m_client_secret: str = ""
+    auth_m2m_scope: str = "auth:read_public_names"
+    auth_m2m_audience: str = "osap-auth"
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "Settings":
@@ -83,10 +88,22 @@ class Settings:
             auth_timeout_seconds=float(value("CHORUS_AUTH_TIMEOUT", auth, "timeout_seconds", "15")),
             osap_timeout_seconds=float(value("CHORUS_OSAP_TIMEOUT", osap, "timeout_seconds", "45")),
             secure_cookies=value("CHORUS_SECURE_COOKIES", app, "secure_cookies", "true").lower() not in {"0", "false", "no"},
+            auth_m2m_client_id=value("CHORUS_AUTH_M2M_CLIENT_ID", auth, "m2m_client_id"),
+            auth_m2m_client_secret=value("CHORUS_AUTH_M2M_CLIENT_SECRET", auth, "m2m_client_secret"),
+            auth_m2m_scope=value("CHORUS_AUTH_M2M_SCOPE", auth, "m2m_scope", "auth:read_public_names"),
+            auth_m2m_audience=value("CHORUS_AUTH_M2M_AUDIENCE", auth, "m2m_audience", "osap-auth"),
         )
 
     def oidc_configured(self) -> bool:
         return bool(self.oidc_issuer and self.oidc_client_id and self.oidc_redirect_uri)
+
+    def auth_m2m_configured(self) -> bool:
+        """True si hay credenciales de servicio para el contrato M2M de Auth."""
+        return bool(
+            self.auth_base_url
+            and self.auth_m2m_client_id
+            and self.auth_m2m_client_secret
+        )
 
     def validate_auth(self) -> None:
         missing = [name for name, val in (("auth.base_url", self.auth_base_url),) if not val]
