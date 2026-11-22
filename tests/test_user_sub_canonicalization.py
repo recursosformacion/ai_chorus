@@ -9,6 +9,7 @@ Se verifica en los dos endpoints de alta con el mismo comportamiento:
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -275,16 +276,26 @@ def test_persisted_user_sub_is_always_canonical(env, kind, representacion):
 @pytest.mark.integration
 @pytest.mark.parametrize("kind", ENDPOINTS)
 def test_activity_log_uses_canonical_subject(env, kind):
+    expected_actor = MGR if kind == "legacy" else ADMIN
     assert _post(env, kind, MAYUSCULAS).status_code == 201
 
     logs = env.logs()
-    member_logs = [log for log in logs if log["actor"] != MGR or True]
-    assert member_logs, "Debe registrarse la actividad"
+    assert logs, "Debe registrarse la actividad del alta"
+    entry = logs[-1]
 
-    # El detalle y el legacy_id se generan con la clave canónica
-    last = logs[-1]
-    assert CANONICO[:8] in last["legacy_id"], last["legacy_id"]
-    assert last["actor"] in (MGR, ADMIN)
+    assert entry["event_type"] == "member_added"
+    # El actor es la identidad autenticada que realiza el alta, no el destinatario
+    assert entry["actor"] == expected_actor
+
+    # El sujeto del registro se genera con el UUID canónico del destinatario:
+    # aparece en minúsculas y nunca en la representación enviada (mayúsculas)
+    assert CANONICO[:8] in entry["legacy_id"], entry["legacy_id"]
+    assert MAYUSCULAS[:8] not in entry["legacy_id"], entry["legacy_id"]
+
+    detail = json.loads(entry["detail_json"])
+    assert detail["identity_verified_by"] == "osap-auth"
+    if kind == "admin":
+        assert detail["source"] == "admin_onboarding"
 
 
 # --------------------------------------------------------------------------

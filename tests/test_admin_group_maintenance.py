@@ -310,23 +310,25 @@ def test_global_admin_cannot_grant_manager(ctx):
 @pytest.mark.integration
 def test_group_manager_can_grant_manager(ctx):
     client, mgr, admin = ctx["client"], ctx["mgr"], ctx["admin"]
+    future_manager_id = _uid("futuro-gestor")
+    future_manager_url = f"/api/v1/groups/{ctx['g1']}/members/{future_manager_id}"
 
     client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
-        json={"user_sub": _uid("futuro-gestor")},
+        json={"user_sub": future_manager_id},
     )
 
     # El gestor del grupo concede la responsabilidad
     r = client.patch(
-        f"/api/v1/groups/{ctx['g1']}/members/{_uid("futuro-gestor")}",
+        future_manager_url,
         headers=mgr,
         json={"role": "manager"},
     )
     assert r.status_code == 200, r.text
 
     listed = client.get(f"/api/v1/groups/{ctx['g1']}/members", headers=mgr).json()
-    found = next(m for m in listed if m["user_sub"] == _uid("futuro-gestor"))
+    found = next(m for m in listed if m["user_sub"] == future_manager_id)
     assert found["role"] == "manager"
 
     # Queda auditado el cambio de rol
@@ -342,7 +344,7 @@ def test_group_manager_can_grant_manager(ctx):
 
     # Y también puede retirarla
     r2 = client.patch(
-        f"/api/v1/groups/{ctx['g1']}/members/{_uid("futuro-gestor")}",
+        future_manager_url,
         headers=mgr,
         json={"role": "member"},
     )
@@ -445,12 +447,14 @@ def test_operations_use_real_osap_auth_identity(ctx):
 @pytest.mark.integration
 def test_changes_persist_on_reload(ctx):
     client, admin, mgr = ctx["client"], ctx["admin"], ctx["mgr"]
+    persistente_id = _uid("persistente")
+    persistente_url = f"/api/v1/groups/{ctx['g1']}/members/{persistente_id}"
 
     client.post(
         f"/api/v1/admin/groups/{ctx['g1']}/members",
         headers=admin,
         json={
-            "user_sub": _uid("persistente"),
+            "user_sub": persistente_id,
             "display_name": "Nombre Inicial",
             "section_id": ctx["cat1"]["section_id"],
         },
@@ -458,7 +462,7 @@ def test_changes_persist_on_reload(ctx):
 
     # El gestor ajusta cargo, rol musical y sección (campos de mantenimiento)
     r = client.patch(
-        f"/api/v1/groups/{ctx['g1']}/members/{_uid("persistente")}",
+        persistente_url,
         headers=mgr,
         json={
             "admin_role_id": ctx["cat1"]["admin_role_id"],
@@ -473,7 +477,7 @@ def test_changes_persist_on_reload(ctx):
     listed = client.get(
         f"/api/v1/admin/groups/{ctx['g1']}/members", headers=admin
     ).json()
-    found = next(m for m in listed if m["user_sub"] == _uid("persistente"))
+    found = next(m for m in listed if m["user_sub"] == persistente_id)
     # El nombre procede de Auth, no de un registro local
     assert found["name"] == "Persistente"
     assert found["identity_verified"] is True
@@ -489,7 +493,7 @@ def test_changes_persist_on_reload(ctx):
         row = conn.execute(
             "SELECT role, status, admin_role_id, musical_role_id, section_id, display_name "
             "FROM group_members WHERE group_id = ? AND user_sub = ?",
-            (ctx["g1"], _uid("persistente")),
+            (ctx["g1"], persistente_id),
         ).fetchone()
         assert row["role"] == "member"
         assert row["status"] == "active"
@@ -497,13 +501,11 @@ def test_changes_persist_on_reload(ctx):
         assert row["display_name"] == "Persistente"
 
     # Baja y alta posterior
-    assert client.delete(
-        f"/api/v1/groups/{ctx['g1']}/members/{_uid("persistente")}", headers=mgr
-    ).status_code == 200
+    assert client.delete(persistente_url, headers=mgr).status_code == 200
     after = client.get(
         f"/api/v1/admin/groups/{ctx['g1']}/members", headers=admin
     ).json()
-    found = next(m for m in after if m["user_sub"] == _uid("persistente"))
+    found = next(m for m in after if m["user_sub"] == persistente_id)
     assert found["status"] == "removed"
 
     # El filtro por estado funciona
@@ -511,4 +513,4 @@ def test_changes_persist_on_reload(ctx):
         f"/api/v1/admin/groups/{ctx['g1']}/members?status=active", headers=admin
     ).json()
     assert all(m["status"] == "active" for m in only_active)
-    assert "persistente" not in {m["user_sub"] for m in only_active}
+    assert persistente_id not in {m["user_sub"] for m in only_active}
