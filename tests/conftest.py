@@ -86,6 +86,39 @@ def integration_settings():
     return _verify_integration_db()
 
 
+class _PermissiveIdentity:
+    """Doble por defecto del proveedor de identidad para la suite.
+
+    Los tests que no tratan la identidad sólo necesitan que los listados
+    resuelvan nombres; se resuelve cualquier identificador con un nombre
+    determinista. Los tests de identidad instalan su propio doble mediante
+    ``install_identity`` (que se aplica después y por tanto prevalece).
+    """
+
+    def __init__(self):
+        self.calls: list[list[str]] = []
+
+    def resolve_public_names(self, user_ids):
+        ids = list(user_ids)
+        self.calls.append(ids)
+        return {uid: f"Usuario {uid[:8]}" for uid in dict.fromkeys(ids) if uid}
+
+    def resolve_one(self, user_id: str):
+        self.calls.append([user_id])
+        return f"Usuario {user_id[:8]}" if user_id else None
+
+
+@pytest.fixture(autouse=True)
+def _default_identity_stub(monkeypatch):
+    """Doble de identidad por defecto: evita que la suite dependa de M2M real.
+
+    No sustituye a las pruebas del contrato M2M, que instalan su propio doble.
+    """
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "IdentityClient", lambda *a, **k: _PermissiveIdentity())
+
+
 @pytest.fixture
 def unit_db(integration_settings):
     """MariaDB aislado para tests rápidos: transacción + rollback automático.

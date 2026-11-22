@@ -1421,19 +1421,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Resuelve nombres públicos en lote mediante el contrato M2M.
 
         Devuelve un diccionario ``user_id -> name`` con lo que Auth reconozca.
-        Si Auth no está disponible o no responde un identificador, no se inventa
-        nombre: simplemente no aparece en el resultado.
+        Un identificador que Auth omite simplemente no aparece: no se inventa
+        nombre ni se usan datos locales como identidad verificada.
+
+        Si Auth no está disponible se responde 503 en lugar de degradar
+        silenciosamente a "nadie está verificado": no es lo mismo una identidad
+        que Auth no reconoce que un fallo del proveedor de identidad.
         """
         targets = [uid for uid in dict.fromkeys(user_subs) if uid]
         if not targets:
             return {}
         try:
             return _identity_client_of().resolve_public_names(targets)
-        except IdentityUnavailable:
-            # Sin Auth no hay nombres verificados. Se devuelve vacío y el
-            # llamador marca identity_verified=False en lugar de usar datos
-            # locales como si fueran identidad verificada.
-            return {}
+        except IdentityUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Identity service unavailable: {exc}",
+            ) from exc
+
+    def _verify_member_identity(user_sub: str) -> str:
+        """Verifica al DESTINATARIO de un alta en osap-auth y da su nombre canónico.
+
+        Se aplica a todos los flujos que reciben un identificador de destinatario
+        (alta de gestor y alta administrativa). Los flujos donde el propio
+        usuario autenticado se incorpora usan la identidad ya validada por
+        ``/auth/me`` y no pasan por aquí.
+
+        - Identidad no reconocida: ``400`` (no se inserta nada).
+        - Auth no disponible: ``503`` (no se inserta nada).
+        """
+        try:
+            canonical_name = _identity_client_of().resolve_one(user_sub)
+        except IdentityUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Identity service unavailable: {exc}",
+            ) from exc
+        if canonical_name is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Unknown user_id: osap-auth does not recognise this identity",
+            )
+        return canonical_name
 
     def profile_from_authorization(authorization: str | None) -> dict[str, Any]:
         if not authorization or not authorization.lower().startswith("bearer "):
@@ -2773,7 +2802,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body: MemberCreateBody,
         profile: dict[str, Any] = Depends(current_profile),
     ) -> dict[str, Any]:
-        """Manager adds/invites a member directly to the group."""
+        """Manager adds/invites a member directly to the group.
+
+        La identidad del destinatario se verifica en osap-auth antes de crear la
+        pertenencia: un ``user_sub`` que Auth no reconoce se rechaza y no
+        genera ninguna fila. El ``display_name`` que envíe el cliente no es
+        prueba de identidad; sólo se usa el nombre canónico devuelto por Auth.
+        """
         user_id = str(profile["user_id"])
         admin = _is_admin(profile)
         now = utcnow()
@@ -2809,6 +2844,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 musical_role_id=body.musical_role_id,
                 section_id=body.section_id,
             )
+            # Verificar la identidad del DESTINATARIO en osap-auth antes de
+            # cualquier escritura en group_members o activity_log.
+            canonical_name = _verify_member_identity(body.user_sub)
             # Create member
             member_id = uuid.uuid4().hex
             conn.execute(
@@ -2817,7 +2855,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     member_id, group_id, body.user_sub, body.role, "active",
-                    body.display_name or "", body.admin_role_id, body.musical_role_id,
+                    canonical_name, body.admin_role_id, body.musical_role_id,
                     body.section_id, user_id, now, now,
                 ),
             )
@@ -2826,7 +2864,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, from_status, to_status, detail_json, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
                 (_activity_legacy_id("mem", body.user_sub), group_id, "member_added", user_id, None, "active",
-                 f'{{"role":"{body.role}","admin_role_id":{body.admin_role_id or "null"},"musical_role_id":{body.musical_role_id or "null"},"section_id":{body.section_id or "null"}}}', now),
+                 json.dumps({
+                     "role": body.role,
+                     "identity_verified_by": "osap-auth",
+                     "admin_role_id": body.admin_role_id,
+                     "musical_role_id": body.musical_role_id,
+                     "section_id": body.section_id,
+                 }), now),
             )
             new_member = conn.execute(
                 "SELECT * FROM group_members WHERE id = ?", (member_id,)
@@ -3852,21 +3896,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         actor_id = str(profile["user_id"])
         now = utcnow()
 
-        # 1-2. Verificar la identidad del DESTINATARIO en osap-auth (no la del
-        # actor autenticado, que ya validó current_profile).
-        try:
-            canonical_name = _identity_client_of().resolve_one(body.user_sub)
-        except IdentityUnavailable as exc:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Identity service unavailable: {exc}",
-            ) from exc
-        if canonical_name is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Unknown user_id: osap-auth does not recognise this identity",
-            )
-
         with _connect(cfg) as conn:
             group = conn.execute("SELECT id, name FROM groups WHERE id = ?", (group_id,)).fetchone()
             if group is None:
@@ -3887,6 +3916,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 musical_role_id=body.musical_role_id,
                 section_id=body.section_id,
             )
+            # Verificar la identidad del DESTINATARIO (no la del actor) antes de
+            # cualquier escritura en group_members o activity_log.
+            canonical_name = _verify_member_identity(body.user_sub)
             member_id = uuid.uuid4().hex
             # display_name es una instantánea del nombre canónico de Auth, no una
             # fuente de verdad alternativa: se rellena desde Auth y nunca se usa

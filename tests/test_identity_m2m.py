@@ -348,22 +348,36 @@ def test_name_comes_from_auth_not_from_local_record(app_client):
 
 @pytest.mark.integration
 def test_unresolved_identity_is_not_invented(app_client):
-    """Si Auth no resuelve, no se inventa nombre ni se usa el local verificado."""
-    app_client.set_identity(RecordingIdentityClient({}))
-    app_client.client.post(
-        f"/api/v1/admin/groups/{app_client.group_id}/members",
-        headers=app_client.headers["mgr"],
-        json={"user_sub": "otro-miembro"},
-    ) if False else None
+    """Auth disponible pero sin ese id: name null y identity_verified false.
 
+    El gestor inicial (id-mgr) no está en el directorio de Auth, así que se
+    representa como identidad no resuelta, sin inventar nombre.
+    """
     listed = app_client.client.get(
         f"/api/v1/groups/{app_client.group_id}/members",
         headers=app_client.headers["mgr"],
-    ).json()
-    if listed:
-        item = listed[0]
-        assert item["name"] is None
-        assert item["identity_verified"] is False
+    )
+    assert listed.status_code == 200
+    item = next(m for m in listed.json() if m["user_sub"] == MGR)
+    assert item["name"] is None
+    assert item["identity_verified"] is False
+
+
+def test_unavailable_auth_returns_503_on_member_listing(app_client):
+    """Auth caído no se degrada a "nadie verificado": se responde 503."""
+    app_client.set_identity(RecordingIdentityClient({}, available=False))
+
+    ordinary = app_client.client.get(
+        f"/api/v1/groups/{app_client.group_id}/members",
+        headers=app_client.headers["mgr"],
+    )
+    assert ordinary.status_code == 503, ordinary.text
+
+    administrative = app_client.client.get(
+        f"/api/v1/admin/groups/{app_client.group_id}/members",
+        headers=app_client.headers["admin"],
+    )
+    assert administrative.status_code == 503, administrative.text
 
 
 # --------------------------------------------------------------------------

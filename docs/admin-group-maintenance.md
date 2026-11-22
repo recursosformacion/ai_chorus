@@ -84,11 +84,42 @@ Cualquier identificador que no pertenezca al grupo se rechaza con `400`:
 | `/api/v1/admin/groups/{group_id}` | GET | Detalle y recuentos de catálogo. |
 | `/api/v1/admin/groups/{group_id}/catalog` | GET | Cargos, roles musicales y secciones. |
 | `/api/v1/admin/groups/{group_id}/members` | GET | Membresías con estado (`active`/`removed`); filtro `?status=`. |
-| `/api/v1/admin/groups/{group_id}/members` | POST | Alta de miembro ordinario, verificando la identidad en Auth. |
+| `/api/v1/admin/groups/{group_id}/members` | POST | Alta de miembro ordinario (contrato administrativo). |
+| `/api/v1/groups/{group_id}/members` | POST | Alta histórica de gestor/admin. **También verifica identidad.** |
 
 **No existe** `GET /api/v1/admin/users` ni ningún directorio local de usuarios. Tampoco hay una ruta que agrupe `group_members` para simularlo: la única forma de incorporar a alguien es conocer su `user_id` canónico de `osap-auth`.
 
 El listado ordinario `GET /api/v1/groups/{group_id}/members` **no cambia** su contrato: sigue devolviendo sólo miembros activos. La vista administrativa es la que incluye altas, bajas y estados.
+
+### 3.3 Verificación de identidad en TODAS las altas de destinatario
+
+Ambos endpoints de alta (`/api/v1/admin/groups/{id}/members` y `/api/v1/groups/{id}/members`) ejecutan el mismo paso antes de escribir:
+
+```
+_verify_member_identity(body.user_sub)
+  → IdentityClient.resolve_one(user_sub)      # GET /auth/m2m/users?ids=<uuid>
+      - Auth no reconoce el id  → 400, sin insertar filas
+      - Auth no disponible      → 503, sin insertar filas
+      - Éxito                   → nombre canónico de Auth
+```
+
+- Se verifica la identidad del **destinatario**, no la del actor.
+- El `display_name` que envíe el cliente **nunca** se usa como prueba de identidad; la columna se rellena con el nombre canónico de Auth.
+- La verificación ocurre **antes** de cualquier escritura en `group_members` y en `activity_log`.
+- No se utiliza el token del gestor/administrador como sustituto del token M2M.
+
+### 3.4 Flujos de incorporación y uso de identidad
+
+| Flujo | Identidad del destinatario | Verificación |
+|-------|---------------------------|--------------|
+| Alta administrativa (`POST /admin/groups/{id}/members`) | `body.user_sub` | M2M obligatorio (§3.3). |
+| Alta histórica de gestor/admin (`POST /groups/{id}/members`) | `body.user_sub` | M2M obligatorio (§3.3). |
+| Creación de grupo (`POST /groups`) | El propio creador | Identidad ya validada por `/auth/me`. |
+| Unión por código (`POST /groups/join`) | El propio usuario | Identidad ya validada por `/auth/me`. |
+| Conversión de espacio personal (`/spaces/{id}/convert`) | El propio propietario | Identidad ya validada por `/auth/me`. |
+| Reactivación de membresía (`PATCH /groups/{id}/members/{sub}` con `status=active`) | Miembro ya existente | No introduce identidad nueva: el `user_sub` ya estaba verificado en el alta. |
+
+**No existe** ningún flujo de invitación que acepte un destinatario sin verificación.
 
 ## 5. Seguridad y autorización
 
@@ -167,10 +198,19 @@ El token de servicio se cachea en memoria hasta su caducidad (margen de 30 s). *
 
 `group_members` guarda `display_name` como **instantánea histórica** del nombre que Auth devolvió en el momento del alta o de la incorporación. No es una fuente de verdad:
 
-- Los listados exponen `name` **resuelto por Auth** en lote (una sola llamada) e `identity_verified`.
+- Los listados exponen `name` **resuelto por Auth** en lote (una sola llamada, nunca una por miembro) e `identity_verified`.
 - `display_name` se expone como `legacy_display_name` en la vista administrativa, marcado como no verificado.
-- Si Auth no resuelve una identidad, `name` es `null` e `identity_verified` es `false`: nunca se usa la cadena local como identidad verificada.
 - La columna se conserva por integridad histórica; no se ha eliminado.
+
+Se distinguen **tres** situaciones, sin degradación silenciosa:
+
+| Situación | Respuesta |
+|-----------|-----------|
+| Auth resuelve la identidad | `200`, `name` con el nombre canónico, `identity_verified: true`. |
+| Auth no devuelve ese identificador | `200`, `name: null`, `identity_verified: false`. No se inventa nombre. |
+| Auth no disponible o error de contrato | `503` en el listado. No se presentan todos los usuarios como no verificados. |
+
+El criterio es idéntico en el listado ordinario y en el administrativo.
 
 ## 8. Búsqueda de personas: carencia de contrato en osap-auth
 
@@ -208,6 +248,7 @@ Si una herramienta administrativa de OSAP necesita dar de alta, debe usar `POST 
 
 ## 10. Limitaciones conocidas
 
-- Sin credenciales M2M configuradas, el alta administrativa responde `503` y los listados no muestran nombres (`identity_verified: false`). Es una decisión de seguridad: no se aceptan identidades sin verificar.
+- Sin credenciales M2M configuradas, el alta administrativa e histórica responden `503` y los listados responden `503`: es una decisión de seguridad, no se aceptan identidades sin verificar.
 - `display_name` se mantiene como instantánea; el mantenimiento de grupo modifica cargo, rol musical, sección y estado.
 - La búsqueda por correo/nickname depende de un contrato nuevo en `osap-auth` (§8).
+- La reactivación de una membresía existente (`PATCH .../members/{sub}` con `status=active`) no reverifica la identidad: el `user_sub` ya se verificó en el alta original. Las membresías creadas antes de esta integración no se reverifican.
