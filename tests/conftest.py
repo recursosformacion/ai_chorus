@@ -192,24 +192,56 @@ def _purge_integration_tables(conn) -> None:
     conn.execute("SET FOREIGN_KEY_CHECKS = 1")
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _purge_tables_at_session_end():
-    """Limpieza final: la BD de pruebas no queda con residuos de la sesión."""
-    yield
-    if not os.getenv("CHORUS_DATABASE_URL"):
-        return
-    settings = Settings.load()
+def _purge_tables_safely(settings) -> None:
+    """Ejecuta la purga final sobre la BD de pruebas.
+
+    Garantías:
+
+    - Sin MariaDB utilizable (``DatabaseUnavailableError`` /
+      ``UnsafeTestDatabaseError``): no hay BD que limpiar, se retorna sin más.
+      La protección ``dbguard`` no se altera.
+    - Si la purga falla: se intenta ``ROLLBACK``, se **cierra siempre** la
+      conexión y se lanza ``pytest.fail`` con el error original. El fallo es
+      visible en el informe de sesión en lugar de quedar silenciado.
+    """
     try:
         conn = assert_safe_test_connection(settings)
     except (DatabaseUnavailableError, UnsafeTestDatabaseError):
         return
+
+    error: Exception | None = None
     try:
         _purge_integration_tables(conn)
         conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        error = exc
+        try:
+            conn.rollback()
+        except Exception:
+            # El fallo original es el que se reporta; el rollback es best-effort.
+            pass
     finally:
         conn.close()
+
+    if error is not None:
+        pytest.fail(
+            "La purga final de la BD de pruebas no pudo completarse: "
+            f"{type(error).__name__}: {error}",
+            pytrace=False,
+        )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _purge_tables_at_session_end():
+    """Limpieza final: la BD de pruebas no queda con residuos de la sesión.
+
+    Si la purga no puede completarse, la sesión termina con un error visible.
+    """
+    yield
+    if not os.getenv("CHORUS_DATABASE_URL"):
+        # Sin MariaDB de pruebas no hay residuos que limpiar.
+        return
+    _purge_tables_safely(Settings.load())
 
 
 @pytest.fixture(autouse=True)
