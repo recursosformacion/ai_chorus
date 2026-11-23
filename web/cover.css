@@ -622,3 +622,13 @@
   .profile-fields { grid-template-columns: 1fr; }
   .profile-form { padding: 14px 16px 18px; }
 }
+
+.profile-modal-avatar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e8e5dc;
+}
+.profile-modal-avatar .avatar-editor-preview { flex: 0 0 64px; width: 64px; height: 64px; }
+.profile-modal-avatar p { margin: 3px 0 8px; }
