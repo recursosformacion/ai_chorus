@@ -3005,6 +3005,9 @@ async function saveGroupData(event) {
     }
     prepWorkFiles = [];
     $("prep-work-form").reset();
+    $("prep-work-title").textContent = activeProjectSpace
+      ? "Añadir obra al proyecto"
+      : "Añadir obra al ensayo";
     $("prep-work-files-list").replaceChildren();
     $("prep-work-event-wrap").classList.add("hidden");
     $("prep-work-date-wrap").classList.add("hidden");
