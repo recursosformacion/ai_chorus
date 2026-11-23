@@ -1357,12 +1357,12 @@ async function openGroupAdmin(item) {
       row.className = "ga-member";
       const name = document.createElement("strong");
       name.textContent = member.name || member.user_sub;
-      const displayName = document.createElement("input");
-      displayName.type = "text";
-      displayName.maxLength = 255;
-      displayName.placeholder = "Nombre visible en el grupo";
-      displayName.value = member.display_name || "";
-      displayName.setAttribute("aria-label", "Nombre visible en el grupo");
+      const voiceLabel = document.createElement("input");
+      voiceLabel.type = "text";
+      voiceLabel.maxLength = 64;
+      voiceLabel.placeholder = "Voz / instrumento";
+      voiceLabel.value = member.voice_label || "";
+      voiceLabel.setAttribute("aria-label", "Voz o instrumento del miembro");
       const role = document.createElement("select");
       role.append(new Option("Miembro", "member", false, member.role === "member"));
       role.append(new Option("Gestor", "manager", false, member.role === "manager"));
@@ -1384,7 +1384,7 @@ async function openGroupAdmin(item) {
               method: "PATCH",
               body: JSON.stringify({
                 role: role.value,
-                display_name: displayName.value.trim(),
+                voice_label: voiceLabel.value.trim(),
                 admin_role_id: admin.value || null,
                 musical_role_id: musical.value || null,
                 section_id: section.value || null,
@@ -1413,7 +1413,7 @@ async function openGroupAdmin(item) {
           showMessage("ga-message", error.message, "error");
         }
       });
-      row.append(name, displayName, role, admin, musical, section, save, remove);
+      row.append(name, voiceLabel, role, admin, musical, section, save, remove);
       container.append(row);
     });
   }
