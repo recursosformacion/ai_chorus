@@ -273,8 +273,7 @@ def test_group_roles_scope_validation(integration_settings: Settings, monkeypatc
         # Join a member
         mem_h = {"Authorization": "Bearer token-member"}
         profiles["token-member"] = _profile("mem-1")
-        settings = replace(integration_settings, auth_base_url="https://auth.test")
-    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
+        install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
         assert client.post("/api/v1/groups/join", headers=mem_h, json={"code": grp["join_code"]}).status_code == 200
 
         # Assign admin role with musical scope -> should fail
