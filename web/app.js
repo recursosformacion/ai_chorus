@@ -71,6 +71,9 @@
   let lastResults = [];
   let profileAvatarUrl = null;
   let profileAvatarInitials = "M";
+  let currentProfile = null;
+  let spacesState = [];
+  let activeProjectSpace = null;
 
   function showMessage(id, message, kind = "") {
     const el = $(id);
@@ -138,6 +141,7 @@
     el.style.backgroundImage = url ? `url("${url}")` : "";
   }
   function showWorkspace(profileLabel, profile) {
+    currentProfile = profile || currentProfile || {};
     $("login-view").classList.add("hidden");
     $("workspace-view").classList.remove("hidden");
     $("logout-button").classList.remove("hidden");
@@ -163,6 +167,7 @@
     if ($("profile-avatar-preview")) paintAvatar($("profile-avatar-preview"), initials, profileAvatarUrl);
     refreshLibrary().catch(()=>{});
     loadAgenda().catch(()=>{});
+    loadSpaces().catch((error) => showMessage("project-message", error.message, "error"));
   }
   function showLogin() {
     $("workspace-view").classList.add("hidden");
@@ -170,6 +175,8 @@
     $("logout-button").classList.add("hidden");
     $("app-nav").classList.add("hidden");
     $("account-label").textContent = "";
+    currentProfile = null;
+    activeProjectSpace = null;
   }
   async function refreshLibrary(query) {
     const path = query
@@ -193,6 +200,7 @@
     button.classList.toggle("hidden", !group);
     $("articles-button")?.classList.toggle("hidden", !group);
     if (group) button.textContent = group.name;
+    if (group) activeProjectSpace = null;
   }
 
   function openGroupPicker() {
@@ -305,6 +313,73 @@
     await loadMessages();
   }
 
+  async function loadSpaces() {
+    spacesState = await request("/api/v1/spaces");
+    renderProjects();
+  }
+
+  function renderProjects() {
+    const list = $("projects-list");
+    const empty = $("projects-empty");
+    if (!list || !empty) return;
+    list.replaceChildren();
+    const projects = (spacesState || []).filter((space) => space.space_type === "project");
+    empty.classList.toggle("hidden", projects.length > 0);
+    projects.forEach((space) => {
+      const row = document.createElement("div");
+      row.className = "project-row" + (activeProjectSpace?.id === space.id ? " active" : "");
+      const details = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = space.name;
+      const description = document.createElement("small");
+      description.textContent = space.description || "Proyecto privado";
+      details.append(title, description);
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "button button-outline button-small";
+      open.textContent = activeProjectSpace?.id === space.id ? "Proyecto abierto" : "Trabajar";
+      open.addEventListener("click", () => {
+        activeProjectSpace = space;
+        $("dashboard-repertorio").querySelector("h2").textContent = space.name;
+        renderProjects();
+        void loadPreparationWorks();
+        $("dashboard-repertorio").scrollIntoView({behavior: "smooth", block: "start"});
+      });
+      row.append(details, open);
+      list.append(row);
+    });
+  }
+
+  async function createPersonalProject(event) {
+    event.preventDefault();
+    const name = $("project-name").value.trim();
+    if (!name) return;
+    const button = $("project-form").querySelector('button[type="submit"]');
+    setBusy(button, true, "Creando…");
+    try {
+      const space = await request("/api/v1/spaces", {
+        method: "POST",
+        body: JSON.stringify({
+          space_type: "project",
+          name,
+          description: $("project-description").value.trim() || null,
+        }),
+      });
+      $("project-form").reset();
+      $("project-form").classList.add("hidden");
+      await loadSpaces();
+      activeProjectSpace = space;
+      $("dashboard-repertorio").querySelector("h2").textContent = space.name;
+      renderProjects();
+      await loadPreparationWorks();
+      showMessage("project-message", "Proyecto creado. Ya puedes añadir obras y programas.", "success");
+    } catch (error) {
+      showMessage("project-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  }
+
   function renderGroupCard() {
     const groups = agendaState.groups || [];
     const content = $("dash-group-content");
@@ -359,7 +434,7 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "button button-outline button-small";
-        button.textContent = item.can_manage ? "Gestionar" : "Abrir";
+        button.textContent = item.can_manage ? "Administrar grupo y miembros" : "Abrir";
         button.addEventListener("click", () => {
           if (item.can_manage) {
             void openGroupAdmin(item);
@@ -1258,6 +1333,7 @@ async function openGroupAdmin(item) {
     $("ga-repertoire").value = Array.isArray(item.repertoire) ? item.repertoire.map(r => `${r.value || ""}|${r.position || ""}`).join("\n") : "";
     $("ga-venues").value = Array.isArray(item.venues) ? item.venues.map(v => `${v.value || ""}|${v.position || ""}`).join("\n") : "";
     try {
+      showMessage("ga-message", "", "");
       const [catalog, members] = await Promise.all([
         request(`/api/v1/groups/${encodeURIComponent(item.id)}/catalog`).catch(() => ({
           admin: [], musical: [], section: [],
@@ -1281,6 +1357,12 @@ async function openGroupAdmin(item) {
       row.className = "ga-member";
       const name = document.createElement("strong");
       name.textContent = member.name || member.user_sub;
+      const displayName = document.createElement("input");
+      displayName.type = "text";
+      displayName.maxLength = 255;
+      displayName.placeholder = "Nombre visible en el grupo";
+      displayName.value = member.display_name || "";
+      displayName.setAttribute("aria-label", "Nombre visible en el grupo");
       const role = document.createElement("select");
       role.append(new Option("Miembro", "member", false, member.role === "member"));
       role.append(new Option("Gestor", "manager", false, member.role === "manager"));
@@ -1302,6 +1384,7 @@ async function openGroupAdmin(item) {
               method: "PATCH",
               body: JSON.stringify({
                 role: role.value,
+                display_name: displayName.value.trim(),
                 admin_role_id: admin.value || null,
                 musical_role_id: musical.value || null,
                 section_id: section.value || null,
@@ -1330,7 +1413,7 @@ async function openGroupAdmin(item) {
           showMessage("ga-message", error.message, "error");
         }
       });
-      row.append(name, role, admin, musical, section, save, remove);
+      row.append(name, displayName, role, admin, musical, section, save, remove);
       container.append(row);
     });
   }
@@ -2649,6 +2732,54 @@ async function saveGroupData(event) {
   $("inbox-reply-sender").addEventListener("click",()=>{void sendInboxReply({preventDefault(){}}, false);});
   $("ga-close").addEventListener("click",()=>{$("group-admin-modal").classList.add("hidden");});
   $("ga-edit-form").addEventListener("submit",(event)=>{void saveGroupData(event);});
+  $("account-label").addEventListener("click", () => {
+    if (!currentProfile) return;
+    $("profile-name").value = currentProfile.name || "";
+    $("profile-nickname").value = currentProfile.nickname || "";
+    showMessage("profile-message", "", "");
+    $("profile-modal").classList.remove("hidden");
+  });
+  const closeProfile = () => $("profile-modal").classList.add("hidden");
+  $("profile-close").addEventListener("click", closeProfile);
+  $("profile-cancel").addEventListener("click", closeProfile);
+  $("profile-modal").addEventListener("click", (event) => {
+    if (event.target === $("profile-modal")) closeProfile();
+  });
+  $("profile-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = $("profile-name").value.trim();
+    const nickname = $("profile-nickname").value.trim() || null;
+    if (!name) {
+      showMessage("profile-message", "El nombre es obligatorio.", "error");
+      return;
+    }
+    const button = $("profile-save");
+    setBusy(button, true, "Guardando…");
+    try {
+      const updated = await request("/api/v1/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify({name, nickname}),
+      });
+      currentProfile = {...currentProfile, ...(updated || {}), name, nickname};
+      const display = nickname || name || currentProfile.email || "Usuario";
+      const initials = display.split(/\\s+/).filter(Boolean);
+      profileAvatarInitials = initials.length > 1
+        ? (initials[0][0] + initials[initials.length - 1][0]).toUpperCase()
+        : display.slice(0, 2).toUpperCase();
+      const avatar = document.createElement("span");
+      avatar.className = "account-avatar";
+      paintAvatar(avatar, profileAvatarInitials, profileAvatarUrl);
+      $("account-label").replaceChildren(avatar, document.createTextNode(display));
+      $("dash-name").textContent = display;
+      paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
+      showMessage("profile-message", "Perfil actualizado.", "success");
+      setTimeout(() => closeProfile(), 700);
+    } catch (error) {
+      showMessage("profile-message", error.message, "error");
+    } finally {
+      setBusy(button, false);
+    }
+  });
 
   $("msg-new").addEventListener("click",()=>{
     $("msg-form").classList.toggle("hidden");
@@ -2690,13 +2821,23 @@ async function saveGroupData(event) {
   $("material-import-toggle").addEventListener("click",()=>{$("material-form").classList.toggle("hidden");});
   $("material-form").addEventListener("submit",(event)=>{void importMaterial(event);});
   $("material-group").addEventListener("change",()=>{void loadMaterialSections();});
-  $("repertoire-add").addEventListener("click",()=>{
-    document.getElementById("library-section").scrollIntoView({behavior:"smooth"});
-    $("material-form").classList.remove("hidden");
-    $("material-files").focus();
-  });
   $("open-agenda").addEventListener("click", openAgendaModal);
-  $("agenda-close").addEventListener("click",()=>{$("agenda-modal").classList.add("hidden");});
+  $("agenda-close").addEventListener("click",()=>{
+    closeEventForm();
+    $("agenda-modal").classList.add("hidden");
+  });
+  $("agenda-modal").addEventListener("click", (event) => {
+    if (event.target === $("agenda-modal")) {
+      closeEventForm();
+      $("agenda-modal").classList.add("hidden");
+    }
+  });
+  $("project-create").addEventListener("click", () => {
+    $("project-form").classList.remove("hidden");
+    $("project-name").focus();
+  });
+  $("project-cancel").addEventListener("click", () => $("project-form").classList.add("hidden"));
+  $("project-form").addEventListener("submit", (event) => { void createPersonalProject(event); });
   $("prep-work-close").addEventListener("click", closePrepWorkModal);
   $("prep-work-cancel").addEventListener("click", closePrepWorkModal);
   $("prep-work-modal").addEventListener("click", (event) => { if (event.target === $("prep-work-modal")) closePrepWorkModal(); });
@@ -2835,13 +2976,20 @@ async function saveGroupData(event) {
 
   function openPrepWorkModal() {
     const group = activeGroup();
-    if (!group) {
-      openGroupPicker();
-      return;
-    }
-    if (!group.can_manage) {
-      showMessage("dash-event-message", "Solo el gestor o el director musical pueden añadir obras.", "error");
-      return;
+    if (activeProjectSpace) {
+      if (activeProjectSpace.owner_sub !== (currentProfile && currentProfile.user_id)) {
+        showMessage("dash-event-message", "Sólo el propietario puede añadir obras a este proyecto privado.", "error");
+        return;
+      }
+    } else {
+      if (!group) {
+        openGroupPicker();
+        return;
+      }
+      if (!(group.can_manage_preparation || group.can_manage)) {
+        showMessage("dash-event-message", "Sólo el gestor o el director musical pueden añadir obras al grupo.", "error");
+        return;
+      }
     }
     prepWorkFiles = [];
     $("prep-work-form").reset();
@@ -2941,7 +3089,10 @@ async function saveGroupData(event) {
     setBusy(btn, true, "Guardando…");
     
     try {
-      const work = await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works`, {
+      const workPath = activeProjectSpace
+        ? `/api/v1/spaces/${encodeURIComponent(activeProjectSpace.id)}/preparation-works`
+        : `/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works`;
+      const work = await request(workPath, {
         method: "POST",
         body: JSON.stringify({
           title,
@@ -2952,12 +3103,15 @@ async function saveGroupData(event) {
           notes,
         }),
       });
-      
+
       if (prepWorkFiles.length > 0) {
         const form = new FormData();
         prepWorkFiles.forEach((f) => form.append("files", f.file));
         form.append("parts", JSON.stringify(filesMetadata));
-        await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works/${encodeURIComponent(work.id)}/files`, {
+        const uploadPath = activeProjectSpace
+          ? `/api/v1/spaces/${encodeURIComponent(activeProjectSpace.id)}/preparation-works/${encodeURIComponent(work.id)}/uploads`
+          : `/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works/${encodeURIComponent(work.id)}/files`;
+        await request(uploadPath, {
           method: "POST",
           body: form,
         });
@@ -2975,9 +3129,12 @@ async function saveGroupData(event) {
 
   async function loadPreparationWorks() {
     const group = activeGroup();
-    if (!group) return;
+    if (!activeProjectSpace && !group) return;
     try {
-      const works = await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works`);
+      const path = activeProjectSpace
+        ? `/api/v1/spaces/${encodeURIComponent(activeProjectSpace.id)}/preparation-works`
+        : `/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works`;
+      const works = await request(path);
       renderPreparationWorks(works);
     } catch (error) {
       showMessage("dash-event-message", error.message, "error");
@@ -2988,6 +3145,10 @@ async function saveGroupData(event) {
     const container = $("#dashboard-repertorio");
     if (!container) return;
     const emptyState = container.querySelector(".empty-state");
+    const group = activeGroup();
+    const canManagePreparation = activeProjectSpace
+      ? activeProjectSpace.owner_sub === (currentProfile && currentProfile.user_id)
+      : Boolean(group && (group.can_manage_preparation || group.can_manage));
     let list = container.querySelector(".preparation-works-list");
     if (!list) {
       list = document.createElement("div");
@@ -3022,7 +3183,7 @@ async function saveGroupData(event) {
         ${work.notes ? `<p class="prep-work-notes">${work.notes}</p>` : ""}
         <div class="prep-work-actions">
           <button class="button button-outline button-small prep-work-view" data-work-id="${work.id}">Ver materiales</button>
-          ${group.can_manage ? `<button class="button button-primary button-small prep-work-edit" data-work-id="${work.id}">Editar</button>` : ""}
+          ${canManagePreparation ? `<button class="button button-primary button-small prep-work-edit" data-work-id="${work.id}">Editar</button>` : ""}
         </div>
       `;
       list.append(card);
@@ -3038,9 +3199,12 @@ async function saveGroupData(event) {
 
   async function openPrepWorkDetail(workId) {
     const group = activeGroup();
-    if (!group) return;
+    if (!activeProjectSpace && !group) return;
     try {
-      const files = await request(`/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works/${encodeURIComponent(workId)}/files`);
+      const path = activeProjectSpace
+        ? `/api/v1/spaces/${encodeURIComponent(activeProjectSpace.id)}/preparation-works/${encodeURIComponent(workId)}/files`
+        : `/api/v1/groups/${encodeURIComponent(group.id)}/preparation-works/${encodeURIComponent(workId)}/files`;
+      const files = await request(path);
       alert("Materiales: " + JSON.stringify(files, null, 2));
     } catch (error) {
       showMessage("dash-event-message", error.message, "error");

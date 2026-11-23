@@ -626,3 +626,61 @@ def test_migration_040_aborts_when_rows_cannot_be_migrated(integration_settings:
         conn.execute("DELETE FROM spaces WHERE id = ?", ("space-orphan-test",))
         conn.execute("ALTER TABLE preparation_works MODIFY COLUMN space_id VARCHAR(191) NOT NULL")
         conn.commit()
+
+# --------------------------------------------------------------------------
+# Proyectos personales independientes (sin crear un grupo)
+# --------------------------------------------------------------------------
+@pytest.mark.integration
+def test_user_can_create_multiple_private_projects(integration_settings: Settings, monkeypatch):
+    """Un particular puede mantener varios proyectos privados y aislados."""
+    profiles = {
+        "token-owner": _profile("project-owner"),
+        "token-other": _profile("project-other"),
+    }
+    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+
+    with TestClient(create_app(integration_settings)) as client:
+        own = {"Authorization": "Bearer token-owner"}
+        other = {"Authorization": "Bearer token-other"}
+
+        created = []
+        for name in ("Misa de Navidad", "Cuarteto de cuerda", "Estudio personal"):
+            response = client.post(
+                "/api/v1/spaces",
+                headers=own,
+                json={"space_type": "project", "name": name},
+            )
+            assert response.status_code == 201, response.text
+            project = response.json()
+            assert project["space_type"] == "project"
+            assert project["owner_sub"] == "project-owner"
+            assert project["group_id"] is None
+            created.append(project)
+
+        listed = client.get("/api/v1/spaces", headers=own)
+        assert listed.status_code == 200
+        listed_ids = {space["id"] for space in listed.json()}
+        assert {space["id"] for space in created} <= listed_ids
+
+        # Cada proyecto admite su propio trabajo de preparación.
+        response = client.post(
+            f"/api/v1/spaces/{created[0]['id']}/preparation-works",
+            headers=own,
+            json={"title": "Programa de Navidad", "destination_type": "program"},
+        )
+        assert response.status_code == 201, response.text
+
+        # Otro usuario no puede descubrir ni abrir los proyectos privados.
+        other_spaces = client.get("/api/v1/spaces", headers=other)
+        assert other_spaces.status_code == 200
+        assert not ({space["id"] for space in created} & {
+            space["id"] for space in other_spaces.json()
+        })
+        assert client.get(
+            f"/api/v1/spaces/{created[0]['id']}", headers=other
+        ).status_code == 403
+        assert client.post(
+            f"/api/v1/spaces/{created[0]['id']}/preparation-works",
+            headers=other,
+            json={"title": "No autorizado"},
+        ).status_code == 403

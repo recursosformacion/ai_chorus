@@ -219,6 +219,7 @@ class RsvpBody(BaseModel):
 
 class MemberUpdateBody(BaseModel):
     role: Literal["manager", "member"] | None = None
+    display_name: str | None = Field(default=None, max_length=255)
     admin_role_id: str | None = None
     musical_role_id: str | None = None
     section_id: str | None = None
@@ -598,7 +599,9 @@ def _can_manage_space(conn, space_id: str, user_id: str, profile: dict[str, Any]
     space = _get_space(conn, space_id)
     if space is None:
         return False
-    if space["space_type"] == "personal":
+    if space["space_type"] == "personal" or (
+        space["space_type"] == "project" and not space["group_id"]
+    ):
         return space["owner_sub"] == user_id
     if not space["group_id"]:
         return False
@@ -639,7 +642,9 @@ def _can_view_space(conn, space_id: str, user_id: str, profile: dict[str, Any]) 
     space = _get_space(conn, space_id)
     if space is None:
         return False
-    if space["space_type"] == "personal":
+    if space["space_type"] == "personal" or (
+        space["space_type"] == "project" and not space["group_id"]
+    ):
         return space["owner_sub"] == user_id
     if not space["group_id"]:
         return False
@@ -868,7 +873,12 @@ def _can_manage_event(conn, event, user_id: str, profile: dict[str, Any]) -> boo
         return member is not None and member["role"] == "manager"
     return False
 
-def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
+def _group_dto(
+    row: sqlite3.Row,
+    role: str,
+    can_manage: bool,
+    can_manage_preparation: bool | None = None,
+) -> dict[str, Any]:
     def _parse_json(value: str | None):
         if value is None:
             return None
@@ -885,6 +895,9 @@ def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
         "join_code": row["join_code"],
         "role": role,
         "can_manage": can_manage,
+        "can_manage_preparation": (
+            can_manage if can_manage_preparation is None else can_manage_preparation
+        ),
         "foundation_date": row["foundation_date"],
         "dissolution_date": row["dissolution_date"],
         "locality": row["locality"],
@@ -2251,7 +2264,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin = _is_admin(profile)
         with _connect(cfg) as conn:
             group_rows = conn.execute(
-                "SELECT g.*, gm.role FROM group_members gm "
+                "SELECT g.*, gm.role, gm.musical_role_id FROM group_members gm "
                 "JOIN groups g ON g.id = gm.group_id "
                 "WHERE gm.user_sub = ? AND gm.status = 'active' ORDER BY g.name",
                 (user_id,),
@@ -2305,6 +2318,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     row,
                     row["role"],
                     admin or row["role"] == "manager",
+                    admin or row["role"] == "manager" or _has_musical_director_role(
+                        conn, row["id"], row["musical_role_id"]
+                    ),
                 )
                 for row in group_rows
             ],
@@ -2571,13 +2587,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             # Capture before values for activity log
             before_role = target["role"]
+            before_display_name = target["display_name"]
             before_admin_role = target["admin_role_id"]
             before_musical_role = target["musical_role_id"]
             before_section = target["section_id"]
             before_status = target["status"]
             updates = []
             values: list[Any] = []
-            for column in ("role", "admin_role_id", "musical_role_id", "section_id", "status"):
+            for column in ("role", "display_name", "admin_role_id", "musical_role_id", "section_id", "status"):
                 value = getattr(body, column)
                 if value is not None:
                     updates.append(f"{column}=?")
@@ -2595,6 +2612,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             detail = {}
             if body.role is not None and body.role != before_role:
                 detail["role"] = {"from": before_role, "to": body.role}
+            if body.display_name is not None and body.display_name != before_display_name:
+                detail["display_name"] = {"from": before_display_name, "to": body.display_name}
             if body.admin_role_id != before_admin_role:
                 detail["admin_role"] = {"from": before_admin_role, "to": body.admin_role_id}
             if body.musical_role_id != before_musical_role:
@@ -5447,7 +5466,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 rows = conn.execute(
                     """
                     SELECT s.* FROM spaces s
-                    WHERE (s.space_type = 'personal' AND s.owner_sub = ?)
+                    WHERE (
+                            s.space_type = 'personal'
+                            OR (s.space_type = 'project' AND s.group_id IS NULL)
+                          ) AND s.owner_sub = ?
                        OR (s.space_type IN ('group','project')
                            AND s.group_id IS NOT NULL
                            AND EXISTS (
@@ -5478,11 +5500,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=400,
                     detail="Personal spaces cannot have a group_id"
                 )
-            if body.space_type in ("group", "project") and not body.group_id:
+            if body.space_type == "group" and not body.group_id:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"{body.space_type} spaces must have a group_id"
+                    detail="Group spaces must have a group_id"
                 )
+            # Un proyecto puede ser privado (sin group_id) o compartido
+            # dentro de un grupo. En el primer caso pertenece al usuario.
             # Validate group_id if provided
             if body.group_id:
                 group = conn.execute(
@@ -5499,9 +5523,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             status_code=403,
                             detail="Only group managers can create spaces for this group"
                         )
-            # owner_sub representa propietario PERSONAL: sólo aplica a espacios
-            # personales. Un espacio de grupo/proyecto no pertenece a un usuario.
-            owner_sub = user_id if body.space_type == "personal" else None
+            # Los proyectos independientes pertenecen a su creador; los
+            # espacios colectivos pertenecen a la membresía del grupo.
+            owner_sub = (
+                user_id
+                if body.space_type == "personal"
+                or (body.space_type == "project" and not body.group_id)
+                else None
+            )
             conn.execute(
                 "INSERT INTO spaces "
                 "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
@@ -6244,6 +6273,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "work_id": work_id,
             "space_id": space["id"],
+            "folder_path": work["folder_path"],
+            "files": uploaded,
+        }
+
+
+    @app.post("/api/v1/spaces/{space_id}/preparation-works/{work_id}/uploads", status_code=201)
+    async def upload_space_preparation_files(
+        space_id: str,
+        work_id: str,
+        files: list[UploadFile] = File(...),
+        parts: str = Form(default="[]"),
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Sube archivos a cualquier espacio autorizado, incluido un proyecto privado."""
+        import json as json_std
+        user_id = str(profile["user_id"])
+        try:
+            parts_list = json_std.loads(parts)
+        except json_std.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="parts must be valid JSON array")
+        if not isinstance(parts_list, list):
+            raise HTTPException(status_code=400, detail="parts must be an array")
+        if parts_list and len(parts_list) != len(files):
+            raise HTTPException(status_code=400, detail="parts array length must match files count")
+
+        with _connect(cfg) as conn:
+            space = _require_space(conn, space_id)
+            if not _can_manage_space_preparation(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = _require_prep_work(conn, space_id, work_id)
+            uploaded: list[dict[str, Any]] = []
+            for i, upload in enumerate(files):
+                relative = str(upload.filename or "archivo").replace("\\", "/")
+                original = relative.split("/")[-1]
+                data = await upload.read()
+                if len(data) > cfg.max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413, detail=f"{original}: exceeds max upload size"
+                    )
+                part_info = parts_list[i] if i < len(parts_list) else {}
+                purpose = part_info.get("purpose") or "other"
+                if purpose not in ("score", "part", "audio", "video", "other"):
+                    purpose = "other"
+                uploaded.append(_register_prep_file(
+                    conn, space, work, user_id,
+                    data=data,
+                    original_name=original,
+                    mime_type=upload.content_type or "",
+                    purpose=purpose,
+                    sort_order=i,
+                    part_label=part_info.get("part_label"),
+                ))
+        return {
+            "work_id": work_id,
+            "space_id": space_id,
             "folder_path": work["folder_path"],
             "files": uploaded,
         }

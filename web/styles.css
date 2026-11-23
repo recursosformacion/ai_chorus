@@ -10,3 +10,7 @@
 .library-info{display:flex;flex-direction:column;gap:2px;min-width:0}.library-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.library-select{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;font-size:14px;background:#fff;max-width:170px}
 .modal{position:fixed;inset:0;background:rgba(20,30,25,.55);display:grid;place-items:center;padding:20px;z-index:50}.modal.hidden{display:none}.modal-card{background:#fff;border-radius:14px;padding:22px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25)}.modal-card h2{margin:4px 0 8px}.modal-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 
+
+.account-label{border:0;background:transparent;display:flex;align-items:center;gap:8px;padding:4px 0;font:inherit;font-size:15px;color:var(--muted);cursor:pointer}
+.account-label:hover{color:var(--green)}
+.account-label:focus-visible{outline:2px solid var(--green);outline-offset:4px;border-radius:6px}

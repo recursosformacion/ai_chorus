@@ -412,3 +412,24 @@
 .article-media-list a{color:#45685a;text-decoration:underline;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .articles-editor .event-actions{position:sticky;bottom:0;background:#fffdf8;padding-top:8px}
 @media(max-width:760px){.articles-layout{grid-template-columns:1fr;grid-template-rows:190px minmax(0,1fr)}.articles-list{border-right:0;border-bottom:1px solid #ece5d8}.articles-panel{width:100vw;height:100dvh;max-height:100dvh;border-radius:0}}
+
+
+/* Agenda: el formulario de evento vive dentro de la misma ventana emergente. */
+.agenda-calendar-panel{position:relative}
+.agenda-calendar-panel .event-modal{position:absolute;inset:0;z-index:5;display:flex;align-items:stretch;justify-content:stretch;padding:12px;background:rgba(24,33,30,.18);backdrop-filter:blur(2px)}
+.agenda-calendar-panel .event-modal.hidden{display:none}
+.agenda-calendar-panel .event-panel{width:100%;height:100%;max-width:none;max-height:none;border-radius:12px}
+
+/* Proyectos personales y mantenimiento de miembros. */
+.projects-list{display:grid;gap:8px;margin:12px 0}
+.project-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.project-row.active{border-color:#8ca99a;background:#f4f8f4}
+.project-row>div{display:grid;gap:3px;min-width:0}
+.project-row strong{font-size:13px}
+.project-row small{font-size:11px;color:var(--muted)}
+.project-row .button{flex-shrink:0}
+.ga-member{grid-template-columns:minmax(110px,1.2fr) minmax(130px,1.2fr) repeat(4,minmax(90px,1fr)) auto auto}
+.ga-member input{min-width:0;width:100%;font:inherit;font-size:12px;padding:6px;border:1px solid #d9d2c3;border-radius:7px}
+.profile-modal-panel{width:min(520px,94vw);height:auto;max-height:90vh}
+.profile-form{padding:20px 24px}
+@media(max-width:760px){.ga-member{grid-template-columns:1fr 1fr}.project-row{align-items:flex-start;flex-direction:column}}
