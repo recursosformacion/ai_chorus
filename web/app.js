@@ -88,8 +88,10 @@
 
   function showMessage(id, message, kind = "") {
     const el = $(id);
+    if (!el) return false;
     el.textContent = message || "";
     el.className = "message" + (kind ? " " + kind : "");
+    return true;
   }
   function setBusy(button, busy, label) {
     if (!button.dataset.label) button.dataset.label = button.textContent;
@@ -391,13 +393,25 @@
       open.type = "button";
       open.className = "button button-outline button-small";
       open.textContent = activeProjectSpace?.id === space.id ? "Proyecto abierto" : "Trabajar";
-      open.addEventListener("click", () => {
+      const activate = () => {
+        const changed = !activeProjectSpace || activeProjectSpace.id !== space.id;
         activeProjectSpace = space;
         writeUiState("chorus.activeProjectSpaceId", space.id);
-        $("dashboard-repertorio").querySelector("h2").textContent = space.name;
+        const heading = $("dashboard-repertorio") && $("dashboard-repertorio").querySelector("h2");
+        if (heading) heading.textContent = space.name;
         renderProjects();
         void loadPreparationWorks();
-        $("dashboard-repertorio").scrollIntoView({behavior: "smooth", block: "start"});
+        const panel = $("dashboard-repertorio");
+        if (panel) panel.scrollIntoView({behavior: "smooth", block: "start"});
+        if (!changed) {
+          // Ya estaba abierto: se devuelve una senal visible en vez de nada.
+          showMessage("dash-event-message", `Proyecto «${space.name}» abierto.`, "success");
+        }
+      };
+      open.addEventListener("click", activate);
+      row.addEventListener("click", (ev) => {
+        if (ev.target.closest("button")) return;
+        activate();
       });
       row.append(details, open);
       list.append(row);
@@ -3364,25 +3378,30 @@ async function saveGroupData(event) {
     let group = activeGroup();
     if (!group && !activeProjectSpace && agendaLoaded) activateDefaultPersonalProject();
     group = activeGroup();
-    if (activeProjectSpace) {
-      if (activeProjectSpace.owner_sub !== (currentProfile && currentProfile.user_id)) {
-        showMessage("dash-event-message", "Sólo el propietario puede añadir obras a este proyecto privado.", "error");
-        return;
+
+    if (!activeProjectSpace && !group) {
+      // Sin espacio ni grupo no hay donde crear la obra: se explica y se ofrece
+      // el alta de proyecto, en lugar de no hacer nada.
+      if ((agendaState.groups || []).length) {
+        openGroupPicker();
+      } else {
+        const shown = showMessage(
+          "project-message",
+          "Para añadir una obra sin grupo, crea primero un proyecto privado en «Mis proyectos».",
+          "error",
+        );
+        if (!shown) alert("Para añadir una obra sin grupo, crea primero un proyecto privado en «Mis proyectos».");
+        const panel = $("dashboard-projects");
+        if (panel) panel.scrollIntoView({behavior: "smooth", block: "center"});
       }
-    } else {
-      if (!group) {
-        if ((agendaState.groups || []).length) {
-          openGroupPicker();
-        } else {
-          showMessage("project-message", "Para añadir una obra sin grupo, crea primero un proyecto privado en «Mis proyectos».", "error");
-          $("dashboard-projects").scrollIntoView({behavior: "smooth", block: "center"});
-        }
-        return;
-      }
-      if (!(group.can_manage_preparation || group.can_manage)) {
-        showMessage("dash-event-message", "Sólo el gestor o el director musical pueden añadir obras al grupo.", "error");
-        return;
-      }
+      return;
+    }
+
+    // La autorización la decide el servidor al crear el trabajo: no se bloquea
+    // en el cliente (evita que un estado incompleto impida abrir el formulario).
+    if (!activeProjectSpace && group && !(group.can_manage_preparation || group.can_manage)) {
+      showMessage("dash-event-message", "Sólo el gestor o el director musical pueden añadir obras al grupo.", "error");
+      return;
     }
     prepWorkFiles = [];
     $("prep-work-form").reset();
