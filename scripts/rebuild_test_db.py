@@ -101,7 +101,7 @@ def _verify_test_environment(settings: Settings) -> dict:
             )
 
         # Verificar grants efectivos (sin crear objetos)
-        grants = conn.execute("SHOW GRANTS FOR CURRENT_USER").fetchall()
+        grants = conn.execute("SHOW GRANTS FOR CURRENT_USER()").fetchall()
         grant_text = " ".join(next(iter(g.values())) for g in grants)
         required_privs = {"SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "INDEX", "ALTER", "REFERENCES"}
         for priv in required_privs:
@@ -255,10 +255,12 @@ def _verify_spaces_schema(conn) -> tuple[bool, list[str]]:
          "JOIN resources r ON r.id = i.resource_id WHERE r.work_id <> i.work_id"),
         ("Espacios personales con group_id",
          "SELECT COUNT(*) AS c FROM spaces WHERE space_type = 'personal' AND group_id IS NOT NULL"),
-        ("Espacios de grupo/proyecto sin group_id",
-         "SELECT COUNT(*) AS c FROM spaces WHERE space_type IN ('group','project') AND group_id IS NULL"),
-        ("Espacios no personales con owner_sub",
-         "SELECT COUNT(*) AS c FROM spaces WHERE space_type IN ('group','project') AND owner_sub IS NOT NULL"),
+        ("Espacios de grupo sin group_id",
+         "SELECT COUNT(*) AS c FROM spaces WHERE space_type = 'group' AND group_id IS NULL"),
+        ("Espacios compartidos con owner_sub",
+         "SELECT COUNT(*) AS c FROM spaces WHERE space_type IN ('group','project') AND group_id IS NOT NULL AND owner_sub IS NOT NULL"),
+        ("Proyectos privados sin owner_sub",
+         "SELECT COUNT(*) AS c FROM spaces WHERE space_type = 'project' AND group_id IS NULL AND owner_sub IS NULL"),
         ("Espacios personales sin owner_sub",
          "SELECT COUNT(*) AS c FROM spaces WHERE space_type = 'personal' AND owner_sub IS NULL"),
         ("Grupos con más de un espacio general",
