@@ -669,6 +669,23 @@ def test_user_can_create_multiple_private_projects(integration_settings: Setting
             json={"title": "Programa de Navidad", "destination_type": "program"},
         )
         assert response.status_code == 201, response.text
+        work_id = response.json()["id"]
+
+        # Los archivos de preparación se guardan en el espacio privado,
+        # no se incorporan a la biblioteca personal.
+        upload = client.post(
+            f"/api/v1/spaces/{created[0]['id']}/preparation-works/{work_id}/uploads",
+            headers=own,
+            files=[("files", ("partitura.pdf", b"%PDF-1.4 test", "application/pdf"))],
+            data={"parts": '[{"purpose":"score","part_label":"Soprano"}]'},
+        )
+        assert upload.status_code == 201, upload.text
+        listed_files = client.get(
+            f"/api/v1/spaces/{created[0]['id']}/preparation-works/{work_id}/files",
+            headers=own,
+        )
+        assert listed_files.status_code == 200
+        assert len(listed_files.json()) == 1
 
         # Otro usuario no puede descubrir ni abrir los proyectos privados.
         other_spaces = client.get("/api/v1/spaces", headers=other)
