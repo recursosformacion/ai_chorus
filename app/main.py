@@ -2270,6 +2270,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).fetchall()
             group_ids = [row["id"] for row in group_rows]
             roles = {row["id"]: row["role"] for row in group_rows}
+            preparation_permissions = {
+                row["id"]: (
+                    admin
+                    or row["role"] == "manager"
+                    or _has_musical_director_role(conn, row["id"], row["musical_role_id"])
+                )
+                for row in group_rows
+            }
 
             visibility: list[str] = []
             params: list[Any] = []
@@ -2317,9 +2325,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     row,
                     row["role"],
                     admin or row["role"] == "manager",
-                    admin or row["role"] == "manager" or _has_musical_director_role(
-                        conn, row["id"], row["musical_role_id"]
-                    ),
+                    preparation_permissions[row["id"]],
                 )
                 for row in group_rows
             ],
