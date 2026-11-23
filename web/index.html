@@ -207,11 +207,20 @@
 <div id="profile-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="profile-title">
     <div class="inbox-panel profile-modal-panel">
       <div class="card-head messages-head">
-        <div class="modal-heading"><p class="modal-eyebrow">CUENTA OSAP</p><h2 id="profile-title">Mi perfil</h2><p>Actualiza tu nombre y tu nombre público en Chorus.</p></div>
+        <div class="modal-heading"><p class="modal-eyebrow">CUENTA OSAP</p><h2 id="profile-title">Mi perfil</h2><p>Consulta y modifica tu ficha de usuario.</p></div>
         <button id="profile-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
       </div>
       <form id="profile-form" class="profile-form">
         <p class="muted small">Aquí puedes consultar y modificar los datos personales que ofrece tu cuenta OSAP. El correo electrónico y los datos de seguridad/permisos son de solo lectura.</p>
+        <div class="profile-modal-avatar">
+          <span class="avatar-editor-preview" id="profile-modal-avatar-preview">M</span>
+          <div><strong>Foto de perfil</strong><p class="muted small">También puedes actualizarla desde esta ficha.</p>
+            <div class="avatar-editor-actions">
+              <button class="button button-outline button-small" id="profile-modal-avatar-upload" type="button">Cambiar foto</button>
+              <button class="button button-quiet button-small" id="profile-modal-avatar-remove" type="button">Quitar foto</button>
+            </div>
+          </div>
+        </div>
         <div id="profile-fields" class="profile-fields"></div>
         <div class="event-actions">
           <button id="profile-cancel" class="button button-quiet" type="button">Cancelar</button>
