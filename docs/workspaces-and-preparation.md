@@ -56,7 +56,7 @@ Un grupo tiene **un único espacio general** (`space_type='group'`) y puede tene
 | Operación | Permiso |
 |-----------|---------|
 | Gestión del espacio (nombre, descripción) | Admin, propietario (personal/proyecto privado), manager del grupo. |
-| Crear/editar/borrar trabajos, items y referencias | Admin, propietario (personal), manager del grupo, **director musical**. |
+| Crear/editar/borrar trabajos, items y referencias | Admin, propietario (personal/proyecto privado), manager del grupo, **director musical**. |
 | Consultar | Admin, propietario, miembro activo. |
 
 El creador de un espacio colectivo **no** conserva permisos de gestión por haberlo creado: derivan de su membresía.
@@ -102,7 +102,7 @@ preparation_work_files (preparation_work_id, file_id, purpose, sort_order)
 ```
 
 - La Work contenedora es **determinista** (`pw-<work_id>`): varias subidas al mismo trabajo la reutilizan.
-- `resources.group_id` se rellena con el grupo del espacio para que la Resource quede compartida legítimamente.
+- `resources.group_id` se rellena con el grupo si el espacio es colectivo; en un proyecto privado queda `NULL` y el archivo permanece privado.
 - `part_label` de la subida se guarda en `resources.part_label`.
 - Identificadores estables: `preparation_work_files.id` (referencia) y `files.id` (File).
 
@@ -253,3 +253,7 @@ Los proyectos asociados a un grupo mantienen el modelo colectivo y sus permisos 
 - La sección `Mis proyectos` permite crear y abrir proyectos privados.
 - El botón de cuenta en la cabecera abre la edición del nombre y nickname del usuario.
 - La gestión del grupo permite mantener la información colectiva y los datos de participación de sus miembros (voz/instrumento, sección, cargo y rol musical). Los datos personales de cuenta sólo los modifica el propio usuario.
+
+## 12. Proyectos privados de particulares
+
+`POST /api/v1/spaces` acepta `{"space_type":"project","name":"..." }` sin `group_id`. El propietario queda registrado en `owner_sub`; el proyecto se aísla de los grupos y admite trabajos y subidas privadas. La migración 042 sustituye la restricción anterior de ownership, con comprobación previa de las filas existentes.
