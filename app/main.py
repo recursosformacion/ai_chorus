@@ -5545,15 +5545,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 or (body.space_type == "project" and not body.group_id)
                 else None
             )
-            conn.execute(
-                "INSERT INTO spaces "
-                "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    space_id, body.space_type, owner_sub, body.group_id,
-                    body.name.strip(), body.description, now, now,
-                ),
-            )
+            try:
+                conn.execute(
+                    "INSERT INTO spaces "
+                    "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        space_id, body.space_type, owner_sub, body.group_id,
+                        body.name.strip(), body.description, now, now,
+                    ),
+                )
+            except Exception as exc:
+                # En un esquema anterior a la migración 042, la antigua CHECK
+                # impide crear proyectos privados y MariaDB lo convertiría en 500.
+                if body.space_type == "project" and not body.group_id and (
+                    "chk_space_group" in str(exc) or "chk_space_ownership" in str(exc)
+                ):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="La base de datos de desarrollo aún no admite proyectos privados. Aplica migrations/mysql/042_personal_projects.sql.",
+                    ) from exc
+                raise
             row = conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
         return _space_dto(row)
 
