@@ -126,7 +126,7 @@ _verify_member_identity(body.user_sub)
 | Operación | Admin global | Gestor del grupo | Miembro |
 |-----------|--------------|------------------|---------|
 | Incorporar miembro ordinario | Sí | Sí | No |
-| Modificar cargo / rol musical / sección | Sí | Sí | No |
+| Modificar voz/instrumento, cargo / rol musical / sección | Sí | Sí | No |
 | **Conceder o retirar `manager`** | **No** | **Sí** | No |
 | Consultar mantenimiento | Sí | Vía su grupo | No |
 
@@ -252,3 +252,14 @@ Si una herramienta administrativa de OSAP necesita dar de alta, debe usar `POST 
 - `display_name` se mantiene como instantánea; el mantenimiento de grupo modifica cargo, rol musical, sección y estado.
 - La búsqueda por correo/nickname depende de un contrato nuevo en `osap-auth` (§8).
 - La reactivación de una membresía existente (`PATCH .../members/{sub}` con `status=active`) no reverifica la identidad: el `user_sub` ya se verificó en el alta original. Las membresías creadas antes de esta integración no se reverifican.
+
+## 6. Mantenimiento de la ficha de participación
+
+El gestor del grupo puede actualizar en cada pertenencia:
+- Voz o instrumento (`voice_label`).
+- Sección (`section_id`).
+- Cargo administrativo (`admin_role_id`).
+- Rol musical (`musical_role_id`).
+- Estado de pertenencia y condición de gestor, con las restricciones de §5.
+
+Esto no permite modificar el nombre, correo, nickname ni otros datos personales de la cuenta OSAP. Esos datos sólo los cambia el propio usuario desde su perfil de Chorus o desde OSAP.
