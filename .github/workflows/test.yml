@@ -32,8 +32,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: rootpass
           MYSQL_DATABASE: osap_chorus_test
-          MYSQL_USER: osap2027_test
-          MYSQL_PASSWORD: testpass
+          MYSQL_ROOT_HOST: "%"
         ports:
           - 3306:3306
         options: >-
@@ -55,6 +54,27 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -e ".[test]"
+      - name: Provision least-privilege test user
+        run: |
+          python - <<'PY'
+          import pymysql
+          connection = pymysql.connect(
+              host="127.0.0.1", user="root", password="rootpass",
+              database="osap_chorus_test", autocommit=True,
+          )
+          try:
+              with connection.cursor() as cursor:
+                  cursor.execute(
+                      "CREATE USER IF NOT EXISTS 'osap2027_test'@'%' IDENTIFIED BY 'testpass'"
+                  )
+                  cursor.execute(
+                      "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER, REFERENCES "
+                      "ON `osap_chorus_test`.* TO 'osap2027_test'@'%'"
+                  )
+                  cursor.execute("FLUSH PRIVILEGES")
+          finally:
+              connection.close()
+          PY
       - name: Rebuild test database
         run: python scripts/rebuild_test_db.py
       - name: Run integration tests
@@ -69,8 +89,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: rootpass
           MYSQL_DATABASE: osap_chorus_test
-          MYSQL_USER: osap2027_test
-          MYSQL_PASSWORD: testpass
+          MYSQL_ROOT_HOST: "%"
         ports:
           - 3306:3306
         options: >-
@@ -92,6 +111,27 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -e ".[test]"
+      - name: Provision least-privilege test user
+        run: |
+          python - <<'PY'
+          import pymysql
+          connection = pymysql.connect(
+              host="127.0.0.1", user="root", password="rootpass",
+              database="osap_chorus_test", autocommit=True,
+          )
+          try:
+              with connection.cursor() as cursor:
+                  cursor.execute(
+                      "CREATE USER IF NOT EXISTS 'osap2027_test'@'%' IDENTIFIED BY 'testpass'"
+                  )
+                  cursor.execute(
+                      "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER, REFERENCES "
+                      "ON `osap_chorus_test`.* TO 'osap2027_test'@'%'"
+                  )
+                  cursor.execute("FLUSH PRIVILEGES")
+          finally:
+              connection.close()
+          PY
       - name: Rebuild test database
         run: python scripts/rebuild_test_db.py
       - name: Run migration tests
