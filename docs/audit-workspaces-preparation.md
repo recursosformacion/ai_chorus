@@ -3,10 +3,12 @@
 **Versión:** 1.0 (Informe de auditoría)  
 **Fecha:** 2026-11-21  
 **Referencia:** «Espacios de trabajo y trabajos de preparación — Especificación técnica y funcional, versión 1.0, 21-11-2026»  
-**Estado:** Auditoría completa del repositorio `recursosformacion/ai_chorus`  
+**Estado:** Informe histórico, superado por la implementación de migraciones 037–042 y la documentación vigente de `docs/workspaces-and-preparation.md`.  
 **Tipo de auditoría:** Técnica y funcional, basada en código real
 
 ---
+
+> **Aviso:** este documento describe el estado anterior a la implementación de los espacios. No debe utilizarse como diagnóstico actual ni como guía de despliegue. La referencia vigente es `docs/workspaces-and-preparation.md` y las migraciones 037–042.
 
 ## A. Resumen ejecutivo
 
