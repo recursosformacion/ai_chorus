@@ -3061,7 +3061,7 @@ async function saveGroupData(event) {
   async function savePreparationWork(event) {
     event.preventDefault();
     const group = activeGroup();
-    if (!group) return;
+    if (!activeProjectSpace && !group) return;
     
     const title = $("prep-work-title-input").value.trim();
     if (!title) {
