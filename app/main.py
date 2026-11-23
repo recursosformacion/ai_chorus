@@ -589,10 +589,9 @@ def _can_manage_space(conn, space_id: str, user_id: str, profile: dict[str, Any]
     """Gestión general del espacio (nombre, descripción, miembros, configuración).
 
     - Admin de plataforma: sí.
-    - Espacio personal: sólo su propietario.
-    - Espacio de grupo/proyecto: manager activo del grupo. Ser creador del
-      espacio NO concede permisos permanentes: si el usuario deja de ser
-      manager del grupo, pierde la gestión.
+    - Espacio personal o proyecto privado: sólo su propietario.
+    - Espacio de grupo/proyecto compartido: manager activo del grupo. Ser creador
+      del espacio NO concede permisos permanentes: derivan de la membresía.
     """
     if _is_admin(profile):
         return True
@@ -634,8 +633,8 @@ def _can_view_space(conn, space_id: str, user_id: str, profile: dict[str, Any]) 
     """Consulta de un espacio.
 
     - Admin de plataforma: sí.
-    - Espacio personal: sólo su propietario.
-    - Espacio de grupo/proyecto: cualquier miembro activo del grupo.
+    - Espacio personal o proyecto privado: sólo su propietario.
+    - Espacio de grupo/proyecto compartido: cualquier miembro activo del grupo.
     """
     if _is_admin(profile):
         return True
@@ -5461,8 +5460,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "SELECT * FROM spaces ORDER BY created_at DESC"
                 ).fetchall()
             else:
-                # owner_sub sólo concede visibilidad en espacios PERSONALES.
-                # Los espacios de grupo/proyecto dependen exclusivamente de la
+                # owner_sub concede visibilidad en espacios personales y
+                # proyectos privados. Los espacios colectivos dependen de la
                 # membresía activa: quien abandona o es expulsado deja de verlos.
                 rows = conn.execute(
                     """
