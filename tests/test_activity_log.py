@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -34,9 +36,10 @@ def test_activity_log_read_permissions(integration_settings: Settings, monkeypat
         "token-member": _profile("mem-1"),
         "token-outsider": _profile("out-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
         out_h = {"Authorization": "Bearer token-outsider"}
@@ -59,7 +62,7 @@ def test_activity_log_read_permissions(integration_settings: Settings, monkeypat
         from app.utils import utcnow
         from app.db import connect as db_connect
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             now = utcnow()
             test_run_id = uuid.uuid4().hex[:8]
             for i in range(5):
