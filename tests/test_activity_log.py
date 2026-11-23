@@ -43,7 +43,11 @@ def test_activity_log_read_permissions(integration_settings: Settings, monkeypat
         adm_h = {"Authorization": "Bearer token-admin"}
 
         # Manager creates group
-        grp = client.post("/api/v1/groups", headers=mgr_h, json={"name": "Test Activity Log"}).json()
+        group_response = client.post(
+            "/api/v1/groups", headers=mgr_h, json={"name": "Test Activity Log"}
+        )
+        assert group_response.status_code == 201, group_response.text
+        grp = group_response.json()
         group_id = grp["id"]
         join_code = grp["join_code"]
 
