@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,9 +31,10 @@ def install_fake_auth(monkeypatch, profiles, auth_base_url="https://auth.test"):
 def space_with_work(integration_settings: Settings, monkeypatch):
     """Devuelve (client, headers, space_id, work) con un trabajo completo."""
     profiles = {"token-mgr": _profile("patch-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    client = TestClient(create_app(integration_settings))
+    client = TestClient(create_app(settings))
     headers = {"Authorization": "Bearer token-mgr"}
 
     space_id = client.post(
@@ -204,9 +207,10 @@ def test_patch_nullable_fields_can_all_be_cleared(space_with_work):
 def test_space_patch_distinguishes_omitted_and_null(integration_settings: Settings, monkeypatch):
     """Mismo criterio aplicado al PATCH de espacios."""
     profiles = {"token-mgr": _profile("space-patch-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         headers = {"Authorization": "Bearer token-mgr"}
         space_id = client.post(
             "/api/v1/spaces", headers=headers,
