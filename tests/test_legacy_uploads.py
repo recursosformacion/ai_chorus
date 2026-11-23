@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -53,7 +55,6 @@ def test_legacy_uploads_read_permissions(integration_settings: Settings, monkeyp
 
         # Insert test data directly (simulating migration data)
         import uuid
-from dataclasses import replace
         from app.utils import utcnow
         from app.db import connect as db_connect
 
