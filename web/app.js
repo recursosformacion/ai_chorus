@@ -203,7 +203,6 @@
     button.classList.toggle("hidden", !group);
     $("articles-button")?.classList.toggle("hidden", !group);
     if (group) button.textContent = group.name;
-    if (group) activeProjectSpace = null;
   }
 
   function openGroupPicker() {
@@ -237,6 +236,10 @@
 
   function setActiveGroup(groupId, reloadMessages = true) {
     activeGroupId = groupId;
+    activeProjectSpace = null;
+    const repertoireTitle = $("dashboard-repertorio")?.querySelector("h2");
+    if (repertoireTitle) repertoireTitle.textContent = "Lo que estamos preparando";
+    if (typeof renderProjects === "function") renderProjects();
     if (!agendaFilter || !["all", "personal"].includes(agendaFilter)) {
       if (!(agendaState.groups || []).some((group) => group.id === agendaFilter)) {
         agendaFilter = groupId;
