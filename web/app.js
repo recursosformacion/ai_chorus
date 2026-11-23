@@ -2928,7 +2928,7 @@ async function saveGroupData(event) {
     caption.textContent = options.label || profileFieldLabel(key);
     field.append(caption);
     const editable = options.editable === true;
-    if (options.checkbox) {
+    if (options.checkbox || typeof value === "boolean") {
       const wrapper = document.createElement("span");
       wrapper.className = "profile-checkbox";
       const input = document.createElement("input");
