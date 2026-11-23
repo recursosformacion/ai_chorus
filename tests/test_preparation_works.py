@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -43,9 +45,10 @@ def test_preparation_works_crud_and_permissions(integration_settings: Settings, 
     }
 
     profiles["token-admin"] = _profile_with_roles("admin-1", roles=["admin"])
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
         out_h = {"Authorization": "Bearer token-outsider"}
@@ -178,9 +181,10 @@ def test_preparation_works_crud_and_permissions(integration_settings: Settings, 
 def test_preparation_works_destination_program(integration_settings: Settings, monkeypatch):
     """Test creating works with destination_type=program."""
     profiles = {"token-manager": _profile("mgr-1")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         grp = client.post("/api/v1/groups", headers=mgr_h, json={"name": "Program Test"}).json()
         group_id = grp["id"]
@@ -217,9 +221,10 @@ def test_preparation_works_destination_program(integration_settings: Settings, m
 def test_preparation_works_files(integration_settings: Settings, monkeypatch):
     """Test file upload/download for preparation works."""
     profiles = {"token-manager": _profile("mgr-1")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         grp = client.post("/api/v1/groups", headers=mgr_h, json={"name": "Files Test"}).json()
         group_id = grp["id"]
@@ -281,7 +286,8 @@ def test_preparation_works_files(integration_settings: Settings, monkeypatch):
 
         # Member cannot upload
         profiles["token-member"] = _profile("mem-1")
-        install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+        settings = replace(integration_settings, auth_base_url="https://auth.test")
+        install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
         mem_h = {"Authorization": "Bearer token-member"}
         assert client.post("/api/v1/groups/join", headers=mem_h, json={"code": grp["join_code"]}).status_code == 200
 
@@ -301,9 +307,10 @@ def test_preparation_works_musical_director_permission(integration_settings: Set
         "token-manager": _profile("mgr-1"),
         "token-member": _profile("mem-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
 
@@ -363,9 +370,10 @@ def test_preparation_works_other_musical_role_no_permission(integration_settings
         "token-manager": _profile("mgr-1"),
         "token-member": _profile("mem-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
 
@@ -408,9 +416,10 @@ def test_preparation_works_cross_group_isolation(integration_settings: Settings,
         "token-manager": _profile("mgr-1"),
         "token-manager2": _profile("mgr-2"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr1_h = {"Authorization": "Bearer token-manager"}
         mgr2_h = {"Authorization": "Bearer token-manager2"}
 
