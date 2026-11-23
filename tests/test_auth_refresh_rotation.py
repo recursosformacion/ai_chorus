@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_module
@@ -49,6 +50,7 @@ class _AuthClient:
         raise AssertionError(f"Unexpected Auth request: {method} {url}")
 
 
+@pytest.mark.integration
 def test_refresh_persists_rotated_refresh_token(integration_settings, monkeypatch):
     settings = replace(integration_settings, auth_base_url="https://auth.test")
     monkeypatch.setattr(main_module.httpx, "Client", _AuthClient)
