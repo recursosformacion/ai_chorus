@@ -2799,16 +2799,28 @@ async function saveGroupData(event) {
     "avatar_url", "onboarding", "created_at", "updated_at", "last_login",
     "last_login_at", "permissions", "is_active", "is_admin", "is_staff",
     "role", "account_type", "account_status", "disabled", "deleted",
-    "is_verified", "verified",
+    "is_verified", "verified", "mfa_enabled", "security",
+  ]);
+  const PROFILE_HIDDEN = new Set([
+    "user_id", "id", "sub", "roles", "status", "avatar_url", "onboarding",
+    "created_at", "updated_at", "last_login", "last_login_at", "permissions",
+    "is_active", "is_admin", "is_staff", "role", "account_type",
+    "account_status", "disabled", "deleted", "is_verified", "verified",
+    "mfa_enabled", "security",
   ]);
   const PROFILE_LABELS = {
-    name: "Nombre y apellidos", nickname: "Nombre público / nickname",
-    nickname_public_consent: "Permitir mostrar mi nickname públicamente",
+    name: "Nombre y apellidos", nickname: "Nombre público",
+    nickname_public_consent: "Permitir mostrar mi nombre público",
     first_name: "Nombre", last_name: "Apellidos", phone: "Teléfono",
-    phone_number: "Teléfono", city: "Localidad", region: "Provincia / región",
+    phone_number: "Teléfono", city: "Localidad", region: "Provincia o región",
     country: "País", address: "Dirección", postal_code: "Código postal",
-    language: "Idioma", website: "Web personal", organization: "Organización",
-    bio: "Presentación", biography: "Presentación",
+    language: "Idioma de la cuenta", website: "Web personal",
+    organization: "Organización", bio: "Presentación",
+    biography: "Presentación", description: "Presentación",
+    about: "Presentación", email_verified: "Correo verificado",
+    news_opt_in: "Recibir novedades", news_language: "Idioma principal de noticias",
+    news_languages: "Idiomas de noticias", news_topics: "Temas de noticias",
+    memberships: "Pertenencias",
   };
   function profileFieldLabel(key) {
     return PROFILE_LABELS[key] || key.replace(/([A-Z])/g, " $1")
@@ -2817,8 +2829,82 @@ async function saveGroupData(event) {
   function profileDisplayValue(value) {
     if (value == null || value === "") return "—";
     if (typeof value === "boolean") return value ? "Sí" : "No";
-    if (Array.isArray(value) || typeof value === "object") return JSON.stringify(value);
+    if (Array.isArray(value) || typeof value === "object") return "";
     return String(value);
+  }
+  function profileSection(container, title) {
+    const section = document.createElement("section");
+    section.className = "profile-section";
+    const heading = document.createElement("h3");
+    heading.className = "profile-section-title";
+    heading.textContent = title;
+    section.append(heading);
+    container.append(section);
+    return section;
+  }
+  function profileField(container, key, value, options = {}) {
+    const field = document.createElement("label");
+    field.className = "profile-field";
+    const caption = document.createElement("span");
+    caption.textContent = options.label || profileFieldLabel(key);
+    field.append(caption);
+    const editable = options.editable === true;
+    if (options.checkbox) {
+      const wrapper = document.createElement("span");
+      wrapper.className = "profile-checkbox";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = value === true;
+      input.disabled = !editable;
+      if (editable) input.dataset.profileField = key;
+      const status = document.createElement("span");
+      status.textContent = value === true ? "Sí" : "No";
+      wrapper.append(input, status);
+      field.append(wrapper);
+    } else if (editable) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value == null ? "" : String(value);
+      input.dataset.profileField = key;
+      if (key === "name") input.required = true;
+      if (key === "nickname") { input.minLength = 3; input.maxLength = 30; }
+      field.append(input);
+    } else {
+      const output = document.createElement("span");
+      output.className = "profile-field-value";
+      output.textContent = profileDisplayValue(value) || "—";
+      field.append(output);
+    }
+    container.append(field);
+  }
+  function profileLanguageName(value) {
+    const names = {
+      es: "Español", ca: "Catalán", en: "Inglés", fr: "Francés",
+      de: "Alemán", it: "Italiano", pt: "Portugués", eu: "Euskera",
+      gl: "Gallego", oc: "Occitano",
+    };
+    const code = String(value || "").trim();
+    return names[code.toLowerCase()] || code;
+  }
+  function profileChips(container, values, emptyText) {
+    const list = document.createElement("div");
+    list.className = "profile-chips";
+    const clean = (Array.isArray(values) ? values : [])
+      .filter((value) => typeof value === "string" && value.trim());
+    if (!clean.length) {
+      const empty = document.createElement("span");
+      empty.className = "profile-field-value";
+      empty.textContent = emptyText || "—";
+      list.append(empty);
+    } else {
+      clean.forEach((value) => {
+        const chip = document.createElement("span");
+        chip.className = "profile-chip";
+        chip.textContent = value;
+        list.append(chip);
+      });
+    }
+    container.append(list);
   }
   function renderProfileFields() {
     const container = $("profile-fields");
@@ -2826,64 +2912,106 @@ async function saveGroupData(event) {
     const profile = currentProfile || {};
     const modalAvatar = $("profile-modal-avatar-preview");
     if (modalAvatar) paintAvatar(modalAvatar, profileAvatarInitials, profileAvatarUrl);
-    const email = document.createElement("label");
-    email.className = "profile-field";
-    email.textContent = "Correo electrónico (no modificable)";
-    const emailInput = document.createElement("input");
-    emailInput.type = "email";
-    emailInput.value = profile.email || "";
-    emailInput.disabled = true;
-    email.append(emailInput);
-    container.append(email);
-    const keys = Object.keys(profile).filter((key) =>
-      key !== "email" && !/(token|secret|password|credential)/i.test(key)
-    );
-    const priority = ["name", "nickname"];
-    keys.sort((a, b) => {
-      const ai = priority.indexOf(a), bi = priority.indexOf(b);
-      if (ai >= 0 || bi >= 0) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-      return a.localeCompare(b);
-    });
-    keys.forEach((key) => {
+
+    const account = profileSection(container, "Cuenta");
+    profileField(account, "email", profile.email, {label: "Correo electrónico"});
+    profileField(account, "email_verified", profile.email_verified, {checkbox: true, editable: false});
+
+    const personal = profileSection(container, "Datos personales");
+    const preferred = [
+      "name", "nickname", "first_name", "last_name", "phone", "phone_number",
+      "city", "region", "country", "postal_code", "address", "language",
+      "website", "organization", "bio", "biography", "description", "about",
+      "nickname_public_consent",
+    ];
+    const scalarKeys = Object.keys(profile).filter((key) => {
       const value = profile[key];
-      const field = document.createElement("label");
-      field.className = "profile-field";
-      const caption = document.createElement("span");
-      caption.textContent = profileFieldLabel(key);
-      field.append(caption);
-      const editable = !PROFILE_READ_ONLY.has(key)
-        && (value == null || ["string", "number", "boolean"].includes(typeof value));
-      if (!editable) {
-        const output = document.createElement("span");
-        output.className = "profile-field-value";
-        output.textContent = profileDisplayValue(value);
-        field.append(output);
-      } else if (typeof value === "boolean") {
-        const wrapper = document.createElement("span");
-        wrapper.className = "profile-checkbox";
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.checked = value;
-        input.dataset.profileField = key;
-        wrapper.append(input, document.createTextNode(" Activado"));
-        field.append(wrapper);
-      } else if (["bio", "biography", "description", "about"].includes(key)) {
-        const input = document.createElement("textarea");
-        input.rows = 3;
-        input.value = value == null ? "" : String(value);
-        input.dataset.profileField = key;
-        field.append(input);
-      } else {
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = value == null ? "" : String(value);
-        input.dataset.profileField = key;
-        if (key === "name") input.required = true;
-        if (key === "nickname") { input.minLength = 3; input.maxLength = 30; }
-        field.append(input);
-      }
-      container.append(field);
+      return !PROFILE_HIDDEN.has(key) && ![
+        "email", "email_verified", "memberships", "news_opt_in",
+        "news_language", "news_languages", "news_topics",
+      ].includes(key) && (value == null || ["string", "number", "boolean"].includes(typeof value));
     });
+    scalarKeys.sort((a, b) => {
+      const ai = preferred.indexOf(a), bi = preferred.indexOf(b);
+      if (ai >= 0 || bi >= 0) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+      return profileFieldLabel(a).localeCompare(profileFieldLabel(b), "es");
+    });
+    scalarKeys.forEach((key) => profileField(
+      personal, key, profile[key],
+      {editable: !PROFILE_READ_ONLY.has(key)},
+    ));
+    if (!scalarKeys.length) {
+      const empty = document.createElement("p");
+      empty.className = "profile-field-value";
+      empty.textContent = "No hay más datos personales disponibles.";
+      personal.append(empty);
+    }
+
+    const preferences = profileSection(container, "Preferencias de noticias");
+    if (typeof profile.news_opt_in === "boolean") {
+      profileField(preferences, "news_opt_in", profile.news_opt_in, {checkbox: true, editable: false});
+    }
+    const languages = Array.isArray(profile.news_languages) ? profile.news_languages.slice() : [];
+    if (profile.news_language && !languages.includes(profile.news_language)) {
+      languages.unshift(profile.news_language);
+    }
+    const languageField = document.createElement("div");
+    languageField.className = "profile-field";
+    const languageLabel = document.createElement("span");
+    languageLabel.textContent = "Idiomas";
+    languageField.append(languageLabel);
+    profileChips(languageField, languages.map(profileLanguageName), "Sin idiomas seleccionados");
+    preferences.append(languageField);
+    const topicsField = document.createElement("div");
+    topicsField.className = "profile-field";
+    const topicsLabel = document.createElement("span");
+    topicsLabel.textContent = "Temas";
+    topicsField.append(topicsLabel);
+    const topics = Array.isArray(profile.news_topics)
+      ? profile.news_topics.map((topic) => String(topic).replace(/[_-]+/g, " ").replace(/^./, (c) => c.toUpperCase()))
+      : [];
+    profileChips(topicsField, topics, "Sin temas seleccionados");
+    preferences.append(topicsField);
+    const newsNote = document.createElement("p");
+    newsNote.className = "profile-note";
+    newsNote.textContent = "Estas preferencias se gestionan desde el apartado de noticias.";
+    preferences.append(newsNote);
+
+    const memberships = profileSection(container, "Pertenencias");
+    const membershipRows = Array.isArray(profile.memberships) ? profile.memberships : [];
+    if (!membershipRows.length) {
+      const empty = document.createElement("p");
+      empty.className = "profile-field-value";
+      empty.textContent = "No hay pertenencias registradas.";
+      memberships.append(empty);
+    } else {
+      const list = document.createElement("ul");
+      list.className = "profile-memberships";
+      membershipRows.forEach((membership) => {
+        if (!membership || typeof membership !== "object") return;
+        const item = document.createElement("li");
+        const name = membership.entity_name || membership.group_name || membership.name || "Entidad";
+        const kind = membership.entity_kind || membership.kind || "";
+        const status = membership.status || "";
+        const title = document.createElement("strong");
+        title.textContent = name;
+        item.append(title);
+        if (kind) {
+          const type = document.createElement("span");
+          type.className = "profile-membership-kind";
+          type.textContent = String(kind).replace(/[_-]+/g, " ");
+          item.append(type);
+        }
+        if (status) {
+          const state = document.createElement("span");
+          state.className = "profile-membership-status";
+          state.textContent = ({approved: "Aprobada", pending: "Pendiente", revoked: "Revocada", rejected: "Rechazada"})[status] || status;
+          item.append(state);
+        }
+        list.append(item);
+      });
+      memberships.append(list);
+    }
   }
   $("profile-modal-avatar-upload").addEventListener("click", () => $("avatar-file").click());
   $("profile-modal-avatar-remove").addEventListener("click", () => $("avatar-remove").click());
