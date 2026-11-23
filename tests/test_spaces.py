@@ -19,6 +19,8 @@ Cubre:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -76,9 +78,10 @@ def test_personal_space_lifecycle_and_isolation(integration_settings: Settings, 
         "token-owner": _profile("owner-1"),
         "token-other": _profile("other-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         own = {"Authorization": "Bearer token-owner"}
         other = {"Authorization": "Bearer token-other"}
 
@@ -186,9 +189,10 @@ def test_convert_personal_space_to_group_preserves_data(integration_settings: Se
         "token-owner": _profile("conv-owner"),
         "token-member": _profile("conv-member"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         own = {"Authorization": "Bearer token-owner"}
         member = {"Authorization": "Bearer token-member"}
 
@@ -202,7 +206,7 @@ def test_convert_personal_space_to_group_preserves_data(integration_settings: Se
             headers=own, json={"title": "Programa"},
         ).json()["id"]
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             _insert_chain(conn, work_id="w-conv", resource_id="r-conv", file_id="f-conv",
                           owner_sub="conv-owner")
 
@@ -243,7 +247,7 @@ def test_convert_personal_space_to_group_preserves_data(integration_settings: Se
 
         # El propietario es manager del nuevo grupo
         group_id = converted["group_id"]
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             join_code = conn.execute(
                 "SELECT join_code FROM groups WHERE id = ?", (group_id,)
             ).fetchone()["join_code"]
@@ -271,9 +275,10 @@ def test_group_space_authorization_and_multiple_works(integration_settings: Sett
         "token-mem": _profile("g-mem"),
         "token-out": _profile("g-out"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         mem = {"Authorization": "Bearer token-mem"}
         out = {"Authorization": "Bearer token-out"}
@@ -308,7 +313,7 @@ def test_group_space_authorization_and_multiple_works(integration_settings: Sett
         wb = client.post(f"/api/v1/spaces/{space_id}/preparation-works",
                          headers=mgr, json={"title": "B"}).json()["id"]
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             _insert_chain(conn, work_id="w-a", resource_id="r-a", file_id="f-a", group_id=group_id)
             _insert_chain(conn, work_id="w-b", resource_id="r-b", file_id="f-b", group_id=group_id)
 
@@ -345,7 +350,7 @@ def test_group_space_authorization_and_multiple_works(integration_settings: Sett
         assert client.delete(
             f"/api/v1/spaces/{space_id}/preparation-works/{wa}", headers=mgr
         ).status_code == 200
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             assert conn.execute(
                 "SELECT COUNT(*) AS c FROM works WHERE id = 'w-a'"
             ).fetchone()["c"] == 1
@@ -388,13 +393,14 @@ def test_cross_user_resources_and_files_are_rejected(integration_settings: Setti
         "token-a": _profile("own-a"),
         "token-b": _profile("own-b"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         a = {"Authorization": "Bearer token-a"}
         b = {"Authorization": "Bearer token-b"}
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             # Cadena perteneciente a B (privada)
             _insert_chain(conn, work_id="wb", resource_id="rb", file_id="fb", owner_sub="own-b")
             # Cadena perteneciente a A
@@ -448,9 +454,10 @@ def test_musical_director_can_manage_preparation(integration_settings: Settings,
         "token-dir": _profile("dir-1"),
         "token-mem": _profile("dir-mem"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         director = {"Authorization": "Bearer token-dir"}
         member = {"Authorization": "Bearer token-mem"}
@@ -515,9 +522,10 @@ def test_legacy_group_routes_use_same_space(integration_settings: Settings, monk
         "token-mem": _profile("leg-mem"),
         "token-out": _profile("leg-out"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         mem = {"Authorization": "Bearer token-mem"}
         out = {"Authorization": "Bearer token-out"}
@@ -637,9 +645,10 @@ def test_user_can_create_multiple_private_projects(integration_settings: Setting
         "token-owner": _profile("project-owner"),
         "token-other": _profile("project-other"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         own = {"Authorization": "Bearer token-owner"}
         other = {"Authorization": "Bearer token-other"}
 
