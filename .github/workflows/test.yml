@@ -1,6 +1,6 @@
 name: Test Suite
 
-# MariaDB se instala y arranca de forma nativa en el runner.
+# La integración y las migraciones se prueban sobre MariaDB 10.4 en contenedor.
 on:
   push:
     branches: [main]
@@ -24,7 +24,7 @@ jobs:
         # Sin CHORUS_DATABASE_URL → estos tests usan SQLite en tmp_path
 
   integration-tests:
-    name: Integration Tests (MariaDB 10.4 nativo)
+    name: Integration Tests (MariaDB 10.4 en contenedor)
     runs-on: ubuntu-22.04
     services:
       mariadb:
@@ -61,7 +61,7 @@ jobs:
         run: pytest -m integration -x -v
 
   migration-tests:
-    name: Migration Tests (MariaDB 10.4 nativo)
+    name: Migration Tests (MariaDB 10.4 en contenedor)
     runs-on: ubuntu-22.04
     services:
       mariadb:
