@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -42,9 +44,10 @@ def test_group_roles_crud_and_permissions(integration_settings: Settings, monkey
         return p
 
     profiles["token-admin"] = _profile_with_roles("admin-1", roles=["admin"])
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
         out_h = {"Authorization": "Bearer token-outsider"}
@@ -195,9 +198,10 @@ def test_group_roles_crud_and_permissions(integration_settings: Settings, monkey
 def test_group_roles_hierarchy(integration_settings: Settings, monkeypatch):
     """Parent-child hierarchy in group_roles."""
     profiles = {"token-manager": _profile("mgr-1")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         grp = client.post("/api/v1/groups", headers=mgr_h, json={"name": "Hierarchy Group"}).json()
         group_id = grp["id"]
@@ -246,9 +250,10 @@ def test_group_roles_hierarchy(integration_settings: Settings, monkeypatch):
 def test_group_roles_scope_validation(integration_settings: Settings, monkeypatch):
     """Admin role must have scope=admin, musical role must have scope=musical."""
     profiles = {"token-manager": _profile("mgr-1")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         grp = client.post("/api/v1/groups", headers=mgr_h, json={"name": "Scope Validation"}).json()
         group_id = grp["id"]
@@ -268,7 +273,8 @@ def test_group_roles_scope_validation(integration_settings: Settings, monkeypatc
         # Join a member
         mem_h = {"Authorization": "Bearer token-member"}
         profiles["token-member"] = _profile("mem-1")
-        install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+        settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
         assert client.post("/api/v1/groups/join", headers=mem_h, json={"code": grp["join_code"]}).status_code == 200
 
         # Assign admin role with musical scope -> should fail
