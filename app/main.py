@@ -873,7 +873,12 @@ def _can_manage_event(conn, event, user_id: str, profile: dict[str, Any]) -> boo
         return member is not None and member["role"] == "manager"
     return False
 
-def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
+def _group_dto(
+    row: sqlite3.Row,
+    role: str,
+    can_manage: bool,
+    can_manage_preparation: bool | None = None,
+) -> dict[str, Any]:
     def _parse_json(value: str | None):
         if value is None:
             return None
@@ -890,6 +895,9 @@ def _group_dto(row: sqlite3.Row, role: str, can_manage: bool) -> dict[str, Any]:
         "join_code": row["join_code"],
         "role": role,
         "can_manage": can_manage,
+        "can_manage_preparation": (
+            can_manage if can_manage_preparation is None else can_manage_preparation
+        ),
         "foundation_date": row["foundation_date"],
         "dissolution_date": row["dissolution_date"],
         "locality": row["locality"],
@@ -2256,7 +2264,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin = _is_admin(profile)
         with _connect(cfg) as conn:
             group_rows = conn.execute(
-                "SELECT g.*, gm.role FROM group_members gm "
+                "SELECT g.*, gm.role, gm.musical_role_id FROM group_members gm "
                 "JOIN groups g ON g.id = gm.group_id "
                 "WHERE gm.user_sub = ? AND gm.status = 'active' ORDER BY g.name",
                 (user_id,),
@@ -2310,6 +2318,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     row,
                     row["role"],
                     admin or row["role"] == "manager",
+                    admin or row["role"] == "manager" or _has_musical_director_role(
+                        conn, row["id"], row["musical_role_id"]
+                    ),
                 )
                 for row in group_rows
             ],
@@ -6262,6 +6273,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "work_id": work_id,
             "space_id": space["id"],
+            "folder_path": work["folder_path"],
+            "files": uploaded,
+        }
+
+
+    @app.post("/api/v1/spaces/{space_id}/preparation-works/{work_id}/uploads", status_code=201)
+    async def upload_space_preparation_files(
+        space_id: str,
+        work_id: str,
+        files: list[UploadFile] = File(...),
+        parts: str = Form(default="[]"),
+        profile: dict[str, Any] = Depends(current_profile),
+    ) -> dict[str, Any]:
+        """Sube archivos a cualquier espacio autorizado, incluido un proyecto privado."""
+        import json as json_std
+        user_id = str(profile["user_id"])
+        try:
+            parts_list = json_std.loads(parts)
+        except json_std.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="parts must be valid JSON array")
+        if not isinstance(parts_list, list):
+            raise HTTPException(status_code=400, detail="parts must be an array")
+        if parts_list and len(parts_list) != len(files):
+            raise HTTPException(status_code=400, detail="parts array length must match files count")
+
+        with _connect(cfg) as conn:
+            space = _require_space(conn, space_id)
+            if not _can_manage_space_preparation(conn, space_id, user_id, profile):
+                raise HTTPException(status_code=403, detail="Access denied")
+            work = _require_prep_work(conn, space_id, work_id)
+            uploaded: list[dict[str, Any]] = []
+            for i, upload in enumerate(files):
+                relative = str(upload.filename or "archivo").replace("\\", "/")
+                original = relative.split("/")[-1]
+                data = await upload.read()
+                if len(data) > cfg.max_upload_bytes:
+                    raise HTTPException(
+                        status_code=413, detail=f"{original}: exceeds max upload size"
+                    )
+                part_info = parts_list[i] if i < len(parts_list) else {}
+                purpose = part_info.get("purpose") or "other"
+                if purpose not in ("score", "part", "audio", "video", "other"):
+                    purpose = "other"
+                uploaded.append(_register_prep_file(
+                    conn, space, work, user_id,
+                    data=data,
+                    original_name=original,
+                    mime_type=upload.content_type or "",
+                    purpose=purpose,
+                    sort_order=i,
+                    part_label=part_info.get("part_label"),
+                ))
+        return {
+            "work_id": work_id,
+            "space_id": space_id,
             "folder_path": work["folder_path"],
             "files": uploaded,
         }
