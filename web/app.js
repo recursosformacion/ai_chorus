@@ -2987,7 +2987,12 @@ async function saveGroupData(event) {
       }
     } else {
       if (!group) {
-        openGroupPicker();
+        if ((agendaState.groups || []).length) {
+          openGroupPicker();
+        } else {
+          showMessage("dash-event-message", "Crea o abre un proyecto en «Mis proyectos» para añadir obras sin pertenecer a un grupo.", "error");
+          $("dashboard-projects").scrollIntoView({behavior: "smooth", block: "center"});
+        }
         return;
       }
       if (!(group.can_manage_preparation || group.can_manage)) {
