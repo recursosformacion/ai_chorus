@@ -219,6 +219,7 @@ class RsvpBody(BaseModel):
 
 class MemberUpdateBody(BaseModel):
     role: Literal["manager", "member"] | None = None
+    display_name: str | None = Field(default=None, max_length=255)
     admin_role_id: str | None = None
     musical_role_id: str | None = None
     section_id: str | None = None
@@ -598,7 +599,9 @@ def _can_manage_space(conn, space_id: str, user_id: str, profile: dict[str, Any]
     space = _get_space(conn, space_id)
     if space is None:
         return False
-    if space["space_type"] == "personal":
+    if space["space_type"] == "personal" or (
+        space["space_type"] == "project" and not space["group_id"]
+    ):
         return space["owner_sub"] == user_id
     if not space["group_id"]:
         return False
@@ -639,7 +642,9 @@ def _can_view_space(conn, space_id: str, user_id: str, profile: dict[str, Any]) 
     space = _get_space(conn, space_id)
     if space is None:
         return False
-    if space["space_type"] == "personal":
+    if space["space_type"] == "personal" or (
+        space["space_type"] == "project" and not space["group_id"]
+    ):
         return space["owner_sub"] == user_id
     if not space["group_id"]:
         return False
@@ -2571,13 +2576,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             # Capture before values for activity log
             before_role = target["role"]
+            before_display_name = target["display_name"]
             before_admin_role = target["admin_role_id"]
             before_musical_role = target["musical_role_id"]
             before_section = target["section_id"]
             before_status = target["status"]
             updates = []
             values: list[Any] = []
-            for column in ("role", "admin_role_id", "musical_role_id", "section_id", "status"):
+            for column in ("role", "display_name", "admin_role_id", "musical_role_id", "section_id", "status"):
                 value = getattr(body, column)
                 if value is not None:
                     updates.append(f"{column}=?")
@@ -2595,6 +2601,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             detail = {}
             if body.role is not None and body.role != before_role:
                 detail["role"] = {"from": before_role, "to": body.role}
+            if body.display_name is not None and body.display_name != before_display_name:
+                detail["display_name"] = {"from": before_display_name, "to": body.display_name}
             if body.admin_role_id != before_admin_role:
                 detail["admin_role"] = {"from": before_admin_role, "to": body.admin_role_id}
             if body.musical_role_id != before_musical_role:
@@ -5447,7 +5455,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 rows = conn.execute(
                     """
                     SELECT s.* FROM spaces s
-                    WHERE (s.space_type = 'personal' AND s.owner_sub = ?)
+                    WHERE (
+                            s.space_type = 'personal'
+                            OR (s.space_type = 'project' AND s.group_id IS NULL)
+                          ) AND s.owner_sub = ?
                        OR (s.space_type IN ('group','project')
                            AND s.group_id IS NOT NULL
                            AND EXISTS (
@@ -5478,11 +5489,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     status_code=400,
                     detail="Personal spaces cannot have a group_id"
                 )
-            if body.space_type in ("group", "project") and not body.group_id:
+            if body.space_type == "group" and not body.group_id:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"{body.space_type} spaces must have a group_id"
+                    detail="Group spaces must have a group_id"
                 )
+            # Un proyecto puede ser privado (sin group_id) o compartido
+            # dentro de un grupo. En el primer caso pertenece al usuario.
             # Validate group_id if provided
             if body.group_id:
                 group = conn.execute(
@@ -5499,9 +5512,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             status_code=403,
                             detail="Only group managers can create spaces for this group"
                         )
-            # owner_sub representa propietario PERSONAL: sólo aplica a espacios
-            # personales. Un espacio de grupo/proyecto no pertenece a un usuario.
-            owner_sub = user_id if body.space_type == "personal" else None
+            # Los proyectos independientes pertenecen a su creador; los
+            # espacios colectivos pertenecen a la membresía del grupo.
+            owner_sub = (
+                user_id
+                if body.space_type == "personal"
+                or (body.space_type == "project" and not body.group_id)
+                else None
+            )
             conn.execute(
                 "INSERT INTO spaces "
                 "(id, space_type, owner_sub, group_id, name, description, created_at, updated_at) "
