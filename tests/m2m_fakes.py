@@ -9,7 +9,6 @@ contrato real sin inventar endpoints:
 """
 from __future__ import annotations
 
-import json
 import urllib.parse
 from typing import Any
 
@@ -34,10 +33,16 @@ class FakeM2MTransport(httpx.BaseTransport):
         *,
         token_status: int = 200,
         lookup_status: int = 200,
+        expires_in: int = 300,
+        require_audience: str | None = None,
+        require_scope: str | None = None,
     ) -> None:
         self.directory = dict(directory)
         self.token_status = token_status
         self.lookup_status = lookup_status
+        self.expires_in = expires_in
+        self.require_audience = require_audience
+        self.require_scope = require_scope
         self.token_calls: list[dict[str, Any]] = []
         self.lookup_calls: list[dict[str, Any]] = []
         self._tokens_issued = 0
@@ -50,13 +55,29 @@ class FakeM2MTransport(httpx.BaseTransport):
                 return httpx.Response(
                     self.token_status, json={"error": "invalid_client"}
                 )
+            if (
+                self.require_audience is not None
+                and body.get("audience") != self.require_audience
+            ):
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": "invalid_client",
+                        "error_description": "audience not allowed",
+                    },
+                )
+            if (
+                self.require_scope is not None
+                and body.get("scope") != self.require_scope
+            ):
+                return httpx.Response(403, json={"error": "invalid_scope"})
             self._tokens_issued += 1
             return httpx.Response(
                 200,
                 json={
                     "access_token": f"service-token-{self._tokens_issued}",
                     "token_type": "Bearer",
-                    "expires_in": 300,
+                    "expires_in": self.expires_in,
                     "scope": body.get("scope", ""),
                 },
             )

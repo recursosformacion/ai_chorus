@@ -11,10 +11,10 @@ sustituto que registra llamadas.
 """
 from __future__ import annotations
 
+import threading
 import uuid
 
 import pytest
-import httpx
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -22,8 +22,6 @@ from app.db import connect as db_connect
 from app.identity import IdentityClient, IdentityUnavailable
 from app.main import create_app
 from tests.m2m_fakes import (
-    M2M_PATH,
-    TOKEN_PATH,
     FakeM2MTransport,
     RecordingIdentityClient,
     install_identity,
@@ -249,6 +247,122 @@ def test_m2m_token_endpoint_receives_expected_credentials():
     assert body["client_id"] == "mi-cliente"
     assert body["client_secret"] == "mi-secreto"
     assert body["grant_type"] == "client_credentials"
+
+
+@pytest.mark.unit
+def test_m2m_token_is_renewed_before_expiry():
+    """El token se renueva con margen de seguridad, antes de caducar."""
+    now = [1000.0]
+    transport = FakeM2MTransport({DESTINATARIO: "Nombre"}, expires_in=300)
+    client = IdentityClient(
+        "https://auth.test",
+        client_id="c",
+        client_secret="s",
+        transport=transport,
+        clock=lambda: now[0],
+    )
+
+    client.resolve_public_names([DESTINATARIO])
+    assert len(transport.token_calls) == 1
+
+    now[0] += 269  # dentro de la vida útil (300 s - margen de 30 s)
+    client.resolve_public_names([DESTINATARIO])
+    assert len(transport.token_calls) == 1, "no se renueva antes de tiempo"
+
+    now[0] += 2  # supera el margen: renueva antes de la caducidad
+    client.resolve_public_names([DESTINATARIO])
+    assert len(transport.token_calls) == 2, "se renueva antes de caducar"
+    assert transport.lookup_calls[-1]["authorization"] == "Bearer service-token-2"
+
+
+@pytest.mark.unit
+def test_m2m_concurrent_lookups_request_one_token():
+    """Peticiones concurrentes no duplican la solicitud del token."""
+    transport = FakeM2MTransport({DESTINATARIO: "Nombre"})
+    client = IdentityClient(
+        "https://auth.test", client_id="c", client_secret="s", transport=transport
+    )
+    errors: list[Exception] = []
+
+    def worker():
+        try:
+            client.resolve_public_names([DESTINATARIO])
+        except Exception as exc:  # noqa: BLE001 - se reporta como fallo del test
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert len(transport.token_calls) == 1
+
+
+@pytest.mark.unit
+def test_m2m_wrong_audience_is_rejected():
+    """Una audiencia no permitida se rechaza; no se degrada a consulta anónima."""
+    transport = FakeM2MTransport(
+        {DESTINATARIO: "Nombre"}, require_audience="osap-auth"
+    )
+    client = IdentityClient(
+        "https://auth.test",
+        client_id="c",
+        client_secret="s",
+        audience="osap-api",
+        transport=transport,
+    )
+
+    with pytest.raises(IdentityUnavailable):
+        client.resolve_public_names([DESTINATARIO])
+    assert transport.token_calls[0]["audience"] == "osap-api"
+
+
+@pytest.mark.unit
+def test_m2m_missing_scope_is_rejected():
+    """Un cliente sin el scope requerido no obtiene token útil."""
+    transport = FakeM2MTransport(
+        {DESTINATARIO: "Nombre"}, require_scope="auth:read_public_names"
+    )
+    client = IdentityClient(
+        "https://auth.test",
+        client_id="c",
+        client_secret="s",
+        scope="storage:read",
+        transport=transport,
+    )
+
+    with pytest.raises(IdentityUnavailable):
+        client.resolve_public_names([DESTINATARIO])
+    assert transport.token_calls[0]["scope"] == "storage:read"
+
+
+@pytest.mark.unit
+def test_settings_m2m_configured_requires_credentials(tmp_path, monkeypatch):
+    """`osap.toml` documenta las claves que lee `Settings.load`."""
+    for name in (
+        "CHORUS_AUTH_M2M_CLIENT_ID",
+        "CHORUS_AUTH_M2M_CLIENT_SECRET",
+        "CHORUS_AUTH_M2M_SCOPE",
+        "CHORUS_AUTH_M2M_AUDIENCE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    config = tmp_path / "osap.toml"
+    config.write_text(
+        '[auth]\nbase_url = "https://auth.test"\n'
+        'm2m_client_id = "cid"\nm2m_client_secret = "sec"\n',
+        encoding="utf-8",
+    )
+    settings = Settings.load(config)
+    assert settings.auth_m2m_client_id == "cid"
+    assert settings.auth_m2m_client_secret == "sec"
+    assert settings.auth_m2m_scope == "auth:read_public_names"
+    assert settings.auth_m2m_audience == "osap-auth"
+    assert settings.auth_m2m_configured() is True
+
+    assert Settings(auth_base_url="https://auth.test").auth_m2m_configured() is False
 
 
 # --------------------------------------------------------------------------
@@ -625,6 +739,39 @@ def test_activity_log_records_real_actor(app_client):
     assert log is not None
     assert log["actor"] == ADMIN, "El actor debe ser el admin autenticado, no el alta"
     assert "identity_verified_by" in (log["detail_json"] or "")
+
+
+@pytest.mark.integration
+def test_member_listing_returns_503_when_m2m_not_configured(app_client):
+    """Sin credenciales M2M no se degrada a nombres vacíos: 503."""
+    app_client.set_identity(IdentityClient("https://auth.test"))
+
+    response = app_client.client.get(
+        f"/api/v1/groups/{app_client.group_id}/members",
+        headers=app_client.headers["mgr"],
+    )
+    assert response.status_code == 503, response.text
+
+
+@pytest.mark.integration
+def test_service_token_cannot_act_as_user(app_client):
+    """Un service token no autentica como usuario ni autoriza el alta admin."""
+    before = _count_members(app_client)
+    service_headers = {"Authorization": "Bearer service-token-1"}
+
+    listed = app_client.client.get(
+        f"/api/v1/groups/{app_client.group_id}/members",
+        headers=service_headers,
+    )
+    added = app_client.client.post(
+        f"/api/v1/admin/groups/{app_client.group_id}/members",
+        headers=service_headers,
+        json={"user_sub": DESTINATARIO},
+    )
+
+    assert listed.status_code == 401, listed.text
+    assert added.status_code == 401, added.text
+    assert _count_members(app_client) == before
 
 
 def _count_members(ctx) -> int:

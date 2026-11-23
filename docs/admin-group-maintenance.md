@@ -194,6 +194,24 @@ Authorization: Bearer <service token>
 
 El token de servicio se cachea en memoria hasta su caducidad (margen de 30 s). **No** se utiliza el token del administrador como sustituto de la credencial M2M.
 
+#### Alta del cliente de servicio en osap-auth
+
+1. En `osap-auth`, crear un cliente de servicio **propio de Chorus** (UUID
+   nuevo, secreto aleatorio, hash almacenado; el secreto nunca en claro) con
+   `scopes=["auth:read_public_names"]`, `allowed_audiences=["osap-auth"]` y
+   `enabled=true`.
+2. Entregar `client_id` y secreto por un canal seguro y configurarlos en Chorus
+   con `CHORUS_AUTH_M2M_CLIENT_ID` / `CHORUS_AUTH_M2M_CLIENT_SECRET` (o las
+   claves `[auth] m2m_client_id` / `m2m_client_secret` de `osap.toml`, que está
+   gitignored).
+3. No reutilizar credenciales de osap-api, Storage ni Support.
+4. Reiniciar Chorus y comprobar `GET /api/v1/groups/{id}/members`: los nombres
+   se resuelven y `identity_verified` es `true` para identidades conocidas por
+   Auth.
+
+Sin estas credenciales Chorus **no** cae a un modo anónimo: las operaciones que
+necesitan identidad responden `503` (ver §7.5).
+
 ### 7.4 Nombres en los listados
 
 `group_members` guarda `display_name` como **instantánea histórica** del nombre que Auth devolvió en el momento del alta o de la incorporación. No es una fuente de verdad:
@@ -211,6 +229,18 @@ Se distinguen **tres** situaciones, sin degradación silenciosa:
 | Auth no disponible o error de contrato | `503` en el listado. No se presentan todos los usuarios como no verificados. |
 
 El criterio es idéntico en el listado ordinario y en el administrativo.
+
+### 7.5 Diagnóstico de errores
+
+| Código | Causa | Qué revisar |
+|--------|-------|-------------|
+| `401` | Falta el token de usuario o es inválido | Cabecera `Authorization: Bearer <access token>` de usuario y `GET /auth/me` de osap-auth. |
+| `403` | Usuario autenticado sin permisos, o service token sin scope/audiencia | Pertenencia/rol del actor en el grupo; `scope` y `audience` del cliente M2M en Auth. |
+| `503` | Auth no disponible, configuración M2M incompleta o respuesta fuera de contrato | `CHORUS_AUTH_M2M_*`, conectividad con osap-auth, estado del cliente en Auth y forma de `/auth/m2m/users`. |
+
+La identidad del **usuario** (token del actor) y la del **servicio** (service
+token) son independientes: el service token sólo resuelve nombres; nunca
+autoriza operaciones administrativas ni sustituye al usuario.
 
 ## 8. Búsqueda de personas: carencia de contrato en osap-auth
 
