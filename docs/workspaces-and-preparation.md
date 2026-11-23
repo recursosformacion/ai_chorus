@@ -22,8 +22,9 @@
 
 - `spaces.id` — UUID hex opaco. Es la única referencia usada por la API.
 - `spaces.space_type` — `personal` | `group` | `project`.
-- `spaces.owner_sub` — **propietario personal**. Sólo se rellena en espacios `personal`; en `group`/`project` es `NULL`.
-- `spaces.group_id` — grupo asociado. `NOT NULL` para `group` y `project`; `NULL` para `personal`.
+- `spaces.owner_sub` — propietario de espacios privados `personal` y `project`; es `NULL` en espacios colectivos.
+- `spaces.group_id` — grupo asociado. `NOT NULL` para `group` y proyectos compartidos; `NULL` para espacios personales y proyectos privados.
+- Un `project` puede ser privado (owner_sub del usuario y sin group_id) o compartido (group_id y sin owner_sub).
 - `spaces.general_group_id` — columna generada (`IF(space_type='group', group_id, NULL)`) con índice único `uq_spaces_general_group`.
 
 ### 1.2 Espacio general de un grupo
@@ -44,7 +45,8 @@ Un grupo tiene **un único espacio general** (`space_type='group'`) y puede tene
 | Tipo | Quién lo ve |
 |------|-------------|
 | `personal` | Sólo `owner_sub`. |
-| `group` / `project` | Miembros **activos** del grupo asociado. |
+| Proyecto privado | Sólo `owner_sub`. |
+| `group` / proyecto compartido | Miembros **activos** del grupo asociado. |
 | Cualquiera | Admin de plataforma. |
 
 `owner_sub` **no** concede visibilidad en espacios colectivos. Quien deja de ser miembro (abandono o expulsión) deja de ver el espacio en el listado **y** en el acceso directo por id, así como sus trabajos, items y archivos.
@@ -53,7 +55,7 @@ Un grupo tiene **un único espacio general** (`space_type='group'`) y puede tene
 
 | Operación | Permiso |
 |-----------|---------|
-| Gestión del espacio (nombre, descripción) | Admin, propietario (personal), manager del grupo. |
+| Gestión del espacio (nombre, descripción) | Admin, propietario (personal/proyecto privado), manager del grupo. |
 | Crear/editar/borrar trabajos, items y referencias | Admin, propietario (personal), manager del grupo, **director musical**. |
 | Consultar | Admin, propietario, miembro activo. |
 
@@ -233,3 +235,21 @@ La reconstrucción falla si cualquiera de estas comprobaciones no se cumple.
 - Las rutas históricas de grupos siguen operativas y delegan en la implementación canónica.
 - El contrato de subida multipart se mantiene (`parts`, `part_label`, `purpose`) y añade `id` y `file_id` estables.
 - El listado histórico conserva la clave `name`.
+
+## 10. Proyectos personales independientes
+
+Un usuario particular puede crear tantos espacios `project` privados como necesite, sin crear una entidad ni un grupo OSAP. Cada proyecto:
+- Tiene `owner_sub` del usuario y `group_id = NULL`.
+- Sólo aparece en el listado y en las rutas de ese propietario.
+- Admite trabajos de preparación y sus archivos privados.
+- No se comparte automáticamente con ningún grupo.
+
+Los proyectos asociados a un grupo mantienen el modelo colectivo y sus permisos de membresía. La migración 042 sustituye la restricción de ownership para admitir ambos casos sin alterar los proyectos existentes.
+
+## 11. Interfaz de usuario
+
+- El formulario de eventos se muestra dentro de la ventana de Agenda; no abre una segunda ventana de aplicación.
+- El botón `Añadir obra` del repertorio crea un trabajo de preparación en el espacio activo, no redirige a la biblioteca personal.
+- La sección `Mis proyectos` permite crear y abrir proyectos privados.
+- El botón de cuenta en la cabecera abre la edición del nombre y nickname del usuario.
+- La gestión del grupo permite mantener la información colectiva y los datos de participación de sus miembros (voz/instrumento, sección, cargo y rol musical). Los datos personales de cuenta sólo los modifica el propio usuario.
