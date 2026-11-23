@@ -74,6 +74,17 @@
   let currentProfile = null;
   let spacesState = [];
   let activeProjectSpace = null;
+  let agendaLoaded = false;
+
+  function readUiState(key) {
+    try { return localStorage.getItem(key); } catch (_) { return null; }
+  }
+  function writeUiState(key, value) {
+    try {
+      if (value == null || value === "") localStorage.removeItem(key);
+      else localStorage.setItem(key, String(value));
+    } catch (_) { /* almacenamiento opcional */ }
+  }
 
   function showMessage(id, message, kind = "") {
     const el = $(id);
@@ -236,6 +247,8 @@
 
   function setActiveGroup(groupId, reloadMessages = true) {
     activeGroupId = groupId;
+    writeUiState("chorus.activeGroupId", groupId);
+    writeUiState("chorus.activeProjectSpaceId", null);
     activeProjectSpace = null;
     const repertoireTitle = $("dashboard-repertorio")?.querySelector("h2");
     if (repertoireTitle) repertoireTitle.textContent = "Lo que estamos preparando";
@@ -264,21 +277,17 @@
     const groups = agendaState.groups || [];
     if (!groups.length) {
       activeGroupId = "";
+      writeUiState("chorus.activeGroupId", null);
       updateActiveGroupUi();
       $("group-picker-modal")?.classList.add("hidden");
       return;
     }
-    const stored = groups.find((group) => group.id === activeGroupId);
-    if (stored) {
-      updateActiveGroupUi();
-      if (!agendaFilter) agendaFilter = stored.id;
-      return;
-    }
-    if (groups.length === 1) {
-      setActiveGroup(groups[0].id, false);
-      return;
-    }
-    if (!groupPickerOpen) openGroupPicker();
+    const savedId = readUiState("chorus.activeGroupId");
+    const selected = groups.find((group) => group.id === activeGroupId)
+      || groups.find((group) => group.id === savedId)
+      || groups[0];
+    if (activeGroupId !== selected.id) setActiveGroup(selected.id, false);
+    else updateActiveGroupUi();
   }
 
   function kindLabel(kind) {
@@ -308,7 +317,9 @@
 
   async function loadAgenda() {
     agendaState = await request("/api/v1/agenda");
+    agendaLoaded = true;
     ensureActiveGroup();
+    if (!activeGroup()) activateDefaultPersonalProject();
     renderAgenda();
     const agendaModal = $("agenda-modal");
     if (agendaModal && !agendaModal.classList.contains("hidden")) {
@@ -322,6 +333,27 @@
   async function loadSpaces() {
     spacesState = await request("/api/v1/spaces");
     renderProjects();
+    if (agendaLoaded && !activeGroup()) activateDefaultPersonalProject();
+    renderGroupCard();
+  }
+
+  function activateDefaultPersonalProject() {
+    if (activeGroup()) return false;
+    const projects = (spacesState || []).filter(
+      (space) => space.space_type === "project" && !space.group_id,
+    );
+    if (!projects.length) {
+      activeProjectSpace = null;
+      return false;
+    }
+    const savedId = readUiState("chorus.activeProjectSpaceId");
+    activeProjectSpace = projects.find((space) => space.id === savedId) || projects[0];
+    writeUiState("chorus.activeProjectSpaceId", activeProjectSpace.id);
+    const heading = $("dashboard-repertorio")?.querySelector("h2");
+    if (heading) heading.textContent = activeProjectSpace.name;
+    renderProjects();
+    void loadPreparationWorks();
+    return true;
   }
 
   function renderProjects() {
@@ -348,6 +380,7 @@
       open.textContent = activeProjectSpace?.id === space.id ? "Proyecto abierto" : "Trabajar";
       open.addEventListener("click", () => {
         activeProjectSpace = space;
+        writeUiState("chorus.activeProjectSpaceId", space.id);
         $("dashboard-repertorio").querySelector("h2").textContent = space.name;
         renderProjects();
         void loadPreparationWorks();
@@ -377,6 +410,7 @@
       $("project-form").classList.add("hidden");
       await loadSpaces();
       activeProjectSpace = space;
+      writeUiState("chorus.activeProjectSpaceId", space.id);
       $("dashboard-repertorio").querySelector("h2").textContent = space.name;
       renderProjects();
       await loadPreparationWorks();
@@ -480,6 +514,18 @@
     }
     content.classList.add("hidden");
     empty.classList.remove("hidden");
+    const personalProjects = (spacesState || []).filter(
+      (space) => space.space_type === "project" && !space.group_id,
+    );
+    const emptyTitle = empty.querySelector("h2");
+    const emptyText = empty.querySelector(".muted");
+    if (personalProjects.length) {
+      emptyTitle.textContent = "Espacio personal";
+      emptyText.textContent = "Puedes trabajar en Chorus sin pertenecer a un grupo. Tus proyectos privados y sus obras aparecen en Repertorio.";
+    } else {
+      emptyTitle.textContent = "Sin grupo asignado";
+      emptyText.textContent = "Puedes crear o unirte a un grupo, o crear un proyecto privado para trabajar de forma independiente.";
+    }
     const form = $("dash-group-form");
     form.classList.toggle(
       "hidden", !(agendaState.can_create_group && (agendaState.entities || []).length),
@@ -2116,7 +2162,8 @@ async function saveGroupData(event) {
         showMessage("login-error", "Completa primero el alta de tu cuenta OSAP.", "error");
         return;
       }
-      showWorkspace(data.nickname || data.email || data.user_id, data);
+      const profile = await request("/api/v1/auth/me", {}, false);
+      showWorkspace(profile.nickname || profile.name || profile.email || profile.user_id, profile);
     } catch (error) {
       accessToken = null;
       showMessage("login-error", error.message || "No se pudo iniciar la sesión desde OSAP.", "error");
@@ -2156,13 +2203,8 @@ async function saveGroupData(event) {
     if (data.onboarding && data.onboarding.required) {
       throw new Error("Tu cuenta necesita completar el alta de OSAP antes de utilizar Chorus.");
     }
-    showWorkspace(email);
-    try {
-      const profile = await request("/api/v1/auth/me", {}, false);
-      showWorkspace(profile.nickname || profile.email || email, profile);
-    } catch (_) {
-      // La etiqueta inicial (email) sigue siendo válida si /auth/me no responde.
-    }
+    const profile = await request("/api/v1/auth/me", {}, false);
+    showWorkspace(profile.nickname || profile.name || profile.email || email, profile);
   }
   function unwrap(doc) {
     return doc && doc.success === true && Object.prototype.hasOwnProperty.call(doc,"data") ? doc.data : doc;
@@ -2741,10 +2783,96 @@ async function saveGroupData(event) {
   $("inbox-reply-sender").addEventListener("click",()=>{void sendInboxReply({preventDefault(){}}, false);});
   $("ga-close").addEventListener("click",()=>{$("group-admin-modal").classList.add("hidden");});
   $("ga-edit-form").addEventListener("submit",(event)=>{void saveGroupData(event);});
+  const PROFILE_READ_ONLY = new Set([
+    "user_id", "id", "sub", "email", "roles", "status", "email_verified",
+    "avatar_url", "onboarding", "created_at", "updated_at", "last_login",
+    "last_login_at", "permissions",
+  ]);
+  const PROFILE_LABELS = {
+    name: "Nombre y apellidos", nickname: "Nombre público / nickname",
+    nickname_public_consent: "Permitir mostrar mi nickname públicamente",
+    first_name: "Nombre", last_name: "Apellidos", phone: "Teléfono",
+    phone_number: "Teléfono", city: "Localidad", region: "Provincia / región",
+    country: "País", address: "Dirección", postal_code: "Código postal",
+    language: "Idioma", website: "Web personal", organization: "Organización",
+    bio: "Presentación", biography: "Presentación",
+  };
+  function profileFieldLabel(key) {
+    return PROFILE_LABELS[key] || key.replace(/([A-Z])/g, " $1")
+      .replace(/[_-]+/g, " ").replace(/^./, (letter) => letter.toUpperCase());
+  }
+  function profileDisplayValue(value) {
+    if (value == null || value === "") return "—";
+    if (typeof value === "boolean") return value ? "Sí" : "No";
+    if (Array.isArray(value) || typeof value === "object") return JSON.stringify(value);
+    return String(value);
+  }
+  function renderProfileFields() {
+    const container = $("profile-fields");
+    container.replaceChildren();
+    const profile = currentProfile || {};
+    const email = document.createElement("label");
+    email.className = "profile-field";
+    email.textContent = "Correo electrónico (no modificable)";
+    const emailInput = document.createElement("input");
+    emailInput.type = "email";
+    emailInput.value = profile.email || "";
+    emailInput.disabled = true;
+    email.append(emailInput);
+    container.append(email);
+    const keys = Object.keys(profile).filter((key) =>
+      key !== "email" && !/(token|secret|password|credential)/i.test(key)
+    );
+    const priority = ["name", "nickname"];
+    keys.sort((a, b) => {
+      const ai = priority.indexOf(a), bi = priority.indexOf(b);
+      if (ai >= 0 || bi >= 0) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+      return a.localeCompare(b);
+    });
+    keys.forEach((key) => {
+      const value = profile[key];
+      const field = document.createElement("label");
+      field.className = "profile-field";
+      const caption = document.createElement("span");
+      caption.textContent = profileFieldLabel(key);
+      field.append(caption);
+      const editable = !PROFILE_READ_ONLY.has(key)
+        && (value == null || ["string", "number", "boolean"].includes(typeof value));
+      if (!editable) {
+        const output = document.createElement("span");
+        output.className = "profile-field-value";
+        output.textContent = profileDisplayValue(value);
+        field.append(output);
+      } else if (typeof value === "boolean") {
+        const wrapper = document.createElement("span");
+        wrapper.className = "profile-checkbox";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = value;
+        input.dataset.profileField = key;
+        wrapper.append(input, document.createTextNode(" Activado"));
+        field.append(wrapper);
+      } else if (["bio", "biography", "description", "about"].includes(key)) {
+        const input = document.createElement("textarea");
+        input.rows = 3;
+        input.value = value == null ? "" : String(value);
+        input.dataset.profileField = key;
+        field.append(input);
+      } else {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = value == null ? "" : String(value);
+        input.dataset.profileField = key;
+        if (key === "name") input.required = true;
+        if (key === "nickname") { input.minLength = 3; input.maxLength = 30; }
+        field.append(input);
+      }
+      container.append(field);
+    });
+  }
   $("account-label").addEventListener("click", () => {
     if (!currentProfile) return;
-    $("profile-name").value = currentProfile.name || "";
-    $("profile-nickname").value = currentProfile.nickname || "";
+    renderProfileFields();
     showMessage("profile-message", "", "");
     $("profile-modal").classList.remove("hidden");
   });
@@ -2756,22 +2884,40 @@ async function saveGroupData(event) {
   });
   $("profile-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const name = $("profile-name").value.trim();
-    const nickname = $("profile-nickname").value.trim() || null;
-    if (!name) {
+    const updates = {};
+    $("profile-fields").querySelectorAll("[data-profile-field]").forEach((input) => {
+      const key = input.dataset.profileField;
+      let value;
+      if (input.type === "checkbox") value = input.checked;
+      else {
+        const raw = input.value.trim();
+        value = raw === "" ? null : raw;
+        if (typeof currentProfile[key] === "number" && value !== null) value = Number(value);
+      }
+      if (value !== currentProfile[key]) updates[key] = value;
+    });
+    if (!Object.keys(updates).length) {
+      showMessage("profile-message", "No hay cambios que guardar.", "success");
+      return;
+    }
+    if (updates.name === null || (updates.name === undefined && !currentProfile.name)) {
       showMessage("profile-message", "El nombre es obligatorio.", "error");
+      return;
+    }
+    if (updates.nickname !== undefined && updates.nickname !== null
+        && (updates.nickname.length < 3 || updates.nickname.length > 30)) {
+      showMessage("profile-message", "El nickname debe tener entre 3 y 30 caracteres.", "error");
       return;
     }
     const button = $("profile-save");
     setBusy(button, true, "Guardando…");
     try {
       const updated = await request("/api/v1/auth/me", {
-        method: "PATCH",
-        body: JSON.stringify({name, nickname}),
+        method: "PATCH", body: JSON.stringify(updates),
       });
-      currentProfile = {...currentProfile, ...(updated || {}), name, nickname};
-      const display = nickname || name || currentProfile.email || "Usuario";
-      const initials = display.split(/\\s+/).filter(Boolean);
+      currentProfile = {...currentProfile, ...(updated || {}), ...updates};
+      const display = currentProfile.nickname || currentProfile.name || currentProfile.email || "Usuario";
+      const initials = display.split(/\s+/).filter(Boolean);
       profileAvatarInitials = initials.length > 1
         ? (initials[0][0] + initials[initials.length - 1][0]).toUpperCase()
         : display.slice(0, 2).toUpperCase();
@@ -2781,7 +2927,8 @@ async function saveGroupData(event) {
       $("account-label").replaceChildren(avatar, document.createTextNode(display));
       $("dash-name").textContent = display;
       paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
-      showMessage("profile-message", "Perfil actualizado.", "success");
+      renderProfileFields();
+      showMessage("profile-message", "Ficha de usuario actualizada.", "success");
       setTimeout(() => closeProfile(), 700);
     } catch (error) {
       showMessage("profile-message", error.message, "error");
@@ -2984,7 +3131,9 @@ async function saveGroupData(event) {
   let prepWorkFiles = [];
 
   function openPrepWorkModal() {
-    const group = activeGroup();
+    let group = activeGroup();
+    if (!group && !activeProjectSpace && agendaLoaded) activateDefaultPersonalProject();
+    group = activeGroup();
     if (activeProjectSpace) {
       if (activeProjectSpace.owner_sub !== (currentProfile && currentProfile.user_id)) {
         showMessage("dash-event-message", "Sólo el propietario puede añadir obras a este proyecto privado.", "error");
@@ -2995,7 +3144,7 @@ async function saveGroupData(event) {
         if ((agendaState.groups || []).length) {
           openGroupPicker();
         } else {
-          showMessage("dash-event-message", "Crea o abre un proyecto en «Mis proyectos» para añadir obras sin pertenecer a un grupo.", "error");
+          showMessage("project-message", "Para añadir una obra sin grupo, crea primero un proyecto privado en «Mis proyectos».", "error");
           $("dashboard-projects").scrollIntoView({behavior: "smooth", block: "center"});
         }
         return;
