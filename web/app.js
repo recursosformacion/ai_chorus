@@ -3341,18 +3341,22 @@ async function saveGroupData(event) {
   });
   const avatarRemove = $("avatar-remove");
   if (avatarRemove) avatarRemove.addEventListener("click", async () => {
+    showMessage("profile-message", "Quitando foto…");
     showMessage("avatar-message", "Quitando foto…");
     try {
       const profile = await request("/api/v1/auth/me/avatar", {method: "DELETE"});
       profileAvatarUrl = profile && profile.avatar_url
         ? `${profile.avatar_url}?v=${Date.now()}`
         : null;
+      if (currentProfile) currentProfile.avatar_url = profile && profile.avatar_url ? profile.avatar_url : null;
       paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("profile-modal-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      showMessage("profile-message", "Foto de perfil eliminada.", "success");
       showMessage("avatar-message", "Foto eliminada.", "ok");
     } catch (error) {
+      showMessage("profile-message", error.message || "No se pudo quitar la foto.", "error");
       showMessage("avatar-message", error.message, "error");
     }
   });
