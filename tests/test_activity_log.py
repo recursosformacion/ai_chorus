@@ -148,9 +148,10 @@ def test_activity_log_trigger_on_article_publish(integration_settings: Settings,
         "token-manager": _profile("mgr-1"),
         "token-member": _profile("mem-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
 
@@ -200,9 +201,10 @@ def test_activity_log_trigger_on_member_role_change(integration_settings: Settin
         "token-manager": _profile("mgr-1"),
         "token-member": _profile("mem-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
 
@@ -251,9 +253,10 @@ def test_activity_log_trigger_on_member_role_change(integration_settings: Settin
 def test_activity_log_detail_json(integration_settings: Settings, monkeypatch):
     """Verify detail_json is properly parsed."""
     profiles = {"token-manager": _profile("mgr-1")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         grp = client.post("/api/v1/groups", headers=mgr_h, json={"name": "JSON Test"}).json()
         group_id = grp["id"]
@@ -263,7 +266,7 @@ def test_activity_log_detail_json(integration_settings: Settings, monkeypatch):
         from app.utils import utcnow
         from app.db import connect as db_connect
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             test_id = uuid.uuid4().hex[:8]
             conn.execute(
                 "INSERT INTO activity_log (legacy_id, group_id, event_type, actor, detail_json, created_at) "
