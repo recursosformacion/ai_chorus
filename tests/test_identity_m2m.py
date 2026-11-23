@@ -91,12 +91,13 @@ def app_client(integration_settings: Settings, monkeypatch):
         "token-mgr": _profile(MGR),
         "token-member": _profile("id-member"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = _m2m_settings(database_url=integration_settings.database_url)
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
     identity = RecordingIdentityClient(DIRECTORIO)
     install_identity(monkeypatch, identity)
 
-    client = TestClient(create_app(integration_settings))
+    client = TestClient(create_app(settings))
     group = client.post(
         "/api/v1/groups",
         headers={"Authorization": "Bearer token-mgr"},
