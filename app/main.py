@@ -219,7 +219,7 @@ class RsvpBody(BaseModel):
 
 class MemberUpdateBody(BaseModel):
     role: Literal["manager", "member"] | None = None
-    display_name: str | None = Field(default=None, max_length=255)
+    voice_label: str | None = Field(default=None, max_length=64)
     admin_role_id: str | None = None
     musical_role_id: str | None = None
     section_id: str | None = None
@@ -2587,14 +2587,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             # Capture before values for activity log
             before_role = target["role"]
-            before_display_name = target["display_name"]
+            before_voice_label = target["voice_label"]
             before_admin_role = target["admin_role_id"]
             before_musical_role = target["musical_role_id"]
             before_section = target["section_id"]
             before_status = target["status"]
             updates = []
             values: list[Any] = []
-            for column in ("role", "display_name", "admin_role_id", "musical_role_id", "section_id", "status"):
+            for column in ("role", "voice_label", "admin_role_id", "musical_role_id", "section_id", "status"):
                 value = getattr(body, column)
                 if value is not None:
                     updates.append(f"{column}=?")
@@ -2612,8 +2612,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             detail = {}
             if body.role is not None and body.role != before_role:
                 detail["role"] = {"from": before_role, "to": body.role}
-            if body.display_name is not None and body.display_name != before_display_name:
-                detail["display_name"] = {"from": before_display_name, "to": body.display_name}
+            if body.voice_label is not None and body.voice_label != before_voice_label:
+                detail["voice_label"] = {"from": before_voice_label, "to": body.voice_label}
             if body.admin_role_id != before_admin_role:
                 detail["admin_role"] = {"from": before_admin_role, "to": body.admin_role_id}
             if body.musical_role_id != before_musical_role:
@@ -2746,7 +2746,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not admin and member is None:
                 raise HTTPException(status_code=403, detail="Not a member of this group")
             rows = conn.execute(
-                "SELECT user_sub, role, display_name, voice_label, section, "
+                "SELECT user_sub, role, display_name, voice_label, voice_code, section, "
                 "admin_role_id, musical_role_id, section_id FROM group_members WHERE group_id = ? AND status = 'active' "
                 "ORDER BY role DESC, display_name, user_sub",
                 (group_id,),
@@ -2783,6 +2783,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
                 "identity_verified": row["user_sub"] in identities,
                 "voice_label": row["voice_label"],
+                "voice_code": row["voice_code"],
                 "section": row["section"],
                 "admin_role_id": row["admin_role_id"],
                 "admin_role": role_map.get(row["admin_role_id"]) if row["admin_role_id"] else None,
