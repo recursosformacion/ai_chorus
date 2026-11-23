@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -71,9 +73,10 @@ def _setup_group_space(client, headers, *, name="Grupo Archivos"):
 def test_upload_creates_file_and_reference_records(integration_settings: Settings, monkeypatch):
     """La subida deja archivo físico, registro files y relación preparation_work_files."""
     profiles = {"token-mgr": _profile("file-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         group_id, join_code, space_id, work_id = _setup_group_space(client, mgr)
 
@@ -88,7 +91,7 @@ def test_upload_creates_file_and_reference_records(integration_settings: Setting
         assert entry["id"], "La referencia debe tener identificador estable"
         assert entry["file_id"], "El File de Chorus debe tener identificador"
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             ref = conn.execute(
                 "SELECT file_id FROM preparation_work_files WHERE id = ?", (entry["id"],)
             ).fetchone()
@@ -122,9 +125,10 @@ def test_upload_creates_file_and_reference_records(integration_settings: Setting
 def test_unified_list_download_and_remove_reference(integration_settings: Settings, monkeypatch):
     """Listar, descargar por id y retirar referencias sin destruir el archivo."""
     profiles = {"token-mgr": _profile("uni-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         group_id, join_code, space_id, work_id = _setup_group_space(client, mgr)
 
@@ -174,7 +178,7 @@ def test_unified_list_download_and_remove_reference(integration_settings: Settin
         )
         assert rm.status_code == 200
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             assert conn.execute(
                 "SELECT COUNT(*) AS c FROM preparation_work_files WHERE file_id = ?",
                 (entry["file_id"],),
@@ -196,9 +200,10 @@ def test_unified_list_download_and_remove_reference(integration_settings: Settin
 def test_upload_is_idempotent_for_container_work(integration_settings: Settings, monkeypatch):
     """Varias subidas reutilizan la Work contenedora en lugar de duplicarla."""
     profiles = {"token-mgr": _profile("idemf-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         group_id, join_code, space_id, work_id = _setup_group_space(client, mgr)
 
@@ -209,7 +214,7 @@ def test_upload_is_idempotent_for_container_work(integration_settings: Settings,
             )
             assert r.status_code == 201, r.text
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             works = conn.execute(
                 "SELECT COUNT(*) AS c FROM works WHERE id = ?", (f"pw-{work_id}",)
             ).fetchone()["c"]
@@ -226,13 +231,14 @@ def test_upload_is_idempotent_for_container_work(integration_settings: Settings,
 @pytest.mark.integration
 def test_private_work_of_another_user_cannot_be_added(integration_settings: Settings, monkeypatch):
     profiles = {"token-a": _profile("acc-a"), "token-b": _profile("acc-b")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         a = {"Authorization": "Bearer token-a"}
         b = {"Authorization": "Bearer token-b"}
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             _insert_chain(conn, work_id="w-priv", resource_id="r-priv",
                           file_id="f-priv", owner_sub="acc-b")
 
@@ -260,9 +266,10 @@ def test_group_shared_resource_usable_by_members(integration_settings: Settings,
         "token-mem": _profile("shr-mem"),
         "token-out": _profile("shr-out"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         mem = {"Authorization": "Bearer token-mem"}
         out = {"Authorization": "Bearer token-out"}
@@ -272,7 +279,7 @@ def test_group_shared_resource_usable_by_members(integration_settings: Settings,
         assert client.post("/api/v1/groups/join", headers=mem,
                            json={"code": join_code}).status_code == 200
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             _insert_chain(conn, work_id="w-shr", resource_id="r-shr",
                           file_id="f-shr", group_id=group_id)
 
@@ -316,9 +323,10 @@ def test_section_restricted_resource_respects_section_membership(
         "token-s1": _profile("sec-one"),
         "token-s2": _profile("sec-two"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         s1 = {"Authorization": "Bearer token-s1"}
         s2 = {"Authorization": "Bearer token-s2"}
@@ -331,7 +339,7 @@ def test_section_restricted_resource_respects_section_membership(
             assert client.post("/api/v1/groups/join", headers=headers,
                                json={"code": join_code}).status_code == 200
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             conn.execute(
                 "INSERT INTO group_sections (id, group_id, name, code, active, created_at, updated_at) "
                 "VALUES (?,?,?,?,?,?,?)",
@@ -355,7 +363,7 @@ def test_section_restricted_resource_respects_section_membership(
                             json={"section_id": sec2["id"]}).status_code == 200
 
         # Resource restringida a la sección 1
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             _insert_chain(conn, work_id="w-sec", resource_id="r-sec", file_id="f-sec",
                           group_id=group_id, section_id=sec1["id"])
 
@@ -393,9 +401,10 @@ def test_download_rechecks_authorization(integration_settings: Settings, monkeyp
         "token-mgr": _profile("dl-mgr"),
         "token-out": _profile("dl-out"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         out = {"Authorization": "Bearer token-out"}
 
