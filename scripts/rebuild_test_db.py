@@ -54,6 +54,7 @@ MIGRATIONS = [
     "039_preparation_work_files.sql",
     "040_migrate_preparation_works_to_spaces.sql",
     "041_consolidate_spaces.sql",
+    "042_personal_projects.sql",
     # 009_legacy_baseline NO se ejecuta en reconstrucción desde cero
 ]
 
@@ -157,6 +158,13 @@ def _verify_spaces_schema(conn) -> tuple[bool, list[str]]:
         errors.append("spaces.space_type debe incluir 'personal'")
     if col('spaces', 'general_group_id') is None:
         errors.append("spaces: falta columna generada general_group_id (mig 041)")
+    check = conn.execute(
+        "SELECT COUNT(*) AS n FROM information_schema.TABLE_CONSTRAINTS "
+        "WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'spaces' "
+        "AND CONSTRAINT_NAME = 'chk_space_ownership' AND CONSTRAINT_TYPE = 'CHECK'"
+    ).fetchone()
+    if not check or int(check['n']) != 1:
+        errors.append("spaces: falta chk_space_ownership (mig 042)")
 
     # --- preparation_works: space_id obligatorio, group_id eliminado ---
     row = col('preparation_works', 'space_id')
