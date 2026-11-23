@@ -455,3 +455,6 @@
 .profile-membership-kind,.profile-membership-status{border-radius:999px;background:rgba(36,59,53,.07);padding:2px 7px;color:#5c6f68;font-size:11px}
 .profile-avatar-field{display:flex;flex-direction:column;gap:5px}
 @media(max-width:640px){.profile-section{grid-template-columns:minmax(0,1fr)}}
+
+#profile-modal-avatar{grid-column:1/-1;width:100%}
+.profile-avatar-field{flex:1;min-width:0}
