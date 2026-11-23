@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -38,9 +40,10 @@ def test_space_list_visibility_rules(integration_settings: Settings, monkeypatch
         "token-out": _profile("vis-out"),
         "token-admin": _profile("vis-admin", roles=["admin"]),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         mem = {"Authorization": "Bearer token-mem"}
         out = {"Authorization": "Bearer token-out"}
@@ -92,9 +95,10 @@ def test_access_revoked_after_leaving_group(integration_settings: Settings, monk
         "token-mgr": _profile("rev-mgr"),
         "token-mem": _profile("rev-mem"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         mem = {"Authorization": "Bearer token-mem"}
 
@@ -162,9 +166,10 @@ def test_creator_loses_group_space_access_if_no_longer_manager(
         "token-a": _profile("cre-a"),
         "token-b": _profile("cre-b"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         a = {"Authorization": "Bearer token-a"}
         b = {"Authorization": "Bearer token-b"}
 
@@ -208,9 +213,10 @@ def test_group_general_space_is_unique_and_not_a_project(
 ):
     """Un grupo con varios proyectos resuelve siempre el espacio general."""
     profiles = {"token-mgr": _profile("gs-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
 
         grp = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo GS"}).json()
@@ -242,7 +248,7 @@ def test_group_general_space_is_unique_and_not_a_project(
         assert general_id not in (p1["id"], p2["id"])
 
         # owner_sub del espacio general es NULL (no el id del grupo)
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             row = conn.execute(
                 "SELECT space_type, owner_sub, group_id FROM spaces WHERE id = ?",
                 (general_id,),
@@ -275,9 +281,10 @@ def test_group_general_space_is_unique_and_not_a_project(
 def test_general_space_creation_is_idempotent(integration_settings: Settings, monkeypatch):
     """Creaciones repetidas no generan espacios generales duplicados."""
     profiles = {"token-mgr": _profile("idem-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         grp = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo Idem"}).json()
         group_id = grp["id"]
@@ -293,7 +300,7 @@ def test_general_space_creation_is_idempotent(integration_settings: Settings, mo
 
         assert len(space_ids) == 1, f"Se crearon varios espacios generales: {space_ids}"
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             count = conn.execute(
                 "SELECT COUNT(*) AS c FROM spaces WHERE group_id = ? AND space_type = 'group'",
                 (group_id,),
@@ -305,16 +312,17 @@ def test_general_space_creation_is_idempotent(integration_settings: Settings, mo
 def test_db_rejects_second_general_space(integration_settings: Settings, monkeypatch):
     """El índice único impide un segundo espacio general a nivel de BD."""
     profiles = {"token-mgr": _profile("uniq-mgr")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr = {"Authorization": "Bearer token-mgr"}
         grp = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo Uniq"}).json()
         group_id = grp["id"]
         client.post(f"/api/v1/groups/{group_id}/preparation-works", headers=mgr,
                     json={"title": "inicial"})
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             existing = conn.execute(
                 "SELECT COUNT(*) AS c FROM spaces WHERE group_id = ? AND space_type = 'group'",
                 (group_id,),
@@ -343,9 +351,10 @@ def test_db_rejects_second_general_space(integration_settings: Settings, monkeyp
 def test_personal_space_can_be_created_without_group(integration_settings: Settings, monkeypatch):
     """Un músico independiente no necesita grupo (regla base del modelo)."""
     profiles = {"token-ind": _profile("ind-1")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         h = {"Authorization": "Bearer token-ind"}
 
         space = client.post("/api/v1/spaces", headers=h,
@@ -356,7 +365,7 @@ def test_personal_space_can_be_created_without_group(integration_settings: Setti
         assert body["group_id"] is None
         assert body["owner_sub"] == "ind-1"
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             count = conn.execute(
                 "SELECT COUNT(*) AS c FROM spaces s "
                 "LEFT JOIN groups g ON g.id = s.group_id WHERE s.id = ? AND g.id IS NULL",
