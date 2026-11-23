@@ -612,9 +612,9 @@ def _can_manage_space_preparation(conn, space_id: str, user_id: str, profile: di
     """Gestión de trabajos de preparación dentro de un espacio.
 
     - Admin de plataforma: sí.
-    - Espacio personal: sólo su propietario.
-    - Espacio de grupo/proyecto: manager del grupo, o miembro con rol musical
-      de dirección (se mantiene el permiso histórico de director musical).
+    - Espacio personal o proyecto privado: sólo su propietario.
+    - Espacio de grupo/proyecto compartido: manager del grupo, o miembro con
+      rol musical de dirección (se mantiene el permiso histórico de director).
       Los roles musicales NO son permisos administrativos: sólo habilitan la
       preparación, no la gestión del espacio ni de sus miembros.
     """
