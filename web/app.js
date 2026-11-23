@@ -2987,6 +2987,7 @@ async function saveGroupData(event) {
   }
   function renderProfileFields() {
     const container = $("profile-fields");
+    const avatarEditor = $("profile-modal-avatar");
     container.replaceChildren();
     const profile = currentProfile || {};
     const modalAvatar = $("profile-modal-avatar-preview");
@@ -2997,6 +2998,7 @@ async function saveGroupData(event) {
     profileField(account, "email_verified", profile.email_verified, {checkbox: true, editable: false});
 
     const personal = profileSection(container, "Datos personales");
+    if (avatarEditor) personal.append(avatarEditor);
     const preferred = [
       "name", "nickname", "first_name", "last_name", "phone", "phone_number",
       "city", "region", "country", "postal_code", "address", "language",
@@ -3093,7 +3095,27 @@ async function saveGroupData(event) {
     }
   }
   $("profile-modal-avatar-upload").addEventListener("click", () => $("avatar-file").click());
-  $("profile-modal-avatar-remove").addEventListener("click", () => $("avatar-remove").click());
+  $("profile-modal-avatar-remove").addEventListener("click", async () => {
+    const button = $("profile-modal-avatar-remove");
+    setBusy(button, true, "Quitando…");
+    showMessage("profile-message", "Quitando foto…");
+    try {
+      const profile = await request("/api/v1/auth/me/avatar", {method: "DELETE"});
+      profileAvatarUrl = profile && profile.avatar_url
+        ? `${profile.avatar_url}?v=${Date.now()}`
+        : null;
+      if (currentProfile) currentProfile.avatar_url = profile && profile.avatar_url ? profile.avatar_url : null;
+      paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("profile-modal-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      showMessage("profile-message", "Foto de perfil eliminada.", "success");
+    } catch (error) {
+      showMessage("profile-message", error.message || "No se pudo quitar la foto.", "error");
+    } finally {
+      setBusy(button, false);
+    }
+  });
   $("account-label").addEventListener("click", () => {
     if (!currentProfile) return;
     renderProfileFields();
@@ -3339,27 +3361,7 @@ async function saveGroupData(event) {
       event.target.value = "";
     }
   });
-  const avatarRemove = $("avatar-remove");
-  if (avatarRemove) avatarRemove.addEventListener("click", async () => {
-    showMessage("profile-message", "Quitando foto…");
-    showMessage("avatar-message", "Quitando foto…");
-    try {
-      const profile = await request("/api/v1/auth/me/avatar", {method: "DELETE"});
-      profileAvatarUrl = profile && profile.avatar_url
-        ? `${profile.avatar_url}?v=${Date.now()}`
-        : null;
-      if (currentProfile) currentProfile.avatar_url = profile && profile.avatar_url ? profile.avatar_url : null;
-      paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
-      paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
-      paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
-      paintAvatar($("profile-modal-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
-      showMessage("profile-message", "Foto de perfil eliminada.", "success");
-      showMessage("avatar-message", "Foto eliminada.", "ok");
-    } catch (error) {
-      showMessage("profile-message", error.message || "No se pudo quitar la foto.", "error");
-      showMessage("avatar-message", error.message, "error");
-    }
-  });
+
 
   // ===== Preparation Work Modal =====
   let prepWorkFiles = [];
