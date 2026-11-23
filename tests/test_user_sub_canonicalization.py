@@ -69,11 +69,13 @@ def env(integration_settings: Settings, monkeypatch):
     install_identity(monkeypatch, identity)
 
     client = TestClient(create_app(settings))
-    group = client.post(
+    group_response = client.post(
         "/api/v1/groups",
         headers={"Authorization": "Bearer token-mgr"},
         json={"name": "Grupo Canonico"},
-    ).json()
+    )
+    assert group_response.status_code == 201, group_response.text
+    group = group_response.json()
 
     class Env:
         def __init__(self):
