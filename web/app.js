@@ -2813,6 +2813,8 @@ async function saveGroupData(event) {
     const container = $("profile-fields");
     container.replaceChildren();
     const profile = currentProfile || {};
+    const modalAvatar = $("profile-modal-avatar-preview");
+    if (modalAvatar) paintAvatar(modalAvatar, profileAvatarInitials, profileAvatarUrl);
     const email = document.createElement("label");
     email.className = "profile-field";
     email.textContent = "Correo electrónico (no modificable)";
@@ -2872,6 +2874,8 @@ async function saveGroupData(event) {
       container.append(field);
     });
   }
+  $("profile-modal-avatar-upload").addEventListener("click", () => $("avatar-file").click());
+  $("profile-modal-avatar-remove").addEventListener("click", () => $("avatar-remove").click());
   $("account-label").addEventListener("click", () => {
     if (!currentProfile) return;
     renderProfileFields();
@@ -3105,6 +3109,7 @@ async function saveGroupData(event) {
       paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("profile-modal-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
       showMessage("avatar-message", "Foto actualizada.", "ok");
     } catch (error) {
       showMessage("avatar-message", error.message, "error");
@@ -3123,6 +3128,7 @@ async function saveGroupData(event) {
       paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      paintAvatar($("profile-modal-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
       showMessage("avatar-message", "Foto eliminada.", "ok");
     } catch (error) {
       showMessage("avatar-message", error.message, "error");
