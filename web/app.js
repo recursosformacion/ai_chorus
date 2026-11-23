@@ -329,7 +329,9 @@
     const empty = $("projects-empty");
     if (!list || !empty) return;
     list.replaceChildren();
-    const projects = (spacesState || []).filter((space) => space.space_type === "project");
+    const projects = (spacesState || []).filter(
+      (space) => space.space_type === "project" && !space.group_id,
+    );
     empty.classList.toggle("hidden", projects.length > 0);
     projects.forEach((space) => {
       const row = document.createElement("div");
