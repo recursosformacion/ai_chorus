@@ -12,10 +12,10 @@
   <meta name="twitter:card" content="summary">
   <meta name="description" content="Chorus — tu espacio personal para trabajar con partituras y música.">
   <title>Chorus · Tu espacio musical</title>
-  <link rel="stylesheet" href="/styles.css?v=0.14.3">
-  <link rel="stylesheet" href="/cover.css?v=0.14.3">
-  <link rel="stylesheet" href="/dashboard.css?v=0.14.3">
-  <script src="/app.js?v=0.14.3" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=0.14.4">
+  <link rel="stylesheet" href="/cover.css?v=0.14.4">
+  <link rel="stylesheet" href="/dashboard.css?v=0.14.4">
+  <script src="/app.js?v=0.14.4" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -215,12 +215,13 @@
       </div>
       <form id="profile-form" class="profile-form">
         <p class="muted small">Aquí puedes consultar y modificar los datos personales que ofrece tu cuenta OSAP. El correo electrónico y los datos de seguridad/permisos son de solo lectura.</p>
-        <div class="profile-modal-avatar">
+        <div id="profile-modal-avatar" class="profile-modal-avatar">
           <span class="avatar-editor-preview" id="profile-modal-avatar-preview">M</span>
-          <div class="profile-avatar-field"><strong>Foto de perfil</strong><p class="muted small">Elige una imagen JPG, PNG o WebP. Se mostrará aquí y en Chorus.</p>
+          <div class="profile-avatar-field"><strong>Foto de perfil</strong><p class="muted small">Selecciona una imagen JPG, PNG o WebP. Esta es la única opción para cambiar tu foto.</p>
             <div class="avatar-editor-actions">
               <button class="button button-outline button-small" id="profile-modal-avatar-upload" type="button">Elegir foto</button>
               <button class="button button-quiet button-small" id="profile-modal-avatar-remove" type="button">Quitar foto</button>
+              <input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" hidden>
             </div>
           </div>
         </div>
@@ -465,9 +466,7 @@
                 <strong>Foto de perfil</strong>
                 <small>JPG, PNG o WebP. Se recorta a un cuadrado de 256 px.</small>
                 <div class="avatar-editor-actions">
-                  <label class="button button-outline button-small" for="avatar-file">Subir foto</label>
-                  <input id="avatar-file" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-                  <button class="button button-quiet button-small" type="button" id="avatar-remove">Quitar</button>
+                  <span class="muted small">La foto se cambia desde tu ficha de usuario.</span>
                 </div>
                 <p id="avatar-message" class="message" role="status"></p>
               </div>
