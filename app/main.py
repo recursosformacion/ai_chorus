@@ -564,7 +564,10 @@ def _group_membership(conn, group_id: str, user_id: str) -> dict[str, Any] | Non
     """Devuelve la membresía activa del usuario en un grupo, o None."""
     row = conn.execute(
         "SELECT role, musical_role_id FROM group_members "
-        "WHERE group_id = ? AND user_sub = ? AND status = 'active'",
+        "WHERE group_id = ? "
+        "AND LOWER(REPLACE(REPLACE(REPLACE(user_sub, '-', ''), '{', ''), '}', '')) = "
+        "LOWER(REPLACE(REPLACE(REPLACE(?, '-', ''), '{', ''), '}', '')) "
+        "AND status = 'active'",
         (group_id, user_id),
     ).fetchone()
     return dict(row) if row is not None else None
@@ -1713,8 +1716,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if status_code != 200 or not isinstance(doc, dict) or not doc.get("access_token") or not doc.get("refresh_token"):
             response.delete_cookie("chorus_refresh", path="/api/v1/auth")
             raise HTTPException(status_code=401, detail="Session expired; sign in again")
+        # osap-auth rota el refresh token: conservar el anterior provoca que
+        # la siguiente recarga falle al reutilizar un token ya consumido.
         response.set_cookie(
-            "chorus_refresh", refresh_token, httponly=True, secure=cfg.secure_cookies,
+            "chorus_refresh", str(doc["refresh_token"]), httponly=True, secure=cfg.secure_cookies,
             samesite="lax", path="/api/v1/auth", max_age=30 * 24 * 60 * 60,
         )
         profile_status, profile = auth_call("GET", "/auth/me", token=str(doc["access_token"]))
@@ -2265,7 +2270,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             group_rows = conn.execute(
                 "SELECT g.*, gm.role, gm.musical_role_id FROM group_members gm "
                 "JOIN groups g ON g.id = gm.group_id "
-                "WHERE gm.user_sub = ? AND gm.status = 'active' ORDER BY g.name",
+                "WHERE LOWER(REPLACE(REPLACE(REPLACE(gm.user_sub, '-', ''), '{', ''), '}', '')) = "
+                "LOWER(REPLACE(REPLACE(REPLACE(?, '-', ''), '{', ''), '}', '')) "
+                "AND gm.status = 'active' ORDER BY g.name",
                 (user_id,),
             ).fetchall()
             group_ids = [row["id"] for row in group_rows]
@@ -5481,7 +5488,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                            AND EXISTS (
                                SELECT 1 FROM group_members gm
                                WHERE gm.group_id = s.group_id
-                                 AND gm.user_sub = ?
+                                 AND LOWER(REPLACE(REPLACE(REPLACE(gm.user_sub, '-', ''), '{', ''), '}', '')) =
+                                   LOWER(REPLACE(REPLACE(REPLACE(?, '-', ''), '{', ''), '}', ''))
                                  AND gm.status = 'active'
                            ))
                     ORDER BY s.created_at DESC
