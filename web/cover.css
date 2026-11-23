@@ -547,3 +547,78 @@
   }
 }
 
+
+
+/* Chorus: los proyectos personales ocupan la columna de grupo y no desplazan
+   el repertorio a una columna residual de la cuadrícula. */
+.projects-card { grid-column: span 5; min-width: 0; }
+@media (max-width: 760px) {
+  .projects-card { grid-column: span 12; }
+}
+
+/* Ficha completa de usuario. */
+.profile-modal-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 94vw);
+  height: auto;
+  max-height: 90vh;
+  overflow: hidden;
+}
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 24px 22px;
+}
+.profile-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.profile-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4c5a53;
+}
+.profile-field input:not([type="checkbox"]),
+.profile-field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d9d2c3;
+  border-radius: 8px;
+  background: #fff;
+  color: #26332e;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  padding: 9px 10px;
+}
+.profile-field input:disabled {
+  background: #f1f2ef;
+  color: #78827b;
+}
+.profile-field-value {
+  display: block;
+  min-height: 36px;
+  padding: 9px 10px;
+  border: 1px solid #e5e5df;
+  border-radius: 8px;
+  background: #f7f7f3;
+  color: #66716a;
+  font-size: 12px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.profile-checkbox { display: flex; align-items: center; gap: 7px; min-height: 36px; }
+@media (max-width: 640px) {
+  .profile-fields { grid-template-columns: 1fr; }
+  .profile-form { padding: 14px 16px 18px; }
+}
