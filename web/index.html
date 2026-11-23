@@ -210,10 +210,9 @@
         <div class="modal-heading"><p class="modal-eyebrow">CUENTA OSAP</p><h2 id="profile-title">Mi perfil</h2><p>Actualiza tu nombre y tu nombre público en Chorus.</p></div>
         <button id="profile-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
       </div>
-      <form id="profile-form" class="mini-form profile-form">
-        <label>Nombre y apellidos<input id="profile-name" type="text" maxlength="100" required></label>
-        <label>Nombre público / nickname<input id="profile-nickname" type="text" minlength="3" maxlength="30"></label>
-        <p class="muted small">El nickname debe tener entre 3 y 30 caracteres. Los permisos y los datos de los grupos no se modifican desde aquí.</p>
+      <form id="profile-form" class="profile-form">
+        <p class="muted small">Aquí puedes consultar y modificar los datos personales que ofrece tu cuenta OSAP. El correo electrónico y los datos de seguridad/permisos son de solo lectura.</p>
+        <div id="profile-fields" class="profile-fields"></div>
         <div class="event-actions">
           <button id="profile-cancel" class="button button-quiet" type="button">Cancelar</button>
           <button id="profile-save" class="button button-primary" type="submit">Guardar perfil</button>
