@@ -7,6 +7,7 @@ Complementa `test_identity_m2m.py` cubriendo el endpoint histórico
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -59,12 +60,13 @@ def env(integration_settings: Settings, monkeypatch):
         "token-mgr": _profile(MGR),
         "token-member": _profile(MEMBER),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
     identity = RecordingIdentityClient(DIRECTORIO)
     install_identity(monkeypatch, identity)
 
-    client = TestClient(create_app(integration_settings))
+    client = TestClient(create_app(settings))
     group = client.post(
         "/api/v1/groups",
         headers={"Authorization": "Bearer token-mgr"},
