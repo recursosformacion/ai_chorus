@@ -3165,16 +3165,13 @@ async function saveGroupData(event) {
     if (!list) {
       list = document.createElement("div");
       list.className = "preparation-works-list";
-      if (emptyState) emptyState.replaceWith(list);
-      else container.append(list);
+      container.append(list);
     }
     list.replaceChildren();
-    
-    if (!works.length) {
-      if (emptyState) emptyState.classList.remove("hidden");
-      return;
-    }
-    if (emptyState) emptyState.classList.add("hidden");
+
+    if (emptyState) emptyState.classList.toggle("hidden", works.length > 0);
+    list.classList.toggle("hidden", works.length === 0);
+    if (!works.length) return;
     
     works.forEach((work) => {
       const card = document.createElement("article");
