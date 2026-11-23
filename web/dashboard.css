@@ -437,3 +437,21 @@
 .profile-modal-panel{width:min(520px,94vw);height:auto;max-height:90vh}
 .profile-form{padding:20px 24px}
 @media(max-width:760px){.ga-member{grid-template-columns:1fr 1fr}.project-row{align-items:flex-start;flex-direction:column}}
+
+/* Ficha de usuario: presentación estructurada y controles compactos */
+.profile-section{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;padding:14px 0;border-bottom:1px solid rgba(36,59,53,.12)}
+.profile-section:last-child{border-bottom:0}
+.profile-section-title{grid-column:1/-1;margin:0;color:#243b35;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.profile-field{display:flex;flex-direction:column;gap:5px;min-width:0;color:#5c6f68;font-size:12px}
+.profile-field input:not([type=checkbox]),.profile-field textarea{width:100%;min-width:0;border:1px solid rgba(36,59,53,.2);border-radius:8px;background:#fff;padding:8px 10px;color:#243b35;font:inherit;font-size:13px}
+.profile-field-value{color:#243b35;font-size:13px;overflow-wrap:anywhere}
+.profile-checkbox{display:inline-flex;align-items:center;gap:7px;min-height:22px;color:#243b35;font-size:13px}
+.profile-checkbox input[type=checkbox]{width:14px;height:14px;min-width:14px;margin:0;accent-color:#315c4d}
+.profile-chips{display:flex;flex-wrap:wrap;gap:6px}
+.profile-chip{display:inline-flex;align-items:center;border-radius:999px;background:rgba(49,92,77,.1);padding:4px 9px;color:#315c4d;font-size:12px}
+.profile-note{grid-column:1/-1;margin:0;color:#687a73;font-size:11px}
+.profile-memberships{grid-column:1/-1;display:grid;gap:7px;margin:0;padding:0;list-style:none}
+.profile-memberships li{display:flex;align-items:center;flex-wrap:wrap;gap:7px;border:1px solid rgba(36,59,53,.12);border-radius:8px;padding:8px 10px;color:#243b35;font-size:13px}
+.profile-membership-kind,.profile-membership-status{border-radius:999px;background:rgba(36,59,53,.07);padding:2px 7px;color:#5c6f68;font-size:11px}
+.profile-avatar-field{display:flex;flex-direction:column;gap:5px}
+@media(max-width:640px){.profile-section{grid-template-columns:minmax(0,1fr)}}
