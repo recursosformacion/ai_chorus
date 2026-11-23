@@ -73,33 +73,36 @@
         <button id="event-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
       </div>
       <form id="event-form" class="event-form">
+        <p id="event-group-assigned" class="event-group-assigned hidden"></p>
         <div class="event-grid">
           <div class="event-col">
             <label>Para<select id="event-scope" required>
               <option value="personal">Particular</option>
-              <option value="section">Sección</option>
-              <option value="group">Grupo</option>
             </select></label>
-            <label id="event-section-wrap">Sección<select id="event-section"></select></label>
+            <label id="event-section-wrap" class="hidden">Sección<select id="event-section"></select></label>
             <label>Título<input id="event-title" type="text" maxlength="200" placeholder="Ensayo general, actuación..." required></label>
             <label>Lugar<input id="event-location" type="text" maxlength="300" placeholder="Local, sala, dirección..."></label>
-            <label>Detalle<textarea id="event-notes" rows="3" placeholder="Qué se hará en ese tiempo"></textarea></label>
           </div>
           <div class="event-col">
-            <label>Inicio<input id="event-start" type="datetime-local" required></label>
-            <label>Fin<input id="event-end" type="datetime-local"></label>
-            <label>Repetición<select id="event-recurrence">
-              <option value="none">Única</option>
-              <option value="daily">Diaria</option>
-              <option value="monthly">Mensual</option>
-            </select></label>
-            <label id="event-until-wrap">Repetir hasta<input id="event-until" type="date"></label>
-            <label id="event-edit-scope-wrap">Modificar<select id="event-edit-scope">
+            <div class="event-row">
+              <label>Inicio<input id="event-start" type="datetime-local" required></label>
+              <label>Fin<input id="event-end" type="datetime-local"></label>
+            </div>
+            <div class="event-row">
+              <label>Repetición<select id="event-recurrence">
+                <option value="none">Única</option>
+                <option value="daily">Diaria</option>
+                <option value="monthly">Mensual</option>
+              </select></label>
+              <label id="event-until-wrap" class="hidden">Repetir hasta<input id="event-until" type="date"></label>
+            </div>
+            <label id="event-edit-scope-wrap" class="hidden">Modificar<select id="event-edit-scope">
               <option value="single">Solo esta cita</option>
               <option value="series">Toda la secuencia</option>
             </select></label>
           </div>
         </div>
+        <label>Detalle<textarea id="event-notes" rows="3" placeholder="Qué se hará en ese tiempo"></textarea></label>
         <select id="event-group" class="hidden" aria-hidden="true" tabindex="-1"></select>
         <div id="event-delete-choice" class="event-delete-choice hidden">
           <p>¿Qué quieres eliminar?</p>

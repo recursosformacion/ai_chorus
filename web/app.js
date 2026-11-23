@@ -200,6 +200,8 @@
     renderLibrary(data || {});
   }
   let agendaState = { groups: [], entities: [], events: [], can_create_group: false };
+  // Si el grupo activo tiene secciones: controla si "Seccion" es elegible.
+  let eventSectionsAvailable = false;
   let activeGroupId = "";
   let groupPickerOpen = false;
 
@@ -2548,17 +2550,71 @@ async function saveGroupData(event) {
   }
 
   function populateEventGroups(selected) {
+    // El grupo de la cita es el grupo activo del usuario (contexto de trabajo),
+    // no una lista a elegir: agenda, mensajes y publicaciones dependen de el.
+    // Al editar se admite tambien el grupo propio del evento.
     const select = $("event-group");
     const preferred = selected || activeGroupId;
     const groups = (agendaState.groups || []).filter(
-      (group) => group.can_manage || group.id === preferred,
+      (group) => group.id === preferred,
     );
     select.replaceChildren();
     groups.forEach((group) => select.append(new Option(group.name, group.id)));
-    if (preferred && groups.some((group) => group.id === preferred)) {
-      select.value = preferred;
-    }
+    if (groups.length) select.value = groups[0].id;
     return groups;
+  }
+
+  function currentEventGroup() {
+    const groupId = $("event-group").value || activeGroupId || "";
+    if (!groupId) return null;
+    return (agendaState.groups || []).find((item) => item.id === groupId) || null;
+  }
+
+  function currentEventGroupId() {
+    return currentEventGroup() ? $("event-group").value || activeGroupId : "";
+  }
+
+  function renderEventGroupAssigned() {
+    // Grupo asignado: se obtiene del contexto activo, sin busquedas ni
+    // normalizaciones de identificadores.
+    const line = $("event-group-assigned");
+    if (!line) return;
+    const group = currentEventGroup();
+    if (!group) {
+      line.classList.add("hidden");
+      line.textContent = "";
+      return;
+    }
+    line.classList.remove("hidden");
+    line.replaceChildren();
+    line.append(document.createTextNode("Grupo asignado: "));
+    const strong = document.createElement("span");
+    strong.textContent = group.name;
+    line.append(strong);
+  }
+
+  function renderEventScopeOptions() {
+    // "Para" sólo ofrece lo que tiene sentido en el contexto actual:
+    // Particular siempre; Grupo y Sección sólo si hay grupo activo.
+    const scope = $("event-scope");
+    const previous = scope.value;
+    const group = currentEventGroup();
+    scope.replaceChildren(new Option("Particular", "personal"));
+    // Grupo y Sección sólo tienen sentido si hay grupo activo y se puede
+    // gestionar; si no, "a quien enviaria" no tendria respuesta.
+    if (group && group.can_manage) {
+      scope.append(new Option("Grupo", "group"));
+      const section = new Option("Sección", "section");
+      if (!eventSectionsAvailable) {
+        section.disabled = true;
+        section.textContent = "Sección (ninguna)";
+      }
+      scope.append(section);
+    }
+    const values = Array.from(scope.options)
+      .filter((option) => !option.disabled)
+      .map((option) => option.value);
+    scope.value = values.includes(previous) ? previous : "personal";
   }
 
   async function loadEventSections(selected) {
@@ -2573,19 +2629,22 @@ async function saveGroupData(event) {
       (catalog.section || []).forEach((item) => {
         select.append(new Option(item.name, item.id || ""));
       });
-      const sectionOption = Array.from($("event-scope").options)
-        .find((option) => option.value === "section");
-      if (sectionOption) {
-        sectionOption.disabled = select.options.length <= 1 && !selected;
-      }
+      eventSectionsAvailable = select.options.length > 1;
       if (selected) select.value = selected;
     } catch (_) {
-      /* sin secciones */
+      eventSectionsAvailable = false;
     }
+    renderEventScopeOptions();
+    // Si la seccion deja de estar disponible, se vuelve a "Grupo".
+    if ($("event-scope").value === "section" && !eventSectionsAvailable) {
+      $("event-scope").value = "group";
+    }
+    syncEventForm();
   }
 
   function syncEventForm() {
     const scope = $("event-scope").value;
+    renderEventGroupAssigned();
     $("event-section-wrap").classList.toggle("hidden", scope !== "section");
     $("event-until-wrap").classList.toggle(
       "hidden", $("event-recurrence").value === "none",
@@ -2610,11 +2669,17 @@ async function saveGroupData(event) {
     $("event-message").textContent = "";
     $("event-message").className = "message";
     const groups = populateEventGroups(event && event.group_id);
+    // El alcance se deduce del contexto: sin grupo activo sólo cabe Particular.
+    eventSectionsAvailable = false;
+    renderEventScopeOptions();
     let scope = "personal";
     if (event) {
       scope = event.group_id ? (event.section_id ? "section" : "group") : "personal";
     } else if (groups.length) {
       scope = "group";
+    }
+    if (!Array.from($("event-scope").options).some((option) => option.value === scope)) {
+      scope = "personal";
     }
     $("event-scope").value = scope;
     $("event-title").value = event ? event.title : "";
@@ -2635,8 +2700,12 @@ async function saveGroupData(event) {
       ? new Date(event.recurrence_until).toISOString().slice(0, 10)
       : "";
     $("event-edit-scope").value = "single";
+    $("event-scope").value = scope;
     syncEventForm();
-    if (event && event.group_id) void loadEventSections(event.section_id);
+    // Si hay grupo activo se carga su catalogo de secciones.
+    if (currentEventGroupId()) {
+      void loadEventSections(event ? event.section_id : "");
+    }
     $("event-modal").classList.remove("hidden");
     $("event-title").focus();
   }
@@ -2695,6 +2764,16 @@ async function saveGroupData(event) {
     const until = $("event-until").value;
     if (recurrence !== "none" && !until) {
       showMessage("event-message", "Indica hasta cuándo se repite.", "error");
+      setBusy(button, false);
+      return;
+    }
+    if (scope === "section" && !$("event-section").value) {
+      showMessage("event-message", "Selecciona la sección a la que afecta.", "error");
+      setBusy(button, false);
+      return;
+    }
+    if (scope !== "personal" && !$("event-group").value) {
+      showMessage("event-message", "No hay grupo activo: elige uno o crea la cita como Particular.", "error");
       setBusy(button, false);
       return;
     }

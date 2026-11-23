@@ -391,6 +391,10 @@
 .event-form textarea{height:52px;min-height:52px}
 
 .event-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}
+.event-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end}
+.event-group-assigned{margin:0;padding:7px 10px;border-radius:9px;background:#eef4ef;border:1px solid #dbe7dd;color:#2f5d47;font-size:13px;font-weight:600}
+.event-group-assigned span{font-weight:700}
+@media(max-width:640px){.event-row{grid-template-columns:1fr}}
 .event-col{display:flex;flex-direction:column;gap:8px;min-width:0}
 @media(max-width:640px){.event-grid{grid-template-columns:1fr}}
 
