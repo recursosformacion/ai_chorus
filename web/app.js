@@ -2786,7 +2786,9 @@ async function saveGroupData(event) {
   const PROFILE_READ_ONLY = new Set([
     "user_id", "id", "sub", "email", "roles", "status", "email_verified",
     "avatar_url", "onboarding", "created_at", "updated_at", "last_login",
-    "last_login_at", "permissions",
+    "last_login_at", "permissions", "is_active", "is_admin", "is_staff",
+    "role", "account_type", "account_status", "disabled", "deleted",
+    "is_verified", "verified",
   ]);
   const PROFILE_LABELS = {
     name: "Nombre y apellidos", nickname: "Nombre público / nickname",
