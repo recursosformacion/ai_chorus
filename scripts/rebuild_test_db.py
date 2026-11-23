@@ -173,7 +173,7 @@ def _verify_spaces_schema(conn) -> tuple[bool, list[str]]:
         "(space_type='personal' AND owner_sub IS NOT NULL AND group_id IS NULL) OR "
         "(space_type='group' AND owner_sub IS NULL AND group_id IS NOT NULL) OR "
         "(space_type='project' AND ((owner_sub IS NOT NULL AND group_id IS NULL) OR "
-        "(owner_sub IS NULL AND group_id IS NOT NULL)))"
+        "(owner_sub IS NULL AND group_id IS NOT NULL))))"
     ).fetchone()
     if int(invalid_spaces['n']) != 0:
         errors.append("spaces: existen filas con ownership inválido (mig 042)")
