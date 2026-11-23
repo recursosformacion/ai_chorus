@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -69,10 +71,11 @@ CORAL_FIELDS = {
 @pytest.mark.integration
 def test_coral_fields_roundtrip(integration_settings, monkeypatch):
     """Crea un grupo con los 12 campos y verifica su lectura exacta."""
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
     install_fake_auth(
         monkeypatch,
         {"token-rep": _profile("rep-1")},
-        integration_settings.auth_base_url,
+        settings.auth_base_url,
     )
     repertoire = [
         {"value": "Música sacra", "position": 1},
@@ -98,7 +101,7 @@ def test_coral_fields_roundtrip(integration_settings, monkeypatch):
         "repertoire": repertoire,
         "venues": venues,
     }
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         resp = client.post(
             "/api/v1/groups",
             headers={"Authorization": "Bearer token-rep"},
@@ -125,10 +128,11 @@ def test_coral_fields_roundtrip(integration_settings, monkeypatch):
 @pytest.mark.integration
 def test_coral_json_order_preserved(integration_settings, monkeypatch):
     """Las colecciones conservan el orden de entrada y las posiciones."""
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
     install_fake_auth(
         monkeypatch,
         {"token-rep": _profile("rep-1")},
-        integration_settings.auth_base_url,
+        settings.auth_base_url,
     )
     # Orden intencionadamente NO alfabético y posiciones no contiguas
     repertoire = [
@@ -136,7 +140,7 @@ def test_coral_json_order_preserved(integration_settings, monkeypatch):
         {"value": "Gospel", "position": 1},
         {"value": "Bolero", "position": 2},
     ]
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         resp = client.post(
             "/api/v1/groups",
             headers={"Authorization": "Bearer token-rep"},
@@ -157,12 +161,13 @@ def test_coral_json_order_preserved(integration_settings, monkeypatch):
 @pytest.mark.integration
 def test_coral_fields_null_when_absent(integration_settings, monkeypatch):
     """Sin datos corales, todos los campos permanecen NULL (no valores ficticios)."""
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
     install_fake_auth(
         monkeypatch,
         {"token-rep": _profile("rep-1")},
-        integration_settings.auth_base_url,
+        settings.auth_base_url,
     )
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         resp = client.post(
             "/api/v1/groups",
             headers={"Authorization": "Bearer token-rep"},
@@ -178,12 +183,13 @@ def test_coral_fields_null_when_absent(integration_settings, monkeypatch):
 @pytest.mark.integration
 def test_coral_update_roundtrip(integration_settings, monkeypatch):
     """PATCH actualiza los campos corales y devuelve JSON (no cadenas)."""
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
     install_fake_auth(
         monkeypatch,
         {"token-rep": _profile("rep-1")},
-        integration_settings.auth_base_url,
+        settings.auth_base_url,
     )
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         created = client.post(
             "/api/v1/groups",
@@ -213,12 +219,13 @@ def test_coral_update_roundtrip(integration_settings, monkeypatch):
 @pytest.mark.integration
 def test_coral_invalid_country_code_rejected(integration_settings, monkeypatch):
     """Validación: country_code debe ser ISO de 2 letras mayúsculas."""
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
     install_fake_auth(
         monkeypatch,
         {"token-rep": _profile("rep-1")},
-        integration_settings.auth_base_url,
+        settings.auth_base_url,
     )
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         resp = client.post(
             "/api/v1/groups",
             headers={"Authorization": "Bearer token-rep"},
