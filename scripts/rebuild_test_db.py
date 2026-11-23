@@ -147,15 +147,18 @@ def _verify_spaces_schema(conn) -> tuple[bool, list[str]]:
     if row is None:
         errors.append("spaces: falta columna group_id")
     elif row['IS_NULLABLE'] != 'YES':
-        errors.append("spaces.group_id debe ser NULLABLE (espacios personales)")
+        errors.append("spaces.group_id debe ser NULLABLE (espacios personales/proyectos privados)")
     row = col('spaces', 'owner_sub')
     if row is None:
         errors.append("spaces: falta columna owner_sub")
     elif row['IS_NULLABLE'] != 'YES':
-        errors.append("spaces.owner_sub debe ser NULLABLE (sólo personal tiene dueño)")
+        errors.append("spaces.owner_sub debe ser NULLABLE (espacios personales/proyectos privados)")
     row = col('spaces', 'space_type')
-    if row is not None and 'personal' not in str(row['COLUMN_TYPE']):
-        errors.append("spaces.space_type debe incluir 'personal'")
+    if row is not None and (
+        'personal' not in str(row['COLUMN_TYPE'])
+        or 'project' not in str(row['COLUMN_TYPE'])
+    ):
+        errors.append("spaces.space_type debe incluir 'personal' y 'project'")
     if col('spaces', 'general_group_id') is None:
         errors.append("spaces: falta columna generada general_group_id (mig 041)")
     check = conn.execute(
