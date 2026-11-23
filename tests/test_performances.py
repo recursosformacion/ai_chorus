@@ -8,6 +8,7 @@ gestor del grupo. La escritura editorial (alta/edicion/borrado) queda para la et
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -70,9 +71,10 @@ def test_performances_public_read_and_group_participation(
         "token-member": _profile("mem-1"),
         "token-outsider": _profile("out-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
         out_h = {"Authorization": "Bearer token-outsider"}
@@ -86,7 +88,7 @@ def test_performances_public_read_and_group_participation(
         )
 
         tag = uuid.uuid4().hex[:8]
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             published = _insert_performance(
                 conn, status="published", title=f"Concierto publico {tag}", starts_on="2026-06-01"
             )
