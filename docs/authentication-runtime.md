@@ -32,6 +32,28 @@ La primera entrega del backend Chorus utiliza el endpoint de email/password que 
 
 Para ofrecer login social directamente en Chorus habrá que registrar Chorus como RP y ampliar el contrato de emisión/introspección de tokens por cliente en osap-auth. No se ha modificado ese repositorio.
 
+## Identidad de servicio (M2M)
+
+Además del token del usuario, Chorus usa un **service token** propio para
+resolver nombres públicos de usuarios (`GET /auth/m2m/users`) al listar o dar de
+alta miembros. Se obtiene con `client_credentials` (`aud=osap-auth`,
+`scope=auth:read_public_names`) y se cachea en memoria hasta su caducidad
+(margen de 30 s), renovándose antes de expirar y sin solicitudes concurrentes
+duplicadas.
+
+Separación estricta:
+
+- El token del **usuario** autentica y autoriza la operación sobre el grupo.
+- El service token **sólo** resuelve identidades públicas; no concede permisos
+  administrativos ni sustituye al usuario.
+- Si falta la configuración M2M o Auth no responde, la operación falla con
+  `503` (no hay consulta anónima).
+
+Variables: `CHORUS_AUTH_M2M_CLIENT_ID`, `CHORUS_AUTH_M2M_CLIENT_SECRET`,
+`CHORUS_AUTH_M2M_SCOPE` (`auth:read_public_names`), `CHORUS_AUTH_M2M_AUDIENCE`
+(`osap-auth`). Procedimiento de alta del cliente y diagnóstico 401/403/503:
+`docs/admin-group-maintenance.md` §7.
+
 ## Configuración
 
 Copiar osap.toml.example a osap.toml y establecer la URL pública real de osap-auth. El backend no necesita acceder a la base de datos de Auth ni guardar contraseñas. No versionar secretos.

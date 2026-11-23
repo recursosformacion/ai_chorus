@@ -1,5 +1,5 @@
-# Chorus configuration — copy to osap.toml and fill in values
-# This file is NOT committed (see .gitignore)
+# Chorus configuration — copy to osap.toml (gitignored) and fill in values
+# Never commit osap.toml or real secrets.
 
 [auth]
 # Base URL of osap-auth service (required for login, /auth/me, etc.)
@@ -9,6 +9,16 @@ base_url = "http://osap-auth/auth-api"
 # oidc_client_id = "chorus-web"
 # oidc_client_secret = "secret-from-auth-registration"
 # oidc_redirect_uri = "http://chorus-app/api/v1/auth/oidc/callback"
+# M2M service identity (REQUIRED to resolve public user names in group
+# members). Register a dedicated client in osap-auth with:
+#   grant=client_credentials, audience=osap-auth, scope=auth:read_public_names.
+# Do not reuse osap-api/storage/support credentials. The secret must never be
+# committed: prefer the CHORUS_AUTH_M2M_CLIENT_ID / CHORUS_AUTH_M2M_CLIENT_SECRET
+# environment variables, or set these keys in the gitignored osap.toml.
+# m2m_client_id = "<uuid of the Chorus service client>"
+# m2m_client_secret = "<secret>"
+# m2m_scope = "auth:read_public_names"
+# m2m_audience = "osap-auth"
 
 [osap]
 # Base URL of osap-api (for catalog searches, downloads)
