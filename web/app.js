@@ -331,10 +331,21 @@
   }
 
   async function loadSpaces() {
-    spacesState = await request("/api/v1/spaces");
-    renderProjects();
-    if (agendaLoaded && !activeGroup()) activateDefaultPersonalProject();
-    renderGroupCard();
+    try {
+      spacesState = await request("/api/v1/spaces");
+      renderProjects();
+      if (agendaLoaded && !activeGroup()) activateDefaultPersonalProject();
+      renderGroupCard();
+    } catch (error) {
+      spacesState = [];
+      renderProjects();
+      renderGroupCard();
+      showMessage(
+        "project-message",
+        "No se pudieron cargar los espacios. Comprueba en DEV las migraciones 040, 041 y 042 y revisa el registro de la API. Detalle: " + error.message,
+        "error",
+      );
+    }
   }
 
   function activateDefaultPersonalProject() {
