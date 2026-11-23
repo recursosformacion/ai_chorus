@@ -468,6 +468,7 @@ def test_changes_persist_on_reload(ctx):
             "admin_role_id": ctx["cat1"]["admin_role_id"],
             "musical_role_id": ctx["cat1"]["musical_role_id"],
             "section_id": ctx["cat1"]["section_id"],
+            "voice_label": "Contralto",
             "status": "active",
         },
     )
@@ -491,7 +492,7 @@ def test_changes_persist_on_reload(ctx):
     # También en la base de datos
     with db_connect_from_ctx(ctx) as conn:
         row = conn.execute(
-            "SELECT role, status, admin_role_id, musical_role_id, section_id, display_name "
+            "SELECT role, status, admin_role_id, musical_role_id, section_id, display_name, voice_label "
             "FROM group_members WHERE group_id = ? AND user_sub = ?",
             (ctx["g1"], persistente_id),
         ).fetchone()
@@ -499,6 +500,7 @@ def test_changes_persist_on_reload(ctx):
         assert row["status"] == "active"
         # El alta guarda el nombre canonico de Auth como instantanea
         assert row["display_name"] == "Persistente"
+        assert row["voice_label"] == "Contralto"
 
     # Baja y alta posterior
     assert client.delete(persistente_url, headers=mgr).status_code == 200
