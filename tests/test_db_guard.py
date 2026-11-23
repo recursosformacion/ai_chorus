@@ -187,7 +187,7 @@ class _SettingsWithUrl:
 @pytest.mark.unit
 def test_conftest_guard_rejects_wrong_database_without_deleting(monkeypatch):
     """Los fixtures deben abortar (fail), no omitir, si la BD efectiva no es la suya."""
-    import conftest
+    from tests import conftest
 
     conn = _FakeConnection({**VALID_ROW, "db": "otra_base"})
     monkeypatch.setattr(conftest, "db_connect", lambda settings: conn)
@@ -200,7 +200,7 @@ def test_conftest_guard_rejects_wrong_database_without_deleting(monkeypatch):
 
 @pytest.mark.unit
 def test_conftest_guard_rejects_wrong_user_without_deleting(monkeypatch):
-    import conftest
+    from tests import conftest
 
     conn = _FakeConnection({**VALID_ROW, "usr": "root@localhost"})
     monkeypatch.setattr(conftest, "db_connect", lambda settings: conn)
@@ -213,7 +213,7 @@ def test_conftest_guard_rejects_wrong_user_without_deleting(monkeypatch):
 
 @pytest.mark.unit
 def test_conftest_guard_rejects_incompatible_version(monkeypatch):
-    import conftest
+    from tests import conftest
 
     conn = _FakeConnection({**VALID_ROW, "ver": "10.6.12-MariaDB", "vc": "mariadb.org"})
     monkeypatch.setattr(conftest, "db_connect", lambda settings: conn)
@@ -225,7 +225,7 @@ def test_conftest_guard_rejects_incompatible_version(monkeypatch):
 @pytest.mark.unit
 def test_conftest_guard_reports_unavailable_when_connection_fails(monkeypatch):
     """Sin conexión posible se reporta como no disponible (para omitir el test)."""
-    import conftest
+    from tests import conftest
 
     def _boom(settings):
         raise RuntimeError("connection refused")
@@ -238,7 +238,7 @@ def test_conftest_guard_reports_unavailable_when_connection_fails(monkeypatch):
 
 @pytest.mark.unit
 def test_conftest_guard_reports_unavailable_without_url():
-    import conftest
+    from tests import conftest
 
     class _NoUrl:
         database_url = None
@@ -250,7 +250,7 @@ def test_conftest_guard_reports_unavailable_without_url():
 @pytest.mark.unit
 def test_conftest_guard_accepts_valid_connection(monkeypatch):
     """La conexión válida se devuelve lista para su uso."""
-    import conftest
+    from tests import conftest
 
     conn = _FakeConnection(VALID_ROW)
     monkeypatch.setattr(conftest, "db_connect", lambda settings: conn)
