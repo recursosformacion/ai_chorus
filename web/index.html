@@ -28,7 +28,7 @@
       <a href="/alta.html">Solicitar alta</a>
     </nav>
     <div class="topbar-right"><button id="active-group-button" class="button button-quiet button-small hidden" type="button" aria-label="Cambiar grupo">Grupo</button><button id="articles-button" class="button button-quiet button-small hidden" type="button">Artículos</button>
-        <button id="inbox-button" class="button button-quiet hidden" type="button" aria-label="Mensajes">✉ <span id="inbox-count">0</span></button><span id="account-label" class="account-label"></span><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
+        <button id="inbox-button" class="button button-quiet hidden" type="button" aria-label="Mensajes">✉ <span id="inbox-count">0</span></button><button id="account-label" class="account-label" type="button" aria-label="Editar mi perfil"></button><button id="logout-button" class="button button-quiet hidden" type="button">Salir</button></div>
   </header>
 
   <div id="agenda-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="agenda-title">
@@ -61,8 +61,8 @@
           <p id="agenda-message" class="message" role="status"></p>
         </section>
       </div>
-    </div>
-  </div>  <div id="event-modal" class="inbox-modal event-modal hidden" role="dialog" aria-modal="true" aria-labelledby="event-form-title">
+    
+        <div id="event-modal" class="event-modal hidden" role="dialog" aria-modal="true" aria-labelledby="event-form-title">
     <div class="inbox-panel event-panel">
       <div class="card-head messages-head event-head">
         <div class="modal-heading">
@@ -116,6 +116,8 @@
         </div>
         <p id="event-message" class="message" role="status"></p>
       </form>      </form>
+    </div>
+  </div>
     </div>
   </div>  <div id="group-picker-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="group-picker-title">
     <div class="inbox-panel group-picker-panel">
@@ -202,6 +204,24 @@
       </div>
     </div>
   </div>
+<div id="profile-modal" class="inbox-modal hidden" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+    <div class="inbox-panel profile-modal-panel">
+      <div class="card-head messages-head">
+        <div class="modal-heading"><p class="modal-eyebrow">CUENTA OSAP</p><h2 id="profile-title">Mi perfil</h2><p>Actualiza tu nombre y tu nombre público en Chorus.</p></div>
+        <button id="profile-close" class="modal-x" type="button" aria-label="Cerrar">×</button>
+      </div>
+      <form id="profile-form" class="mini-form profile-form">
+        <label>Nombre y apellidos<input id="profile-name" type="text" maxlength="100" required></label>
+        <label>Nombre público / nickname<input id="profile-nickname" type="text" minlength="3" maxlength="30"></label>
+        <p class="muted small">El nickname debe tener entre 3 y 30 caracteres. Los permisos y los datos de los grupos no se modifican desde aquí.</p>
+        <div class="event-actions">
+          <button id="profile-cancel" class="button button-quiet" type="button">Cancelar</button>
+          <button id="profile-save" class="button button-primary" type="submit">Guardar perfil</button>
+        </div>
+        <p id="profile-message" class="message" role="status"></p>
+      </form>
+    </div>
+  </div>
 <div id="group-admin-modal" class="inbox-modal hidden" role="dialog" aria-modal="true">
     <div class="inbox-panel group-admin-panel">
       <div class="card-head"><h2 id="ga-title">Grupo</h2><button id="ga-close" class="button button-quiet" type="button">Cerrar</button></div>
@@ -228,7 +248,8 @@
         </fieldset>
         <button class="button button-primary button-small" type="submit">Guardar datos</button>
       </form>
-      <h3 class="ga-subtitle">Miembros</h3>
+      <h3 class="ga-subtitle">Miembros y datos del grupo</h3>
+      <p class="muted small">Puedes mantener los datos del grupo y la información de participación de sus miembros: nombre visible en este grupo, cargo, rol musical y sección. Los datos personales de la cuenta los modifica cada usuario.</p>
       <div id="ga-members"></div>
       <p id="ga-message" class="message" role="status"></p>
 </div>
@@ -357,6 +378,25 @@
               </form>
               <p id="dash-group-message" class="message" role="status"></p>
             </div>
+          </article>
+
+          <article class="card projects-card" id="dashboard-projects">
+            <div class="card-head">
+              <div><p class="eyebrow">ESPACIOS PERSONALES</p><h2>Mis proyectos</h2></div>
+              <button id="project-create" class="button button-outline button-small" type="button">Crear proyecto</button>
+            </div>
+            <p class="muted">Organiza obras y programas independientes de cualquier grupo. Puedes crear tantos proyectos privados como necesites.</p>
+            <div id="projects-list" class="projects-list"></div>
+            <p id="projects-empty" class="muted">Todavía no tienes proyectos. Crea el primero para empezar.</p>
+            <form id="project-form" class="mini-form hidden">
+              <label>Nombre del proyecto<input id="project-name" type="text" maxlength="160" required placeholder="Ej. Repertorio personal"></label>
+              <label>Descripción<textarea id="project-description" rows="2" maxlength="2000" placeholder="Objetivo o contexto del proyecto"></textarea></label>
+              <div class="event-actions">
+                <button id="project-cancel" class="button button-quiet button-small" type="button">Cancelar</button>
+                <button class="button button-primary button-small" type="submit">Crear proyecto</button>
+              </div>
+            </form>
+            <p id="project-message" class="message" role="status"></p>
           </article>
 
           <article class="card repertoire-card" id="dashboard-repertorio">
