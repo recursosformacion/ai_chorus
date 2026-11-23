@@ -15,6 +15,7 @@ Cubre los ocho puntos de verificación:
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -94,7 +95,8 @@ def ctx(integration_settings: Settings, monkeypatch):
         "token-member": _profile(MEMBER),
         "token-outsider": _profile(OUTSIDER),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
     # osap-auth resuelve los nombres públicos de los destinatarios de alta.
     # Se instala antes de crear la app porque create_app construye el cliente.
@@ -114,7 +116,7 @@ def ctx(integration_settings: Settings, monkeypatch):
     identity = RecordingIdentityClient(directory)
     install_identity(monkeypatch, identity)
 
-    client = TestClient(create_app(integration_settings))
+    client = TestClient(create_app(settings))
     admin = {"Authorization": "Bearer token-admin"}
     mgr = {"Authorization": "Bearer token-mgr"}
     member = {"Authorization": "Bearer token-member"}
@@ -122,8 +124,8 @@ def ctx(integration_settings: Settings, monkeypatch):
 
     g1 = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo Uno"}).json()
     g2 = client.post("/api/v1/groups", headers=mgr, json={"name": "Grupo Dos"}).json()
-    cat1 = _seed_catalogs(integration_settings, g1["id"])
-    cat2 = _seed_catalogs(integration_settings, g2["id"])
+    cat1 = _seed_catalogs(settings, g1["id"])
+    cat2 = _seed_catalogs(settings, g2["id"])
 
     data = {
         "client": client, "admin": admin, "mgr": mgr, "member": member,
