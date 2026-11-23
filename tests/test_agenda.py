@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -80,8 +82,9 @@ def test_create_group_event_and_rsvp(integration_settings, monkeypatch):
         "token-other": _profile("other-1"),
         "token-third": _profile("third-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
-    with TestClient(create_app(integration_settings)) as client:
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
+    with TestClient(create_app(settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         group = client.post(
             "/api/v1/groups",
@@ -158,8 +161,9 @@ def test_create_group_event_and_rsvp(integration_settings, monkeypatch):
 @pytest.mark.integration
 def test_note_does_not_take_rsvp(integration_settings, monkeypatch):
     profiles = {"token-rep": _profile("rep-1", representative=True)}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
-    with TestClient(create_app(integration_settings)) as client:
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
+    with TestClient(create_app(settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         group_id = client.post(
             "/api/v1/groups",
@@ -186,8 +190,9 @@ def test_note_does_not_take_rsvp(integration_settings, monkeypatch):
 @pytest.mark.integration
 def test_recurring_series_edit_and_delete(integration_settings, monkeypatch):
     profiles = {"token-rep": _profile("rep-1", representative=True)}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
-    with TestClient(create_app(integration_settings)) as client:
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
+    with TestClient(create_app(settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         group_id = client.post(
             "/api/v1/groups",
@@ -256,8 +261,9 @@ def test_recurring_series_edit_and_delete(integration_settings, monkeypatch):
 @pytest.mark.integration
 def test_personal_event_badge_and_single_delete(integration_settings, monkeypatch):
     profiles = {"token-rep": _profile("rep-1", representative=True)}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
-    with TestClient(create_app(integration_settings)) as client:
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
+    with TestClient(create_app(settings)) as client:
         headers = {"Authorization": "Bearer token-rep"}
         created = client.post(
             "/api/v1/events",
