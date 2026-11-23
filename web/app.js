@@ -150,7 +150,10 @@
     void refreshUnread();
     void loadMaterialTree();
     void loadMaterialGroups();
-    const rawName = String(profileLabel || "").split("@")[0].replace(/[._-]+/g, " ").trim();
+    const preferredLabel = profile && (profile.nickname || profile.name || profile.email)
+      ? (profile.nickname || profile.name || profile.email)
+      : profileLabel;
+    const rawName = String(preferredLabel || "").split("@")[0].replace(/[._-]+/g, " ").trim();
     const displayName = rawName ? rawName.charAt(0).toUpperCase() + rawName.slice(1) : "músico";
     const parts = rawName.split(/\s+/).filter(Boolean);
     const initials = parts.length > 1
@@ -2535,6 +2538,7 @@ async function saveGroupData(event) {
   }
 
   async function openEventForm(event = null) {
+    if ($("agenda-modal").classList.contains("hidden")) openAgendaModal();
     if (!(agendaState.groups || []).length) {
       try { await loadAgenda(); } catch (_) { /* sin grupos */ }
     }
