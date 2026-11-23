@@ -3314,6 +3314,7 @@ async function saveGroupData(event) {
       event.target.value = "";
       return;
     }
+    showMessage("profile-message", "Subiendo foto…");
     showMessage("avatar-message", "Subiendo foto…");
     try {
       const data = await avatarDataFromFile(file);
@@ -3324,12 +3325,15 @@ async function saveGroupData(event) {
       profileAvatarUrl = profile && profile.avatar_url
         ? `${profile.avatar_url}?v=${Date.now()}`
         : null;
+      if (currentProfile) currentProfile.avatar_url = profile && profile.avatar_url ? profile.avatar_url : null;
       paintAvatar($("account-label").querySelector(".account-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("dash-avatar"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("profile-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
       paintAvatar($("profile-modal-avatar-preview"), profileAvatarInitials, profileAvatarUrl);
+      showMessage("profile-message", "Foto de perfil actualizada.", "success");
       showMessage("avatar-message", "Foto actualizada.", "ok");
     } catch (error) {
+      showMessage("profile-message", error.message || "No se pudo guardar la foto.", "error");
       showMessage("avatar-message", error.message, "error");
     } finally {
       event.target.value = "";
