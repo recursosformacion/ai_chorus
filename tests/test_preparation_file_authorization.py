@@ -6,6 +6,8 @@ incluyendo que el contenido no se entrega en los casos denegados.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -83,9 +85,10 @@ def scenario(integration_settings: Settings, monkeypatch):
             "token-s2": _profile("sec-two"),
             "token-out": _profile("sec-out"),
         }
-        install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+        settings = replace(integration_settings, auth_base_url="https://auth.test")
+        install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-        client = TestClient(create_app(integration_settings))
+        client = TestClient(create_app(settings))
         mgr = {"Authorization": "Bearer token-mgr"}
         s1 = {"Authorization": "Bearer token-s1"}
         s2 = {"Authorization": "Bearer token-s2"}
@@ -102,7 +105,7 @@ def scenario(integration_settings: Settings, monkeypatch):
         # aunque la inserción falle a medias.
         created_sections.extend([sec1_id, sec2_id])
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             for section_id, name, code in ((sec1_id, "Soprano", "soprano"),
                                            (sec2_id, "Tenor", "tenor")):
                 conn.execute(
@@ -134,7 +137,7 @@ def scenario(integration_settings: Settings, monkeypatch):
         ).json()["id"]
 
         # Archivo restringido a la sección 1 y archivo sin restricción
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             _insert_chain(conn, work_id="w-sec", resource_id="r-sec", file_id="f-sec",
                           group_id=group_id, section_id=sec1_id)
             _insert_chain(conn, work_id="w-free", resource_id="r-free", file_id="f-free",
@@ -155,7 +158,7 @@ def scenario(integration_settings: Settings, monkeypatch):
         # El contenido real de los archivos debe existir en el almacén privado
         from pathlib import Path
 
-        with db_connect(integration_settings) as conn:
+        with db_connect(settings) as conn:
             pointers = {
                 row["id"]: row["storage_pointer"]
                 for row in conn.execute(
