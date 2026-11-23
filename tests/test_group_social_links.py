@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -34,9 +36,10 @@ def test_group_social_links_crud_and_permissions(integration_settings: Settings,
         "token-member": _profile("mem-1"),
         "token-outsider": _profile("out-1"),
     }
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         mem_h = {"Authorization": "Bearer token-member"}
         out_h = {"Authorization": "Bearer token-outsider"}
@@ -165,9 +168,10 @@ def test_group_social_links_crud_and_permissions(integration_settings: Settings,
 def test_group_social_links_kind_validation(integration_settings: Settings, monkeypatch):
     """Validate allowed kind values."""
     profiles = {"token-manager": _profile("mgr-1")}
-    install_fake_auth(monkeypatch, profiles, integration_settings.auth_base_url)
+    settings = replace(integration_settings, auth_base_url="https://auth.test")
+    install_fake_auth(monkeypatch, profiles, settings.auth_base_url)
 
-    with TestClient(create_app(integration_settings)) as client:
+    with TestClient(create_app(settings)) as client:
         mgr_h = {"Authorization": "Bearer token-manager"}
         grp = client.post("/api/v1/groups", headers=mgr_h, json={"name": "Kind Validation"}).json()
         group_id = grp["id"]
