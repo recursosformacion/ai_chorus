@@ -195,7 +195,7 @@ def _delete_sections(settings: Settings, section_ids) -> None:
     valida base de datos, usuario y versión sobre la conexión efectiva y no
     ejecuta ningún DELETE si la validación falla.
     """
-    import conftest
+    from tests import conftest
 
     conn = conftest.assert_safe_test_connection(settings)
     try:
@@ -250,7 +250,7 @@ def test_cleanup_runs_when_fixture_preparation_fails(integration_settings: Setti
 def test_cleanup_skips_delete_without_authorized_connection(integration_settings: Settings,
                                                             monkeypatch):
     """Sin conexión autorizada no se ejecuta ningún DELETE."""
-    import conftest
+    from tests import conftest
 
     class _FakeCursor:
         def fetchone(self):
