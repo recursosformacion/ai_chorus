@@ -2,7 +2,7 @@
 
 **Estado:** consolidado e implementado sobre MariaDB 10.4.32  
 **Fecha:** 2026-11-21  
-**Alcance:** contrato de datos y API. El selector visual de espacios queda fuera de esta fase.
+**Alcance:** modelo de datos, API y experiencia de usuario de espacios personales, grupos y proyectos.
 
 ---
 
